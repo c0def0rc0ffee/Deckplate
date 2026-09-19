@@ -491,6 +491,123 @@ def label_tile(label: str, size: int, background: tuple[int, int, int] = images.
     return tile
 
 
+# The ring a live key wears: its width as a share of the key, its inset
+# from the edge, the track it runs on, and the colour it turns when a timer
+# has just finished.
+RING_WIDTH = 0.07
+RING_INSET = 2
+RING_TRACK = (255, 255, 255, 40)
+ALERT = (232, 96, 96)
+
+
+def live_tile(key: KeyConfig, size: int, text: str, ring: float | None,
+              ring_colour: tuple[int, int, int] | None = None,
+              default_background: str | None = None,
+              backdrop: Image.Image | None = None) -> Image.Image:
+    """<summary>
+    The face of a key that shows a live value: a timer's clock, a stopwatch,
+    a count.
+    </summary>
+    <param name="key">The key's config, for its picture, label and background.</param>
+    <param name="size">The key image size in pixels, from the device spec.</param>
+    <param name="text">The live value, drawn big.</param>
+    <param name="ring">How much of the ring round the edge to draw, 0 to 1,
+    or None for none.</param>
+    <param name="ring_colour">The ring's colour, or None for the accent.</param>
+    <param name="default_background">The page or deck wide background colour.</param>
+    <param name="backdrop">This key's slice of the page's wallpaper, or None.</param>
+    <returns>An upright tile of ``size`` square.</returns>
+    <remarks>
+    The live text takes the place the label normally has. With a picture
+    it goes in the band along the bottom, the picture staying the face of
+    the key; without one it is the face, drawn as large as it fits, and the
+    key's own label, if any, moves into the band underneath it so a counter
+    called "Deaths" still says so.
+
+    The ring is drawn last so it sits over everything, band included. It is
+    a share of the key rather than a pixel width so it reads the same on the
+    deck and in the page's larger previews.
+    </remarks>
+    """
+    background = key_background(key, default_background)
+    if key.image is not None:
+        tile = with_label(picture_tile(key.image, size, background), text)
+    else:
+        tile = _text_face(text, size, background, backdrop)
+        if key.label:
+            tile = with_label(tile, key.label)
+    if ring is not None:
+        tile = with_ring(tile, ring, ring_colour or images.ACCENT)
+    return tile
+
+
+def _text_face(text: str, size: int, background: tuple[int, int, int],
+               backdrop: Image.Image | None) -> Image.Image:
+    """<summary>The text drawn large over a plain background or the wallpaper slice.</summary>
+    <param name="text">The text.</param>
+    <param name="size">Tile size.</param>
+    <param name="background">RGB behind the text when there is no backdrop.</param>
+    <param name="backdrop">The wallpaper slice, or None.</param>
+    <returns>An upright tile.</returns>"""
+    if backdrop is None:
+        return label_tile(text, size, background)
+    tile = backdrop.copy()
+    lines, font_size = label_lines(text, size)
+    if lines:
+        draw = ImageDraw.Draw(tile)
+        font = images.load_font(font_size)
+        step = font_size * LABEL_LINE_SPACING
+        top = size / 2 - step * (len(lines) - 1) / 2
+        for index, line in enumerate(lines):
+            draw.text((size / 2, top + index * step), line, fill=images.FOREGROUND, font=font, anchor="mm")
+    return tile
+
+
+def with_mark(tile: Image.Image, colour: tuple[int, int, int]) -> Image.Image:
+    """<summary>
+    A copy of a tile wearing the running border.
+    </summary>
+    <param name="tile">The tile. It is not modified.</param>
+    <param name="colour">The border's RGB colour.</param>
+    <returns>A new tile the same size.</returns>
+    <remarks>For a tile built outside <see cref="key_tile"/>, such as a live
+    face, which draws the border itself for everything else.</remarks>
+    """
+    return _draw_mark(tile.copy(), colour)
+
+
+def with_ring(tile: Image.Image, fraction: float, colour: tuple[int, int, int]) -> Image.Image:
+    """<summary>
+    Draw a progress ring round the edge of a tile, clockwise from the top.
+    </summary>
+    <param name="tile">The tile to draw on. It is not modified.</param>
+    <param name="fraction">How much of the ring to draw, 0 to 1. Clamped.</param>
+    <param name="colour">The ring's RGB colour.</param>
+    <returns>A new RGB tile the same size.</returns>
+    <remarks>
+    A faint full track is drawn under the coloured arc so the eye can see
+    how much is gone as well as how much is left. Starting at the top and
+    running clockwise is the convention of every clock face, and a timer
+    that ran anticlockwise would read as counting up.
+
+    Drawn on an RGBA layer and composited, so the track is translucent over
+    whatever the tile shows rather than a solid grey band.
+    </remarks>
+    """
+    size = tile.width
+    share = max(0.0, min(1.0, fraction))
+    width = max(3, round(size * RING_WIDTH))
+    # Pillow draws an arc's width inward from the box, so the box is the
+    # ring's outer edge and the inset alone keeps it off the tile's edge.
+    box = [RING_INSET, RING_INSET, size - 1 - RING_INSET, size - 1 - RING_INSET]
+    overlay = Image.new("RGBA", tile.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    draw.ellipse(box, outline=RING_TRACK, width=width)
+    if share > 0:
+        draw.arc(box, -90, -90 + 360 * share, fill=colour + (255,), width=width)
+    return Image.alpha_composite(tile.convert("RGBA"), overlay).convert("RGB")
+
+
 def with_label(tile: Image.Image, label: str) -> Image.Image:
     """<summary>
     Put a translucent band along the bottom of a tile with the label in it.

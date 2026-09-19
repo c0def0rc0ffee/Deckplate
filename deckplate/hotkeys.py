@@ -1,11 +1,14 @@
 """<summary>
-Send a key combination to whatever has focus.
+Send a key combination, or type a piece of text, at whatever has focus.
 </summary>
 <remarks>
 Combinations are written the same way on both platforms, for example
 "ctrl+alt+t", "shift+f5" or "media_volume_mute". The names are normalised
 here and handed to a backend: pynput on Windows and on X11 Linux, with
-xdotool as the Linux fallback when pynput is not installed.
+xdotool as the Linux fallback when pynput is not installed. Typing text goes
+through the same backends and is the one path that never parses anything:
+the characters are sent as written, so a plus sign in a piece of text is a
+plus sign and not a separator.
 
 There is no way to ask where a keystroke went. Everything here is fire and
 forget into whatever window has focus at that instant, so a key pressed while
@@ -26,6 +29,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import time
 
 # The four names that may only appear before the main key. A combination
 # ending in one of these is rejected rather than sent, because a modifier on
@@ -183,6 +187,30 @@ def xdotool_args(combo: tuple[str, ...], verb: str = "key") -> list[str]:
     return ["xdotool", verb, names]
 
 
+def xdotool_type_args(text: str, delay_ms: int = 0) -> list[str]:
+    """<summary>
+    Build the xdotool command line that types a piece of text.
+    </summary>
+    <param name="text">The text, sent exactly as written.</param>
+    <param name="delay_ms">The pause between characters. Zero lets xdotool use
+    its own default, which is a few milliseconds and not nothing.</param>
+    <returns>The argument list to hand to subprocess, xdotool included.</returns>
+    <remarks>
+    The double dash before the text is not decoration: text that starts with a
+    dash would otherwise be read by xdotool as an option and refused, or worse,
+    obeyed. Modifiers are cleared first so a key still held on the deck does
+    not turn the text into a run of shortcuts.
+
+    Split out from the backend so the command line can be asserted in a test
+    without xdotool being installed.
+    </remarks>
+    """
+    args = ["xdotool", "type", "--clearmodifiers"]
+    if delay_ms > 0:
+        args += ["--delay", str(delay_ms)]
+    return args + ["--", text]
+
+
 def pynput_attribute(name: str) -> str | None:
     """<summary>
     The pynput Key attribute for a named key, or None for a plain character.
@@ -312,6 +340,33 @@ class PynputBackend:
         for name in reversed(combo):
             self._controller.release(self._key(name))
 
+    def type(self, text: str, delay_ms: int = 0) -> None:
+        """<summary>
+        Type a piece of text, character by character.
+        </summary>
+        <param name="text">The text, sent exactly as written. A newline is
+        pressed as enter, which is pynput's own behaviour.</param>
+        <param name="delay_ms">A pause after each character, or zero to let
+        pynput go as fast as it can.</param>
+        <remarks>
+        With no delay the whole string is handed to pynput in one call. With
+        one, each character is typed on its own with a sleep between, because
+        pynput has no pacing of its own and some programs, a game's chat box
+        or a remote desktop, drop characters that arrive too fast.
+
+        Whatever has focus gets the text. There is no way to know whether it
+        went where the user meant, so a text action is only as safe as the
+        moment it is pressed.
+        </remarks>
+        """
+        if delay_ms <= 0:
+            self._controller.type(text)
+            return
+        for index, character in enumerate(text):
+            if index:
+                time.sleep(delay_ms / 1000)
+            self._controller.type(character)
+
 
 class XdotoolBackend:
     """<summary>
@@ -350,6 +405,19 @@ class XdotoolBackend:
         <param name="combo">Parsed key names.</param>
         <remarks>Safe to call for keys that are already up.</remarks>"""
         subprocess.run(xdotool_args(combo, "keyup"), check=True, timeout=5)
+
+    def type(self, text: str, delay_ms: int = 0) -> None:
+        """<summary>Type a piece of text through xdotool type.</summary>
+        <param name="text">The text, sent exactly as written.</param>
+        <param name="delay_ms">The pause xdotool puts between characters, or
+        zero for its default.</param>
+        <remarks>One process for the whole string, so this is the one xdotool
+        call that keeps pace with what was asked. The timeout scales with the
+        text, since a long piece typed slowly is legitimately slow.</remarks>
+        <exception cref="subprocess.CalledProcessError">xdotool refused it.</exception>
+        <exception cref="FileNotFoundError">xdotool is not installed.</exception>"""
+        budget = 5 + len(text) * max(delay_ms, 10) / 1000
+        subprocess.run(xdotool_type_args(text, delay_ms), check=True, timeout=budget)
 
 
 def default_backend():
@@ -453,3 +521,23 @@ def release(text: str, backend=None) -> None:
     
     <exception cref="HotkeyError">The text will not parse, or there is no backend.</exception>"""
     _resolve_backend(backend).release(parse_combo(text))
+
+
+def type_text(text: str, delay_ms: int = 0, backend=None) -> None:
+    """<summary>
+    Type a piece of text at whatever has focus.
+    </summary>
+    <param name="text">The text, sent exactly as written. Nothing in it is
+    parsed as a key name.</param>
+    <param name="delay_ms">A pause between characters, or zero for none.</param>
+    <param name="backend">A backend for this call only, or None for the shared one.</param>
+    <remarks>
+    The one entry point here that does not go through <see cref="parse_combo"/>,
+    which is the point: text is data, and a piece of text that happens to read
+    "ctrl+c" is typed as those six characters. Blocks until the last character
+    has been handed over, which with a delay is the length of the text times
+    the delay.
+    </remarks>
+    
+    <exception cref="HotkeyError">There is no backend.</exception>"""
+    _resolve_backend(backend).type(text, delay_ms)

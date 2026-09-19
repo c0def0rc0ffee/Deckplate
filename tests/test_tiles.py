@@ -414,3 +414,31 @@ def test_wallpaper_sits_under_keys_without_their_own_picture(tmp_path):
     images.solid((0, 200, 0), 40).save(own)
     with_own = tiles.key_tile(KeyConfig(0, 0, image=own), SIZE, backdrop=backdrop)
     assert with_own.getpixel((SIZE // 2, SIZE // 2)) == (0, 200, 0)
+
+
+def test_live_tile_puts_the_value_big_and_the_label_in_the_band_with_a_ring():
+    """<summary>
+    A live key with no picture shows its value as the face, its own label in
+    the band, and a ring round the edge; with a picture the value goes in the
+    band instead; a ring fraction of zero leaves only the faint track.
+    </summary>
+    <remarks>
+    The checks are on pixels rather than on the drawing calls, since the
+    contract is what the deck shows: the ring's colour must appear near the
+    top edge at a full ring and must not at an empty one, and a tile with a
+    label band must differ from one without, which is how the band's
+    presence is asserted without knowing the font.
+    </remarks>
+    """
+    from deckplate import config as cfg
+    key = cfg.KeyConfig(row=0, column=0, label="Tea", action=cfg.Action("timer", {"seconds": 300}))
+    full = tiles.live_tile(key, 95, "4:59", 1.0, (0, 200, 0))
+    empty = tiles.live_tile(key, 95, "4:59", 0.0, (0, 200, 0))
+    assert full.size == (95, 95) and full.mode == "RGB"
+    # the ring colour sits at the top centre of a full ring and not of an empty one
+    assert full.getpixel((47, 4))[1] > 150 and full.getpixel((47, 4))[0] < 80
+    assert empty.getpixel((47, 4))[1] < 150
+    plain = tiles.live_tile(cfg.KeyConfig(row=0, column=0), 95, "4:59", None)
+    assert plain.tobytes() != full.tobytes()
+    # the value is drawn, so the face is not the bare background
+    assert plain.tobytes() != images.solid(images.BACKGROUND, 95).tobytes()

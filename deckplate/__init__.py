@@ -24,4 +24,4 @@ up the whole daemon.
 # Stamped by the build from the VERSION file, which is the single source of
 # truth for all three of VERSION, pyproject.toml and this line. Editing it
 # here does nothing lasting: the next build writes it back from VERSION.
-__version__ = "1.0.10"
+__version__ = "1.0.14"

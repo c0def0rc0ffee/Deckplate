@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 """<summary>
-Draw a set of key pictures for space sim style actions and write them as PNGs.
+Draw the shipped icon sets and write them as PNGs, and animated GIFs where
+an icon moves.
 
-    python tools/make_icons.py ~/.config/deckplate/images
+    python tools/make_icons.py --theme deckplate/themes/space-game
+    python tools/make_icons.py --set controls --theme deckplate/themes/controls
     python tools/make_icons.py --list
 
-Writes sc-<name>.png files into the folder given, overwriting same named
-ones. Safe to run anywhere; touches nothing but that folder.
+Two sets: "space-game", the space sim glyphs, and "controls", the pictures
+for the deck's own actions (volume, windows, timers, toggles, media). A
+plain folder argument writes sc-<name>.png files of the chosen set into it,
+overwriting same named ones. Safe to run anywhere; touches nothing but that
+folder.
 </summary>
 <remarks>
 Flat pictograms on a transparent background in the page's own palette, so a
@@ -537,6 +542,312 @@ def view_change(pen: Pen) -> None:
     pen.line([(50, 76), (42, 82), (50, 88)], SIGNAL, 5)
 
 
+# ---- The controls set: pictures for the deck's own actions -------------------
+
+def _speaker(pen: Pen, x: float = 22) -> None:
+    """<summary>The loudspeaker cone every volume glyph starts from.</summary>
+    <param name="x">Where the back of the cone sits, so the glyph can shift left.</param>"""
+    pen.polygon([(x, 40), (x + 14, 40), (x + 30, 24), (x + 30, 76), (x + 14, 60), (x, 60)], fill=INK, width=None)
+
+
+def volume_up(pen: Pen) -> None:
+    """<summary>A speaker with two sound waves: louder.</summary>"""
+    _speaker(pen)
+    pen.arc(56, 50, 12, -50, 50, SIGNAL)
+    pen.arc(56, 50, 24, -50, 50, SIGNAL)
+
+
+def volume_down(pen: Pen) -> None:
+    """<summary>A speaker with one small wave: quieter.</summary>"""
+    _speaker(pen)
+    pen.arc(56, 50, 12, -50, 50, STEEL)
+
+
+def mute(pen: Pen) -> None:
+    """<summary>A speaker with a cross where the waves would be: muted.</summary>"""
+    _speaker(pen)
+    pen.line([(62, 38), (84, 62)], RED)
+    pen.line([(84, 38), (62, 62)], RED)
+
+
+def speaker(pen: Pen) -> None:
+    """<summary>A loudspeaker cabinet with its driver: the speakers as an output.</summary>"""
+    pen.rounded(28, 14, 72, 86, 6)
+    pen.circle(50, 58, 14, INK, None, fill=INK)
+    pen.circle(50, 58, 5, SIGNAL, None, fill=SIGNAL)
+    pen.dot(50, 28, 5, STEEL)
+
+
+def headphones(pen: Pen) -> None:
+    """<summary>A headband over two ear cups: the headphones as an output.</summary>"""
+    pen.arc(50, 58, 32, 180, 360, INK)
+    pen.rounded(14, 54, 30, 80, 5, INK, None, fill=INK)
+    pen.rounded(70, 54, 86, 80, 5, INK, None, fill=INK)
+    pen.dot(22, 67, 4, SIGNAL)
+    pen.dot(78, 67, 4, SIGNAL)
+
+
+def cycle(pen: Pen) -> None:
+    """<summary>Two arrows chasing round a circle: the next one along.</summary>"""
+    pen.arc(50, 50, 28, 200, 340, SIGNAL)
+    pen.arc(50, 50, 28, 20, 160, SIGNAL)
+    pen.line([(76, 30), (78, 44), (66, 40)], SIGNAL, 6)
+    pen.line([(24, 70), (22, 56), (34, 60)], SIGNAL, 6)
+
+
+def _window(pen: Pen) -> None:
+    """<summary>A window frame with its title bar, shared by the window glyphs.</summary>"""
+    pen.rounded(14, 22, 86, 78, 5)
+    pen.line([(14, 36), (86, 36)])
+    pen.dot(23, 29, 3, SIGNAL)
+    pen.dot(33, 29, 3, STEEL)
+
+
+def window(pen: Pen) -> None:
+    """<summary>A window brought to the front, with an arrow rising into it.</summary>"""
+    _window(pen)
+    pen.line([(50, 70), (50, 46)], SIGNAL, 6)
+    pen.line([(40, 56), (50, 46), (60, 56)], SIGNAL, 6)
+
+
+def window_minimise(pen: Pen) -> None:
+    """<summary>A window with only a bar left: minimised.</summary>"""
+    _window(pen)
+    pen.line([(34, 64), (66, 64)], SIGNAL)
+
+
+def window_maximise(pen: Pen) -> None:
+    """<summary>A window with a larger frame ghosted behind it: maximised.</summary>"""
+    _window(pen)
+    pen.rounded(34, 46, 66, 68, 3, SIGNAL, 6)
+
+
+def window_close(pen: Pen) -> None:
+    """<summary>A window with a cross in it: closed.</summary>"""
+    _window(pen)
+    pen.line([(40, 48), (60, 68)], RED)
+    pen.line([(60, 48), (40, 68)], RED)
+
+
+def _hourglass(pen: Pen, level: float = 0.5) -> None:
+    """<summary>An hourglass with its sand part way through.</summary>
+    <param name="level">How much of the sand is still in the top, 1 down to 0.</param>"""
+    pen.line([(30, 16), (70, 16)])
+    pen.line([(30, 84), (70, 84)])
+    pen.line([(32, 20), (32, 30), (48, 50), (32, 70), (32, 80)])
+    pen.line([(68, 20), (68, 30), (52, 50), (68, 70), (68, 80)])
+    # top sand: a triangle whose flat top drops as the level falls
+    if level > 0.02:
+        top = 46 - 22 * level
+        half = (46 - top) / 20 * 15 + 2
+        pen.polygon([(50 - half, top), (50 + half, top), (50, 46)], fill=WARM, width=None)
+    # bottom sand: a mound that grows
+    if level < 0.98:
+        height = 22 * (1 - level)
+        pen.polygon([(36, 78), (64, 78), (50, 78 - height)], fill=WARM, width=None)
+    if 0.02 < level < 0.98:
+        pen.line([(50, 50), (50, 76)], WARM, 3)
+
+
+def timer(pen: Pen) -> None:
+    """<summary>An hourglass half run: a timer.</summary>"""
+    _hourglass(pen, 0.5)
+
+
+def _stopwatch(pen: Pen, angle: float = 0.0) -> None:
+    """<summary>A stopwatch with its hand at an angle.</summary>
+    <param name="angle">Degrees clockwise from straight up.</param>"""
+    pen.circle(50, 56, 28)
+    pen.line([(50, 20), (50, 28)])
+    pen.line([(42, 14), (58, 14)])
+    pen.line([(70, 30), (76, 24)], STEEL, 6)
+    for step in range(0, 360, 90):
+        rad = math.radians(step - 90)
+        pen.line([(50 + 22 * math.cos(rad), 56 + 22 * math.sin(rad)),
+                  (50 + 26 * math.cos(rad), 56 + 26 * math.sin(rad))], STEEL, 4)
+    rad = math.radians(angle - 90)
+    pen.line([(50, 56), (50 + 20 * math.cos(rad), 56 + 20 * math.sin(rad))], SIGNAL, 6)
+    pen.dot(50, 56, 4, SIGNAL)
+
+
+def stopwatch(pen: Pen) -> None:
+    """<summary>A stopwatch at the start: a stopwatch.</summary>"""
+    _stopwatch(pen, 0)
+
+
+def counter(pen: Pen) -> None:
+    """<summary>Four tally marks and the stroke through them: a count.</summary>"""
+    for index in range(4):
+        x = 26 + index * 14
+        pen.line([(x, 26), (x, 74)])
+    pen.line([(16, 70), (84, 30)], SIGNAL)
+
+
+def toggle_on(pen: Pen) -> None:
+    """<summary>A switch with its knob to the right, lit: on.</summary>"""
+    pen.rounded(12, 30, 88, 70, 20, SIGNAL, None, fill=SIGNAL)
+    pen.circle(68, 50, 14, INK, None, fill=INK)
+
+
+def toggle_off(pen: Pen) -> None:
+    """<summary>A switch with its knob to the left, unlit: off.</summary>"""
+    pen.rounded(12, 30, 88, 70, 20, STEEL)
+    pen.circle(32, 50, 14, STEEL, None, fill=STEEL)
+
+
+def camera(pen: Pen) -> None:
+    """<summary>A camera body with its lens hood to the right: the camera on.</summary>"""
+    pen.rounded(14, 32, 62, 68, 5, INK, None, fill=INK)
+    pen.polygon([(62, 44), (86, 32), (86, 68), (62, 56)], fill=SIGNAL, width=None)
+
+
+def camera_off(pen: Pen) -> None:
+    """<summary>The camera with a line struck through it: the camera off.</summary>"""
+    camera(pen)
+    pen.line([(18, 82), (82, 18)], RED)
+
+
+def mic(pen: Pen) -> None:
+    """<summary>A microphone capsule on its stand: the microphone on.</summary>"""
+    pen.rounded(38, 12, 62, 54, 12, INK, None, fill=INK)
+    pen.arc(50, 46, 22, 0, 180, SIGNAL)
+    pen.line([(50, 68), (50, 82)])
+    pen.line([(36, 82), (64, 82)])
+
+
+def mic_off(pen: Pen) -> None:
+    """<summary>The microphone with a line struck through it: the microphone off.</summary>"""
+    mic(pen)
+    pen.line([(18, 82), (82, 18)], RED)
+
+
+def play(pen: Pen) -> None:
+    """<summary>A triangle pointing right: play.</summary>"""
+    pen.polygon([(32, 22), (80, 50), (32, 78)], fill=SIGNAL, width=None)
+
+
+def pause(pen: Pen) -> None:
+    """<summary>Two bars: pause.</summary>"""
+    pen.rounded(28, 22, 42, 78, 3, INK, None, fill=INK)
+    pen.rounded(58, 22, 72, 78, 3, INK, None, fill=INK)
+
+
+def stop(pen: Pen) -> None:
+    """<summary>A square: stop.</summary>"""
+    pen.rounded(26, 26, 74, 74, 5, INK, None, fill=INK)
+
+
+def record(pen: Pen) -> None:
+    """<summary>A red dot in a ring: record.</summary>"""
+    pen.circle(50, 50, 28, INK)
+    pen.circle(50, 50, 16, RED, None, fill=RED)
+
+
+def reset(pen: Pen) -> None:
+    """<summary>An arrow going back round a circle: reset.</summary>"""
+    pen.arc(50, 52, 26, -40, 250, INK)
+    pen.line([(60, 22), (72, 34), (58, 40)], INK, 6)
+
+
+def plus(pen: Pen) -> None:
+    """<summary>A plus sign.</summary>"""
+    pen.line([(50, 24), (50, 76)], SIGNAL, 10)
+    pen.line([(24, 50), (76, 50)], SIGNAL, 10)
+
+
+def minus(pen: Pen) -> None:
+    """<summary>A minus sign.</summary>"""
+    pen.line([(24, 50), (76, 50)], SIGNAL, 10)
+
+
+def bell(pen: Pen) -> None:
+    """<summary>A bell with its clapper: an alert or a timer's end.</summary>"""
+    pen.polygon([(30, 62), (30, 44), (36, 28), (50, 20), (64, 28), (70, 44), (70, 62), (78, 70), (22, 70)],
+                fill=WARM, width=None)
+    pen.arc(50, 74, 8, 0, 180, INK)
+    pen.dot(50, 14, 4, WARM)
+
+
+def bright(pen: Pen) -> None:
+    """<summary>A sun with rays: brightness up.</summary>"""
+    pen.circle(50, 50, 14, WARM, None, fill=WARM)
+    for step in range(0, 360, 45):
+        rad = math.radians(step)
+        pen.line([(50 + 22 * math.cos(rad), 50 + 22 * math.sin(rad)),
+                  (50 + 32 * math.cos(rad), 50 + 32 * math.sin(rad))], WARM, 6)
+
+
+def dim(pen: Pen) -> None:
+    """<summary>A crescent moon: brightness down.</summary>"""
+    pen.circle(50, 50, 28, STEEL, None, fill=STEEL)
+    pen.circle(62, 42, 24, (0, 0, 0, 0), None, fill=(0, 0, 0, 0))
+
+
+# Animated icons take the loop position t in [0, 1) and draw one frame.
+
+def hourglass_running(pen: Pen, t: float) -> None:
+    """<summary>The hourglass with its sand running through over the loop.</summary>
+    <param name="t">Loop position.</param>"""
+    _hourglass(pen, 1 - t)
+
+
+def stopwatch_running(pen: Pen, t: float) -> None:
+    """<summary>The stopwatch with its hand going round once a loop.</summary>
+    <param name="t">Loop position.</param>"""
+    _stopwatch(pen, 360 * t)
+
+
+def ring_running(pen: Pen, t: float) -> None:
+    """<summary>A ring emptying clockwise from the top over the loop.</summary>
+    <param name="t">Loop position.</param>"""
+    pen.circle(50, 50, 30, STEEL, 6)
+    if t < 0.999:
+        pen.arc(50, 50, 30, -90, -90 + 360 * (1 - t), SIGNAL, 10)
+
+
+def counting(pen: Pen, t: float) -> None:
+    """<summary>Tally marks appearing one by one, then the stroke through them.</summary>
+    <param name="t">Loop position.</param>"""
+    shown = int(t * 6)
+    for index in range(min(4, shown)):
+        x = 26 + index * 14
+        pen.line([(x, 26), (x, 74)])
+    if shown >= 5:
+        pen.line([(16, 70), (84, 30)], SIGNAL)
+
+
+CONTROLS = {
+    "volume-up": volume_up, "volume-down": volume_down, "mute": mute,
+    "speaker": speaker, "headphones": headphones, "cycle": cycle,
+    "window": window, "window-minimise": window_minimise, "window-maximise": window_maximise,
+    "window-close": window_close,
+    "timer": timer, "stopwatch": stopwatch, "counter": counter,
+    "toggle-on": toggle_on, "toggle-off": toggle_off,
+    "camera": camera, "camera-off": camera_off, "mic": mic, "mic-off": mic_off,
+    "play": play, "pause": pause, "stop": stop, "record": record, "reset": reset,
+    "plus": plus, "minus": minus, "bell": bell, "bright": bright, "dim": dim,
+}
+CONTROL_LABELS = {
+    "volume-up": "Volume Up", "volume-down": "Volume Down", "mute": "Mute",
+    "speaker": "Speaker", "headphones": "Headphones", "cycle": "Next Output",
+    "window": "Window", "window-minimise": "Minimise", "window-maximise": "Maximise",
+    "window-close": "Close Window",
+    "timer": "Timer", "stopwatch": "Stopwatch", "counter": "Counter",
+    "toggle-on": "Toggle On", "toggle-off": "Toggle Off",
+    "camera": "Camera", "camera-off": "Camera Off", "mic": "Microphone", "mic-off": "Microphone Off",
+    "play": "Play", "pause": "Pause", "stop": "Stop", "record": "Record", "reset": "Reset",
+    "plus": "Plus", "minus": "Minus", "bell": "Bell", "bright": "Bright", "dim": "Dim",
+    "hourglass-running": "Hourglass Running", "stopwatch-running": "Stopwatch Running",
+    "ring-running": "Ring Running", "counting": "Counting",
+}
+CONTROL_ANIMATED = {
+    "hourglass-running": hourglass_running, "stopwatch-running": stopwatch_running,
+    "ring-running": ring_running, "counting": counting,
+}
+# Animated icons: frames per loop and how fast they play.
+GIF_FRAMES = 24
+GIF_FPS = 12
+
 ICONS = {
     "hangar": hangar, "landing-gear": landing_gear, "quantum": quantum, "power": power,
     "engines": engines, "shields": shields, "weapons": weapons, "missiles": missiles,
@@ -560,12 +871,24 @@ LABELS = {
 }
 
 
-def write_theme(folder: Path) -> int:
+# The two sets, by the slug their theme folder carries. Each is the theme
+# name, its still icons, its labels, its animated icons, and the prefix the
+# tool once put on its files when writing them into a user's images folder,
+# which the daemon uses to recognise those old copies.
+SETS = {
+    "space-game": (THEME_NAME, ICONS, LABELS, {}, "sc-"),
+    "controls": ("Controls", CONTROLS, CONTROL_LABELS, CONTROL_ANIMATED, ""),
+}
+
+
+def write_theme(folder: Path, set_name: str = "space-game") -> int:
     """<summary>
-    Write the icons as a shipped theme: bare id.png files and a manifest.json.
+    Write a set as a shipped theme: bare id.png files, id.gif for the animated
+    ones, and a manifest.json.
     </summary>
     <param name="folder">Where to write. It is created if missing, and same
     named files in it are overwritten.</param>
+    <param name="set_name">A key of <see cref="SETS"/>.</param>
     <returns>How many icons were written, not counting the manifest.</returns>
     <remarks>
     This is the form deckplate/themes/ holds a theme in, so the picker can
@@ -573,25 +896,29 @@ def write_theme(folder: Path) -> int:
     The file names carry no prefix here, unlike the user folder output, and the
     manifest is what supplies the human readable labels.
 
-    Every icon in <see cref="ICONS"/> must have an entry in
-    <see cref="LABELS"/> or this raises part way through, leaving a folder of
-    images with no manifest beside them.
+    Every icon in the set must have an entry in its labels or this raises
+    part way through, leaving a folder of images with no manifest beside them.
     </remarks>
     """
     import json
+    name, icons, labels, animated, prefix = SETS[set_name]
     folder.mkdir(parents=True, exist_ok=True)
-    for name in ICONS:
-        render(name).save(folder / f"{name}.png")
-    manifest = {"name": THEME_NAME, "icons": [{"id": name, "label": LABELS[name]} for name in ICONS]}
+    for icon in icons:
+        render(icon, icons).save(folder / f"{icon}.png")
+    for icon in animated:
+        save_gif(render_frames(animated[icon]), folder / f"{icon}.gif")
+    listed = [{"id": icon, "label": labels[icon]} for icon in list(icons) + list(animated)]
+    manifest = {"name": name, "file_prefix": prefix, "icons": listed}
     (folder / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-    return len(ICONS)
+    return len(icons) + len(animated)
 
 
-def render(name: str) -> Image.Image:
+def render(name: str, icons: dict | None = None) -> Image.Image:
     """<summary>
     Draw one named icon on a fresh Pen and return the finished image.
     </summary>
-    <param name="name">A key of <see cref="ICONS"/>.</param>
+    <param name="name">A key of the set given.</param>
+    <param name="icons">The set to draw from, or None for the space game set.</param>
     <returns>One icon as a SIZE square RGBA image, background transparent.</returns>
     <remarks>
     A new Pen every time, so two calls never share a canvas. Nothing is cached:
@@ -600,8 +927,54 @@ def render(name: str) -> Image.Image:
     
     <exception cref="KeyError">There is no icon by that name.</exception>"""
     pen = Pen()
-    ICONS[name](pen)
+    (icons or ICONS)[name](pen)
     return pen.result()
+
+
+def render_frames(draw, count: int = GIF_FRAMES) -> list[Image.Image]:
+    """<summary>
+    Draw every frame of one loop of an animated icon.
+    </summary>
+    <param name="draw">The icon function, taking a Pen and the loop position.</param>
+    <param name="count">Frames per loop.</param>
+    <returns>The frames in order, each a SIZE square RGBA image.</returns>
+    """
+    frames = []
+    for index in range(count):
+        pen = Pen()
+        draw(pen, index / count)
+        frames.append(pen.result())
+    return frames
+
+
+def save_gif(frames: list[Image.Image], path: Path, fps: int = GIF_FPS) -> None:
+    """<summary>
+    Write RGBA frames as a looping GIF with a transparent background.
+    </summary>
+    <param name="frames">The frames, all the same size.</param>
+    <param name="path">Where to write.</param>
+    <param name="fps">Frames a second.</param>
+    <remarks>
+    GIF has one bit of transparency and a palette per frame, so every frame
+    is quantised against one palette built from all of them, and any pixel
+    that was less than half opaque becomes the transparent index. The
+    palette is built with a slot spared for that index. Disposal 2 clears
+    each frame before the next, which is what a transparent animation
+    needs or the frames pile up.
+    </remarks>
+    """
+    sheet = Image.new("RGB", (frames[0].width * len(frames), frames[0].height), (0, 0, 0))
+    for index, frame in enumerate(frames):
+        sheet.paste(frame.convert("RGB"), (index * frame.width, 0))
+    palette = sheet.quantize(colors=255)
+    out = []
+    for frame in frames:
+        indexed = frame.convert("RGB").quantize(palette=palette)
+        mask = frame.getchannel("A").point(lambda a: 255 if a < 128 else 0)
+        indexed.paste(255, mask)
+        out.append(indexed)
+    out[0].save(path, save_all=True, append_images=out[1:], duration=int(1000 / fps), loop=0,
+                disposal=2, transparency=255, optimize=False)
 
 
 
@@ -653,23 +1026,26 @@ def main() -> int:
     parser.add_argument("--list", action="store_true", help="print the icon names and stop")
     parser.add_argument("--theme", metavar="DIR",
                         help="write a shipped theme (bare <id>.png plus manifest.json) into DIR")
+    parser.add_argument("--set", choices=sorted(SETS), default="space-game",
+                        help="which set of icons (default: space-game)")
     parser.add_argument("--sheet", help="also write a contact sheet PNG to this path")
     args = parser.parse_args()
+    theme_name, icons, _labels, animated, _prefix = SETS[args.set]
     if args.list:
-        print("\n".join(ICONS))
+        print("\n".join(list(icons) + [f"{name} (animated)" for name in animated]))
         return 0
     if args.theme:
         folder = Path(args.theme).expanduser()
-        count = write_theme(folder)
-        print(f"wrote theme '{THEME_NAME}' ({count} icons and a manifest) into {folder}")
+        count = write_theme(folder, args.set)
+        print(f"wrote theme '{theme_name}' ({count} icons and a manifest) into {folder}")
         return 0
     if not args.folder:
         parser.error("give a folder to write into, --theme DIR, or --list")
     folder = Path(args.folder).expanduser()
     folder.mkdir(parents=True, exist_ok=True)
     rendered = {}
-    for name in ICONS:
-        rendered[name] = render(name)
+    for name in icons:
+        rendered[name] = render(name, icons)
         rendered[name].save(folder / f"sc-{name}.png")
     print(f"wrote {len(rendered)} icons into {folder}")
     if args.sheet:

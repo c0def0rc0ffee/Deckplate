@@ -100,3 +100,31 @@ def test_parse_ref_and_ref_for_round_trip():
     path = themes.icon_path("space-game", "power")
     assert themes.ref_for(path) == "theme:space-game/power"
     assert themes.ref_for(Path("nowhere/else.png")) is None
+
+
+def test_copy_ref_recognises_the_tools_old_file_names_only():
+    """<summary>
+    A file named with a theme's declared prefix and one of its icon ids maps
+    to that icon's reference; anything else is an ordinary upload.
+    </summary>
+    <remarks>
+    The icon tool wrote its glyphs straight into image folders as sc-<id>.png
+    before themes existed, so those files sit beside real uploads and used to
+    be listed and offered for deletion as if they were uploads. The match is by
+    name and not by bytes, because the tool's rendering has moved on and the
+    old files no longer match the shipped icons byte for byte.
+
+    The negative cases are the guard: a user's own hangar.png without the
+    prefix, a prefixed name that is not an icon, and a non PNG must all stay
+    uploads, or a real upload could vanish from the page.
+    </remarks>
+    """
+    assert themes.copy_ref("sc-hangar.png") == "theme:space-game/hangar"
+    assert themes.copy_ref("sc-landing-gear.PNG") == "theme:space-game/landing-gear"
+    assert themes.copy_ref("hangar.png") is None
+    assert themes.copy_ref("sc-not-an-icon.png") is None
+    assert themes.copy_ref("sc-hangar.jpg") is None
+    # a theme with no prefix declared never claims a file
+    quiet = [{"slug": "plain", "name": "Plain", "file_prefix": "", "icons": [{"id": "hangar", "label": "Hangar"}]}]
+    assert themes.copy_ref("hangar.png", quiet) is None
+    assert themes.copy_ref("sc-hangar.png", quiet) is None

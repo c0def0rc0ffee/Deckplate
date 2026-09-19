@@ -126,7 +126,8 @@
   let doc = null;          // the config document being edited
   let state = null;        // the daemon's snapshot
   let animated = new Set(); // "row,column" of every panel playing an animation
-  let images = [];         // file names in the images folder
+  let images = [];         // file names in the images folder, uploads only
+  let themeCopies = {};    // images folder files that are really theme icons, name to theme reference
   let selected = null;     // {row, column}
   let undoStack = [];
   let saveTimer = null;
@@ -175,7 +176,7 @@
    */
   function dropEmptyKey(page, key) {
     if (!key.image && !key.label && !key.action && !key.action_long && !key.action_double
-        && !key.animation && !key.background) {
+        && !key.animation && !key.background && !key.image_active && !key.label_active) {
       page.keys = page.keys.filter(k => k !== key);
     }
   }
@@ -940,6 +941,23 @@
       dropEmptyKey(currentPage(), k);
     })));
 
+    // The other face: shown while a toggle is on, a hold or repeat runs, a
+    // timer counts, the sound is muted, or the key's output is in use.
+    const activeLabel = tpl.querySelector("#keyLabelActive");
+    activeLabel.value = key.label_active || "";
+    activeLabel.addEventListener("input", () => change(d => {
+      const k = ensureKey(currentPage(), selected.row, selected.column);
+      k.label_active = activeLabel.value.trim() || null;
+      dropEmptyKey(currentPage(), k);
+    }, { silent: true }));
+    tpl.querySelector("#keyPictureActive").append(picker(key.image_active, value => change(d => {
+      const k = ensureKey(currentPage(), selected.row, selected.column);
+      k.image_active = value;
+      dropEmptyKey(currentPage(), k);
+    })));
+    const activeFold = tpl.querySelector("details.active-face");
+    if (key.image_active || key.label_active) activeFold.open = true;
+
     tpl.querySelector("#keyAnimation").append(animationField(
       () => (keyAt(currentPage(), selected.row, selected.column) || {}).animation || null,
       value => change(d => {
@@ -1114,14 +1132,61 @@
       case "hold": return { type, keys: "", hold_min_ms: 3000, hold_max_ms: 8000, release_min_ms: 150, release_max_ms: 600 };
       case "boost": return { type, hold: "", keys: "", on_ms: 10000, off_ms: 12000 };
       case "repeat": return { type, keys: "", every_ms: 30000 };
+      case "text": return { type, text: "", enter: false, delay_ms: 0 };
       case "launch": return { type, command: "" };
       case "url": return { type, url: "https://" };
+      case "request": return { type, url: "https://", method: "GET", timeout_s: 10 };
+      case "toggle": return { type, on: { type: "hotkey", keys: "" }, off: { type: "hotkey", keys: "" } };
+      case "volume": return { type, delta: 5 };
+      case "audio_output": return { type, cycle: true };
+      case "window": return { type, match: "", operation: "focus" };
+      case "timer": return { type, seconds: 300 };
+      case "stopwatch": return { type };
+      case "counter": return { type, step: 1 };
       case "page": return { type, page: "next" };
       case "brightness": return { type, delta: -10 };
       case "sleep": return { type };
       case "multi": return { type, delay_ms: 0, steps: [{ type: "hotkey", keys: "" }] };
     }
     return { type };
+  }
+
+  /**
+   * <summary>The action types that may sit inside another: a multi's steps, a
+   * toggle's halves, a timer's done.</summary>
+   * <remarks>The toggling types are left out because they run until pressed
+   * again, and the positional ones because a step has no key of its own. The
+   * daemon refuses the same set, so this is the page agreeing rather than
+   * deciding.</remarks>
+   */
+  const NESTED_TYPES = [["hotkey", "Send a hotkey"], ["sequence", "Send several keys"], ["chord", "Hold one key while pressing others"],
+    ["text", "Type some text"], ["launch", "Launch a program"], ["url", "Open a web address"], ["request", "Call a web address"],
+    ["volume", "Volume"], ["audio_output", "Audio output"], ["window", "A program's window"],
+    ["page", "Switch page"], ["brightness", "Deck brightness"], ["sleep", "Sleep the deck"]];
+
+  /**
+   * <summary>One nested action slot: a type select and, below it, the fields
+   * for the action chosen, or nothing for "Nothing".</summary>
+   * <param name="labelText">The slot's label.</param>
+   * <param name="get">Returns the nested action object now, or null.</param>
+   * <param name="set">Stores a new nested action object, or null for none.</param>
+   * <param name="help">Optional help line.</param>
+   * <returns>The field element.</returns>
+   * <remarks>Used for a toggle's on and off and a timer's done. The fields are
+   * rebuilt by the editor's own re-render when the type changes, which is why
+   * the change handler goes through change() without a silent flag.</remarks>
+   */
+  function nestedAction(labelText, get, set, help) {
+    const select = el("select", {}, [el("option", { value: "", text: "Nothing" })]);
+    for (const [value, text] of NESTED_TYPES) select.append(el("option", { value, text }));
+    const current = get();
+    select.value = current ? current.type : "";
+    select.addEventListener("change", () => change(d => { set(select.value ? defaultAction(select.value) : null); }));
+    const field = el("div", { class: "field" }, [el("label", { text: labelText }), select]);
+    if (help) field.append(el("div", { class: "help", text: help }));
+    const box = el("div", { class: "step" }, [field]);
+    if (current) box.append(actionFields(current, get, true));
+    return box;
   }
 
   /**
@@ -1285,6 +1350,24 @@
         }));
         break;
       }
+      case "text": {
+        const area = el("textarea", { rows: 3, placeholder: "Typed into whatever has focus" });
+        area.value = action.text || "";
+        area.addEventListener("input", () => change(d => { getAction().text = area.value; }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { text: "Text" }), area,
+          el("div", { class: "help", text: "Sent as written, so ctrl+c here types those six characters. A new line presses enter." })]));
+        const enter = el("input", { type: "checkbox" });
+        enter.checked = !!action.enter;
+        enter.addEventListener("change", () => change(d => { getAction().enter = enter.checked; }, { silent: true }));
+        // Wrapped one level down so the field spacing applies without the
+        // field's own label styling turning the checkbox text into a heading.
+        box.append(el("div", { class: "field" }, [el("div", {}, [el("label", { class: "check" }, [enter, el("span", { text: "Press enter afterwards" })])])]));
+        box.append(millis("delay_ms", "Pause between characters", {
+          min: 0, max: 1000, step: 10, fallback: 0, zero: "none",
+          help: "For a program that drops characters typed too fast, such as a game's chat box or a remote desktop.",
+        }));
+        break;
+      }
       case "launch":
         box.append(text("command", "Command", "gedit", "Used on both platforms unless overridden below."));
         box.append(text("command_windows", "Windows override", "notepad.exe"));
@@ -1293,6 +1376,47 @@
       case "url":
         box.append(text("url", "Web address", "https://"));
         break;
+      case "request": {
+        const method = el("select");
+        for (const verb of ["GET", "POST", "PUT", "PATCH", "DELETE"]) method.append(el("option", { value: verb, text: verb }));
+        method.value = action.method || "GET";
+        method.addEventListener("change", () => change(d => { getAction().method = method.value; }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { text: "Method" }), method]));
+        box.append(text("url", "Web address", "https://", "Called without opening a browser. Nothing that comes back is shown; a failure goes to the daemon's log."));
+        const body = el("textarea", { rows: 3, placeholder: '{"entity_id": "light.desk"}' });
+        body.value = action.body || "";
+        body.addEventListener("input", () => change(d => {
+          const a = getAction();
+          if (body.value) a.body = body.value; else delete a.body;
+        }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { text: "Body" }), body,
+          el("div", { class: "help", text: "Sent as JSON unless a Content-Type header below says otherwise. Leave empty for none." })]));
+        // Headers are edited as one "Name: value" line each, which is how
+        // people already write them, and stored as the table the file wants.
+        const headers = el("textarea", { rows: 2, placeholder: "X-Custom: value" });
+        headers.value = Object.entries(action.headers || {}).map(([k, v]) => k + ": " + v).join("\n");
+        headers.addEventListener("input", () => change(d => {
+          const table = {};
+          for (const line of headers.value.split("\n")) {
+            const at = line.indexOf(":");
+            if (at > 0) table[line.slice(0, at).trim()] = line.slice(at + 1).trim();
+          }
+          const a = getAction();
+          if (Object.keys(table).length) a.headers = table; else delete a.headers;
+        }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { text: "Headers, one per line" }), headers]));
+        const token = el("input", { type: "text", value: action.token_file || "", placeholder: "~/.deckplate-tokens/home-assistant" });
+        token.addEventListener("input", () => change(d => {
+          const a = getAction();
+          if (token.value.trim()) a.token_file = token.value.trim(); else delete a.token_file;
+        }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { text: "Token file" }), token,
+          el("div", { class: "help", text: "A file holding just the token, kept outside the config folder. Its contents are sent as a Bearer token; write the scheme yourself (Basic ...) to use another. The token is never written into the config." })]));
+        const timeout = el("input", { type: "number", min: 1, max: 120, value: action.timeout_s || 10 });
+        timeout.addEventListener("input", () => change(d => { getAction().timeout_s = parseInt(timeout.value, 10) || 10; }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { text: "Give up after (seconds)" }), timeout]));
+        break;
+      }
       case "page": {
         const select = el("select");
         for (const name of ["next", "previous", ...doc.pages.map(p => p.name)]) {
@@ -1324,6 +1448,118 @@
       case "sleep":
         box.append(el("p", { class: "muted", text: "Turns the screens off until a key is pressed." }));
         break;
+      case "toggle": {
+        box.append(el("p", { class: "muted", text: "Press once for the first action, again for the second, and so on. While it is on the key wears its active picture and label, set above." }));
+        box.append(nestedAction("When switched on", () => getAction().on || null, value => { const a = getAction(); if (value) a.on = value; else delete a.on; }));
+        box.append(nestedAction("When switched off", () => getAction().off || null, value => { const a = getAction(); if (value) a.off = value; else delete a.off; }));
+        break;
+      }
+      case "volume": {
+        const mode = el("select", {}, [
+          el("option", { value: "delta", text: "Change by" }),
+          el("option", { value: "value", text: "Set to" }),
+          el("option", { value: "mute", text: "Mute" }),
+        ]);
+        mode.value = "value" in action ? "value" : "mute" in action ? "mute" : "delta";
+        const number = el("input", { type: "number", min: mode.value === "value" ? 0 : -100, max: mode.value === "value" ? 150 : 100,
+          value: "value" in action ? action.value : (action.delta ?? 5) });
+        const mute = el("select", {}, [
+          el("option", { value: "toggle", text: "Toggle" }),
+          el("option", { value: "on", text: "Mute" }),
+          el("option", { value: "off", text: "Unmute" }),
+        ]);
+        mute.value = action.mute || "toggle";
+        const apply = () => change(d => {
+          const a = getAction();
+          delete a.value; delete a.delta; delete a.mute;
+          if (mode.value === "mute") a.mute = mute.value;
+          else a[mode.value] = parseInt(number.value, 10) || (mode.value === "delta" ? 5 : 0);
+        }, { silent: true });
+        const show = () => { number.hidden = mode.value === "mute"; mute.hidden = mode.value !== "mute";
+          number.min = mode.value === "value" ? 0 : -100; number.max = mode.value === "value" ? 150 : 100; };
+        show();
+        mode.addEventListener("change", () => { show(); apply(); });
+        number.addEventListener("input", apply);
+        mute.addEventListener("change", apply);
+        box.append(el("div", { class: "field" }, [el("label", { text: "Volume" }), el("div", { class: "inline" }, [mode, number, mute]),
+          el("div", { class: "help", text: "Percent. A mute key wears its active picture and label while the sound is muted. On Windows the level needs pycaw; without it the media keys are used for changes and mute." })]));
+        break;
+      }
+      case "audio_output": {
+        const mode = el("select", {}, [
+          el("option", { value: "cycle", text: "Next output" }),
+          el("option", { value: "device", text: "Named output" }),
+        ]);
+        mode.value = "device" in action ? "device" : "cycle";
+        const device = el("input", { type: "text", value: action.device || "", placeholder: "headphones" });
+        device.hidden = mode.value !== "device";
+        const apply = () => change(d => {
+          const a = getAction();
+          delete a.cycle; delete a.device;
+          if (mode.value === "cycle") a.cycle = true; else a.device = device.value;
+        }, { silent: true });
+        mode.addEventListener("change", () => { device.hidden = mode.value !== "device"; apply(); });
+        device.addEventListener("input", apply);
+        box.append(el("div", { class: "field" }, [el("label", { text: "Output" }), el("div", { class: "inline" }, [mode, device]),
+          el("div", { class: "help", text: "A named output is matched by a pattern against its name, ignoring case. The key wears its active picture and label while that output is in use. On Windows this needs the AudioDeviceCmdlets PowerShell module." })]));
+        break;
+      }
+      case "window": {
+        box.append(text("match", "Window", "firefox", "A pattern matched against the window's class and title, ignoring case, like a page's application match."));
+        const operation = el("select");
+        for (const [value, label] of [["focus", "Bring to the front"], ["minimise", "Minimise"], ["maximise", "Maximise"], ["close", "Close"]]) {
+          operation.append(el("option", { value, text: label }));
+        }
+        operation.value = action.operation || "focus";
+        operation.addEventListener("change", () => change(d => { getAction().operation = operation.value; }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { text: "Do" }), operation]));
+        const command = el("input", { type: "text", value: action.command || "", placeholder: "firefox" });
+        command.addEventListener("input", () => change(d => { const a = getAction(); if (command.value.trim()) a.command = command.value; else delete a.command; }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { text: "Or launch" }), command,
+          el("div", { class: "help", text: "Started when no window matches and the key brings to the front. Linux needs xdotool, and wmctrl to maximise." })]));
+        break;
+      }
+      case "timer": {
+        const reset = el("input", { type: "checkbox" });
+        reset.checked = !!action.reset;
+        const seconds = el("input", { type: "number", min: 1, max: 86400, value: action.seconds || 300 });
+        seconds.addEventListener("input", () => change(d => { getAction().seconds = parseInt(seconds.value, 10) || 300; }, { silent: true }));
+        reset.addEventListener("change", () => change(d => {
+          const a = getAction();
+          if (reset.checked) { a.reset = true; delete a.seconds; delete a.done; } else { delete a.reset; a.seconds = parseInt(seconds.value, 10) || 300; }
+        }));
+        box.append(el("div", { class: "field" }, [el("div", {}, [el("label", { class: "check" }, [reset, el("span", { text: "Reset the timer on this key" })])]),
+          el("div", { class: "help", text: "Put a reset on the long press of the timer's own key." })]));
+        if (!action.reset) {
+          box.append(el("div", { class: "field" }, [el("label", { text: "Seconds" }), seconds,
+            el("div", { class: "help", text: "Press to start, again to pause. The key shows the time left with a ring that empties, then 0:00 in red for a moment. A key with no picture shows the time large; with one, in the band." })]));
+          box.append(nestedAction("When it reaches zero", () => getAction().done || null, value => { const a = getAction(); if (value) a.done = value; else delete a.done; },
+            "Play a sound with Launch a program, or anything else."));
+        }
+        break;
+      }
+      case "stopwatch": {
+        const reset = el("input", { type: "checkbox" });
+        reset.checked = !!action.reset;
+        reset.addEventListener("change", () => change(d => { const a = getAction(); if (reset.checked) a.reset = true; else delete a.reset; }));
+        box.append(el("div", { class: "field" }, [el("div", {}, [el("label", { class: "check" }, [reset, el("span", { text: "Reset the stopwatch on this key" })])]),
+          el("div", { class: "help", text: "Without reset: press to start, again to pause. The ring goes round once a minute. Put a reset on the long press." })]));
+        break;
+      }
+      case "counter": {
+        const reset = el("input", { type: "checkbox" });
+        reset.checked = !!action.reset;
+        const step = el("input", { type: "number", min: -1000, max: 1000, value: action.step ?? 1 });
+        step.addEventListener("input", () => change(d => { getAction().step = parseInt(step.value, 10) || 1; }, { silent: true }));
+        reset.addEventListener("change", () => change(d => {
+          const a = getAction();
+          if (reset.checked) { a.reset = true; delete a.step; } else { delete a.reset; a.step = parseInt(step.value, 10) || 1; }
+        }));
+        box.append(el("div", { class: "field" }, [el("div", {}, [el("label", { class: "check" }, [reset, el("span", { text: "Reset the count on this key" })])])]));
+        if (!action.reset) box.append(el("div", { class: "field" }, [el("label", { text: "Count by" }), step,
+          el("div", { class: "help", text: "Negative to count down. The count shows large on the key, with the label in the band under it. Put a reset on the long press, or a minus one on the double press." })]));
+        break;
+      }
       case "multi": {
         if (nested) break;
         const delay = el("input", { type: "number", min: 0, max: 60000, value: action.delay_ms || 0 });
@@ -1334,9 +1570,7 @@
           const head = el("div", { class: "step-head" });
           const typeSelect = el("select");
           // hold is a toggle with its own thread, so it is not offered as a step
-          for (const [value, label] of [["hotkey", "Send a hotkey"], ["sequence", "Send several keys"], ["chord", "Hold one key while pressing others"],
-            ["launch", "Launch a program"], ["url", "Open a web address"],
-            ["page", "Switch page"], ["brightness", "Deck brightness"], ["sleep", "Sleep the deck"]]) {
+          for (const [value, label] of NESTED_TYPES) {
             typeSelect.append(el("option", { value, text: label }));
           }
           typeSelect.value = step.type;
@@ -1487,7 +1721,7 @@
     if (!value) return null;
     if (value.startsWith("theme:")) {
       const [slug, id] = value.slice("theme:".length).split("/");
-      return "/api/themes/" + encodeURIComponent(slug) + "/" + encodeURIComponent(id) + ".png";
+      return "/api/themes/" + encodeURIComponent(slug) + "/" + encodeURIComponent(id);
     }
     return "/api/images/" + encodeURIComponent(value.replace(/^images\//, ""));
   }
@@ -1543,8 +1777,8 @@
         for (const icon of theme.icons) {
           const tile = el("button", { type: "button", class: "icon-tile", title: icon.label });
           tile.append(
-            el("img", { src: "/api/themes/" + encodeURIComponent(theme.slug) + "/" + encodeURIComponent(icon.id) + ".png", alt: icon.label, loading: "lazy" }),
-            el("span", { text: icon.label }),
+            el("img", { src: "/api/themes/" + encodeURIComponent(theme.slug) + "/" + encodeURIComponent(icon.id), alt: icon.label, loading: "lazy" }),
+            el("span", { text: icon.animated ? icon.label + " (animated)" : icon.label }),
           );
           tile.addEventListener("click", () => { onPick("theme:" + theme.slug + "/" + icon.id); finish(); });
           grid.append(tile);
@@ -1590,7 +1824,9 @@
    * <remarks>A value that is neither a theme icon nor a file still in the
    * images folder is added to the select exactly as it stands, so a picture
    * deleted from disk shows as itself rather than quietly becoming No
-   * picture.</remarks>
+   * picture. A file the daemon reports as a theme icon living in the images
+   * folder is shown as a theme icon too, never as an upload: the dropdown
+   * lists uploads only, and theme icons are chosen from the gallery.</remarks>
    */
   function picker(current, onChange, options) {
     const wrap = el("div", { class: "picker" });
@@ -1602,7 +1838,8 @@
     select.append(el("option", { value: "", text: "No picture" }));
     for (const file of images) select.append(el("option", { value: "images/" + file, text: file }));
     const name = current ? current.replace(/^images\//, "") : "";
-    if (current && current.startsWith("theme:")) select.append(el("option", { value: current, text: "Theme icon" }));
+    const isTheme = current && (current.startsWith("theme:") || Object.prototype.hasOwnProperty.call(themeCopies, name));
+    if (isTheme) select.append(el("option", { value: current, text: "Theme icon" }));
     else if (current && !images.includes(name)) select.append(el("option", { value: current, text: current }));
     select.value = current || "";
     select.addEventListener("change", () => onChange(select.value || null));
@@ -2013,6 +2250,7 @@
     if (!action) return;
     if (action.type === "page" && action.page === oldName) action.page = newName;
     if (action.type === "multi") for (const step of action.steps || []) retarget(step, oldName, newName);
+    for (const inner of ["on", "off", "done"]) if (action[inner]) retarget(action[inner], oldName, newName);
   }
 
   // ---- Events from the daemon ---------------------------------------------
@@ -2125,7 +2363,8 @@
       images = data.images;
       imageDetails = data.details || [];
       imageFolder = data.folder || "";
-    } catch (e) { images = []; imageDetails = []; }
+      themeCopies = data.theme_copies || {};
+    } catch (e) { images = []; imageDetails = []; themeCopies = {}; }
   }
 
   /**

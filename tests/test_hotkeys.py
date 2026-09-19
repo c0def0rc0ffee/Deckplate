@@ -310,3 +310,50 @@ def test_pynput_backend_press_order():
     backend.release(("ctrl", "w"))
     assert backend._controller.log == [
         ("press", "K_ctrl"), ("press", "C_w"), ("release", "C_w"), ("release", "K_ctrl")]
+
+
+def test_type_text_uses_given_backend_and_never_parses():
+    """<summary>
+    Typing hands the text to the backend exactly as written, with the delay,
+    and does not run it through the combination parser.
+    </summary>
+    <remarks>
+    The text "ctrl+c" is the whole point of the case: parsed, it would be a
+    copy shortcut, and typed it is six characters. A text action carrying a
+    piece of text that happens to look like a key name must type it, because
+    text is data and the user chose the type. The backend seam is what keeps
+    this from typing into the desktop of whoever runs the suite.
+    </remarks>
+    """
+    class Recording:
+        """<summary>A backend that records what it was asked to type.</summary>"""
+
+        def __init__(self):
+            """<summary>Start with nothing typed.</summary>"""
+            self.typed = []
+
+        def type(self, text, delay_ms=0):
+            """<summary>Record the text and the delay.</summary>"""
+            self.typed.append((text, delay_ms))
+
+    backend = Recording()
+    hotkeys.type_text("ctrl+c", backend=backend)
+    hotkeys.type_text("hello\nworld", delay_ms=25, backend=backend)
+    assert backend.typed == [("ctrl+c", 0), ("hello\nworld", 25)]
+
+
+def test_xdotool_type_args():
+    """<summary>
+    The xdotool line for text clears modifiers, carries the delay only when
+    there is one, and puts the text after a double dash.
+    </summary>
+    <remarks>
+    The double dash is the line that matters. Without it a piece of text
+    starting with a dash is read by xdotool as an option, so "--help" would
+    print xdotool's usage instead of typing it, and anything else starting
+    with a dash would be refused. The delay is left out at zero so xdotool
+    keeps its own small default rather than being told to type with none.
+    </remarks>
+    """
+    assert hotkeys.xdotool_type_args("--help") == ["xdotool", "type", "--clearmodifiers", "--", "--help"]
+    assert hotkeys.xdotool_type_args("hi", 40) == ["xdotool", "type", "--clearmodifiers", "--delay", "40", "--", "hi"]

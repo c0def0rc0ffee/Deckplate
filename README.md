@@ -126,9 +126,11 @@ The config is documented by its own comments. In short:
   with kinds pulse, spinner, wave, rainbow and scroll (an animated GIF as
   the image plays by itself, and a strip panel takes
   `{ animation = { kind = "wave" } }`), and an `action` of type
-  `hotkey`, `sequence`, `launch`, `url`, `page`, `brightness`, `sleep` or
-  `hold`, `multi`. A `sequence` sends several keys in order with a
-  `delay_ms` pause between them, for example `keys = ["ctrl+l", "h", "enter"]`.
+  `hotkey`, `sequence`, `text`, `launch`, `url`, `request`, `volume`,
+  `audio_output`, `window`, `toggle`, `timer`, `stopwatch`, `counter`,
+  `page`, `brightness`, `sleep` or `hold`, `multi`. A `sequence` sends several keys
+  in order with a `delay_ms` pause between them, for example
+  `keys = ["ctrl+l", "h", "enter"]`.
   A `chord` keeps one key down while tapping others, with a random pause
   before each tap between `delay_min_ms` and `delay_max_ms`; the held key
   is never let go until the last tap, for example `hold = "alt"` with
@@ -138,6 +140,106 @@ The config is documented by its own comments. In short:
   `hold_max_ms` later it lets go for a random moment between `release_min_ms`
   and `release_max_ms`, then presses again, so it does not look like a key
   taped down. The key shows a green mark while it is held.
+
+### Typing text
+
+A `text` action types a piece of text into whatever has focus:
+
+```toml
+action = { type = "text", text = "gg wp", enter = true }
+```
+
+The text is sent as written, so `ctrl+c` here types those six characters
+rather than copying, and a line break in the text presses enter. `enter`
+presses enter afterwards, and `delay_ms` puts a pause between characters
+for a program that drops fast typing, such as a game's chat box or a remote
+desktop. Empty text with `enter` just presses enter.
+
+### Calling a web address
+
+A `request` action calls an address without opening a browser, which is how
+a key reaches anything with an HTTP API: Home Assistant, OBS through its
+websocket bridge, a home grown script behind a web server.
+
+```toml
+action = { type = "request", url = "http://192.0.2.10:8123/api/services/light/toggle",
+           method = "POST", body = '{"entity_id": "light.desk"}',
+           token_file = "~/.deckplate-tokens/home-assistant" }
+```
+
+`method` is GET unless given. `body` is sent as JSON unless a
+`Content-Type` in `headers` says otherwise, and `headers` is a table such as
+`{ X-Name = "value" }`. Whatever comes back is thrown away; a status of 400
+or above is logged as a failure like any other action.
+
+The token never goes in the config file. `token_file` names a file, outside
+the config folder and given as an absolute path (`~` is fine), holding just
+the token. Its contents are sent as `Authorization: Bearer <token>`; write
+the scheme yourself, for example `Basic dXNlcjpwYXNz`, to send anything
+else. The file is read on every press, so a rotated token is picked up
+without a restart, and nothing in the daemon, the page or the log ever
+holds it. Keep the file readable by you alone.
+
+### Keys that remember something
+
+Four action types act on the key they sit on rather than on the PC, and
+the key shows what it remembers:
+
+- `toggle` presses alternately run its `on` and `off` actions, either of
+  which may be any ordinary action:
+  `{ type = "toggle", on = { type = "hotkey", keys = "ctrl+shift+m" }, off = { type = "hotkey", keys = "ctrl+shift+m" } }`.
+- `timer` counts down `seconds`: press to start, press again to pause. The
+  key shows the time left with a ring that empties, then `0:00` in red for
+  ten seconds, and runs its optional `done` action once, for example
+  `done = { type = "launch", command = "paplay /usr/share/sounds/freedesktop/stereo/complete.oga" }`.
+  A `{ type = "timer", reset = true }` on the key's long press resets it.
+- `stopwatch` counts up in the same way; its ring goes round once a minute.
+  `{ type = "stopwatch", reset = true }` resets it.
+- `counter` adds `step` (default 1, negative to count down) to a count the
+  key shows large. `{ type = "counter", reset = true }` puts it back to zero,
+  so a long press reset and a double press `step = -1` make a full tally key.
+
+The count or the time takes the place the label normally has: on a key
+with a picture it goes in the band along the bottom, on a key without one
+it is the face and the key's own label moves into the band. The state is
+kept while the daemon runs and cleared when it stops. None of these can be
+a step of a multi action.
+
+### The other face of a key
+
+A key may carry `image_active` and `label_active`, shown in place of its
+picture and label while its thing is on: a toggle that is on, a hold, boost
+or repeat that is running, a timer or stopwatch that is going, a mute key
+while the sound is muted, an output key while its output is the one in
+use. The page has both behind "Picture and label while active".
+
+### Sound and windows
+
+- `volume` sets or steps the level, or mutes:
+  `{ type = "volume", value = 50 }`, `{ type = "volume", delta = -5 }`,
+  `{ type = "volume", mute = "toggle" }` (or `"on"`, `"off"`). Linux uses
+  pactl against the default output. Windows needs the pycaw package for the
+  level; without it the media keys are used for changes and for mute, and
+  the level cannot be set.
+- `audio_output` switches the default output: `{ type = "audio_output", device = "headphones" }`
+  matches a pattern against the outputs' names, ignoring case, and
+  `{ type = "audio_output", cycle = true }` goes to the next one. Playing
+  streams move with it on Linux. Windows needs the AudioDeviceCmdlets
+  PowerShell module (`Install-Module AudioDeviceCmdlets`).
+- `window` acts on another program's window:
+  `{ type = "window", match = "firefox", command = "firefox" }` brings the
+  first window whose class or title matches to the front, or launches the
+  command when there is none. `operation` may also be `minimise`, `maximise`
+  or `close`. Linux needs xdotool, and wmctrl to maximise; Wayland cannot do
+  any of it. Windows needs nothing installed.
+
+Two icon themes ship with the app: "Space Game", the space sim glyphs, and
+"Controls", pictures for the actions above (volume, mute, headphones,
+speaker, windows, timer, stopwatch, counter, toggle on and off, camera and
+microphone on and off, play, pause, stop, record, reset, bell) plus four
+animated ones: a running hourglass, a running stopwatch, an emptying ring
+and a tally counting up. An animated icon is a GIF and plays on the key.
+`tools/make_icons.py` draws them all in code.
 
 ### Second actions
 
@@ -264,6 +366,12 @@ key to remove it. For keys the browser cannot see, such as media keys,
 a key to another position to move it, or onto another key to swap them.
 Double click a page tab to rename it and drag tabs to reorder them.
 Uploaded pictures are kept in an `images` folder next to the config file.
+The built in theme icons are chosen from the gallery behind "Choose from a
+theme", never from the dropdown, which lists uploads only. A theme icon the
+icon tool once wrote into the images folder under its old `sc-<id>.png`
+name is recognised by that name (the theme's manifest declares the prefix),
+kept out of the dropdown and the pictures list, and left on disk; a key that
+still names one draws it as before.
 Pages are tabs; double click one to rename or delete it. A panel showing the
 weather has the weather place (with a search) and units in its own editor.
 The cog in the header opens the settings window for what applies to the

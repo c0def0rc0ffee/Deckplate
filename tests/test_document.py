@@ -387,3 +387,61 @@ def test_document_with_bad_values_fails_validation_not_emission():
     text = cfg.to_toml(doc)
     with pytest.raises(cfg.ConfigError, match="between 0 and 2"):
         cfg.parse(text, Path("/base"))
+
+
+def test_text_and_request_actions_round_trip_through_the_document():
+    """<summary>
+    Pins both new types surviving the save loop whole: the text's enter flag
+    and delay, and the request's method, body, header table, token file
+    path and timeout.
+    </summary>
+    <remarks>
+    The header table is the part with something to lose. It is the only
+    action parameter that is itself a table, so it is the first to find out
+    whether the emitter writes a nested inline table and whether the
+    document keeps it as a dict rather than flattening it. The token file
+    must come back as the text that was written, never as a resolved path,
+    so a config saved on one machine still names the same file on the other.
+    </remarks>
+    """
+    actions = [
+        {"type": "text", "text": "hello\nworld", "enter": True, "delay_ms": 20},
+        {"type": "request", "url": "https://example.org/api", "method": "POST", "body": '{"a": 1}',
+         "headers": {"X-Test": "1", "Content-Type": "text/plain"}, "token_file": "~/tokens/ha", "timeout_s": 30},
+    ]
+    doc = {"pages": [{"name": "A", "keys": [
+        {"row": 0, "column": index, "action": action} for index, action in enumerate(actions)]}]}
+    c = cfg.parse(cfg.to_toml(doc), Path("/base"))
+    back = cfg.document_from_config(c)["pages"][0]["keys"]
+    assert [key["action"] for key in back] == actions
+
+
+def test_new_action_types_and_active_face_round_trip_through_the_document():
+    """<summary>
+    Pins the seven new types and the active face fields surviving the save
+    loop whole, nested halves included.
+    </summary>
+    <remarks>
+    A toggle's on and off and a timer's done are nested actions, the first
+    outside a multi's steps, so this is where the document converter's
+    recursion into them is proven. Losing one would silently turn a toggle
+    into a key that only ever runs its on half.
+    </remarks>
+    """
+    actions = [
+        {"type": "toggle", "on": {"type": "hotkey", "keys": "ctrl+1", "hold_ms": 0},
+         "off": {"type": "launch", "command": "xed"}},
+        {"type": "timer", "seconds": 300, "done": {"type": "hotkey", "keys": "f5", "hold_ms": 0}},
+        {"type": "stopwatch", "reset": True},
+        {"type": "counter", "step": -2},
+        {"type": "volume", "mute": "toggle"},
+        {"type": "audio_output", "device": "head"},
+        {"type": "window", "match": "code", "operation": "maximise", "command": "code"},
+    ]
+    doc = {"pages": [{"name": "A", "keys": [
+        {"row": index // 5, "column": index % 5, "action": action, "image_active": "images/on.png", "label_active": "On"}
+        for index, action in enumerate(actions)]}]}
+    c = cfg.parse(cfg.to_toml(doc), Path("/base"))
+    back = cfg.document_from_config(c)["pages"][0]["keys"]
+    assert [key["action"] for key in back] == actions
+    assert all(key["image_active"] == "images/on.png" and key["label_active"] == "On" for key in back)

@@ -55,7 +55,7 @@ Routes:
     PUT  /api/config                replace the config file (validated first), application/toml
     GET  /api/document              the config as JSON, the form the page edits
     PUT  /api/document              write the config from JSON (validated first)
-    GET  /api/images                the pictures in the images folder, with what uses each
+    GET  /api/images                the uploaded pictures, with what uses each; theme icons kept apart
     GET  /api/images/<name>         one picture
     POST /api/images                upload a picture: body is the file, header X-Filename
     DELETE /api/images/<name>       remove a picture that nothing uses
@@ -1084,6 +1084,14 @@ class ApiHandler(BaseHTTPRequestHandler):
         ``used_by`` is what makes the delete refusal understandable before it
         happens, so the page can grey out a picture rather than offer a
         deletion that will fail.
+
+        A file that is a theme icon under the icon tool's old name (see
+        <see cref="themes.copy_ref"/>) is left out of ``images`` and
+        ``details`` and reported in ``theme_copies`` instead, name to
+        reference. Those files are theme icons that happen to live in the
+        folder, not uploads: the page offers them through the theme gallery
+        only, and never lists them for deletion. They stay on disk, and a key
+        that still names one draws it as before.
         </remarks>
         """
         controller = self._controller()
@@ -1092,11 +1100,15 @@ class ApiHandler(BaseHTTPRequestHandler):
         folder = self._images_dir(controller)
         files = sorted(p for p in folder.iterdir()
                        if p.is_file() and p.suffix.lower() in IMAGE_SUFFIXES) if folder.is_dir() else []
+        known = themes.list_themes()
+        copies = {p.name: ref for p in files if (ref := themes.copy_ref(p.name, known))}
+        uploads = [p for p in files if p.name not in copies]
         users = self._image_users(controller, folder)
         self._send_json({
             "folder": str(folder),
-            "images": [p.name for p in files],
-            "details": [{"name": p.name, "bytes": p.stat().st_size, "used_by": users.get(p.name, [])} for p in files],
+            "images": [p.name for p in uploads],
+            "details": [{"name": p.name, "bytes": p.stat().st_size, "used_by": users.get(p.name, [])} for p in uploads],
+            "theme_copies": copies,
         })
 
     def _image_delete(self, name: str) -> None:
@@ -1182,28 +1194,34 @@ class ApiHandler(BaseHTTPRequestHandler):
 
     def _theme_icon(self, rest: str) -> None:
         """<summary>
-        GET /api/themes/slug/icon.png: one icon out of a shipped theme.
+        GET /api/themes/slug/icon, or icon.png or icon.gif: one icon out of a
+        shipped theme, in whatever form it is shipped.
         </summary>
         <param name="rest">The part of the path after the prefix, in the form
-        ``slug/icon.png``. Already decoded and not yet trusted.</param>
+        ``slug/icon`` with or without a suffix. Already decoded and not yet trusted.</param>
         <remarks>
         Nothing is joined to a folder here. The slug and the icon name are
         handed to the themes module, which looks them up against what it
         actually ships and answers None for anything it does not recognise,
         so a name that tries to climb out simply does not match.
 
-        A missing slug, a missing suffix and an unknown icon are all the same
-        404: the page has a list of what exists and has no need to be told
-        which part it got wrong.
+        The suffix in the request is ignored and the file's own decides the
+        content type, so a page that asked for ``.png`` still gets the
+        animated GIF an icon may have become. A missing slug and an unknown
+        icon are the same 404: the page has a list of what exists and has no
+        need to be told which part it got wrong.
         </remarks>
         """
-        slug, sep, icon_png = rest.partition("/")
-        if not sep or not icon_png.endswith(".png"):
-            return self._send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
-        file = themes.icon_path(slug, icon_png[:-len(".png")])
+        slug, _sep, icon = rest.partition("/")
+        for suffix in themes.ICON_SUFFIXES:
+            if icon.lower().endswith(suffix):
+                icon = icon[:-len(suffix)]
+                break
+        file = themes.icon_path(slug, icon)
         if file is None:
             return self._send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
-        self._send(file.read_bytes(), "image/png")
+        kind = "image/gif" if file.suffix.lower() == ".gif" else "image/png"
+        self._send(file.read_bytes(), kind)
 
     def _image_upload(self) -> None:
         """<summary>

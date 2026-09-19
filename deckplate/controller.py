@@ -29,12 +29,13 @@ import os
 import queue
 import threading
 import time
+from dataclasses import replace
 from datetime import datetime
 from typing import Callable
 
-from . import animations, focus, holds, images, layout, tiles
+from . import animations, audio, focus, holds, images, layout, live, tiles
 from .actions import ActionRunner
-from .config import MARK_DEFAULT_FLASH_MS, Config, load
+from .config import MARK_DEFAULT_FLASH_MS, POSITIONAL_ACTIONS, Action, Config, load
 from .presses import Actions, PressRouter
 from .protocol import KeyEvent
 from .weather import WeatherService
@@ -69,6 +70,13 @@ IDLE_READ_MS = 250
 MAX_PREVIEW_SCALE = 3
 # Encoded preview loops kept for the page, one per position and scale.
 PREVIEW_GIF_CACHE = 32
+# How often the sound system is asked whether it is muted and which output is
+# in use, while the page showing has a key whose face depends on the answer.
+# Each ask is a process on Linux, so this is seconds, not milliseconds.
+AUDIO_POLL_SECONDS = 3
+# How long the loop may sit on the deck while a timer or stopwatch is showing
+# on the page, so its digits change on time.
+LIVE_READ_MS = 200
 
 
 class Track:
@@ -400,9 +408,18 @@ class Controller:
         self._preview_gifs: dict[tuple[int, int, int], tuple[tuple, bytes]] = {}
         self._preview_lock = threading.Lock()
         self._flashes: dict[tuple[int, int], float] = {}
-        # The running border colour last drawn on each key, so only the keys
-        # whose mark actually changed are redrawn while one blinks.
+        # The face last drawn on each key (its border, whether it is active,
+        # and any live text and ring), so only the keys whose face actually
+        # changed are redrawn while one blinks or counts.
         self._marks: dict[tuple[int, int], tuple | None] = {}
+        # What the live keys remember: toggles, counters, timers, stopwatches.
+        self.states = live.KeyStates()
+        # Whether the sound is muted, which output is in use and what outputs
+        # exist, as last asked, and when. Asked only while a key needs it.
+        self._audio_status: tuple[bool | None, str | None, list] = (None, None, [])
+        self._audio_polled: float | None = None
+        # Set while a clock is showing on the page, to keep the loop awake.
+        self._live_ms: int | None = None
         # The shortest blink half period running now, so the loop can keep up
         # with a key set to flash faster than the idle read timeout.
         self._blink_ms: int | None = None
@@ -485,6 +502,8 @@ class Controller:
                 timeout = IDLE_READ_MS if self.asleep else self.animator.read_timeout_ms()
                 if not self.asleep and self._blink_ms:
                     timeout = min(timeout, max(30, self._blink_ms // 2))
+                if not self.asleep and self._live_ms:
+                    timeout = min(timeout, self._live_ms)
                 if self._flashes:
                     timeout = min(timeout, 30)
                 # A long press has to fire on time, and the loop would otherwise
@@ -520,41 +539,49 @@ class Controller:
 
     def _refresh_marks(self) -> None:
         """<summary>
-        Redraw only the keys whose running border changed.
+        Redraw only the keys whose face changed: a border that came or went,
+        a toggle that flipped, a timer whose digits moved, a mute that ended.
         </summary>
         <remarks>
         A repeat blinks, so its key needs redrawing twice a second while it
-        runs. Sending the whole page that often would be fifteen pictures a
-        time, so only the keys that actually changed go out. An animated key is
+        runs, and a timer changes every second. Sending the whole page that
+        often would be fifteen pictures a time, so only the keys whose face
+        actually changed go out. An animated key with nothing live on it is
         left to the animator, which owns what is on it.
 
         Runs on every tick, which is why it has to be cheap when nothing is
-        happening: with no task running, every key wants no border, every
-        key already has none, and nothing at all is sent. It is also what
-        clears a border the moment its task stops, so nothing else has to
-        notice that a hold has ended.
+        happening: with nothing running, every key wants the face it already
+        has, and nothing at all is sent. It is also what clears a border the
+        moment its task stops, so nothing else has to notice that a hold has
+        ended.
         </remarks>
         """
         holding = self.runner.holds.active_combos()
         size = self.deck.image_size
         self._blink_ms = self._blinking_ms(holding)
+        self._live_ms = LIVE_READ_MS if self.states.any_running(self.page.name) else None
         sent = False
         for row in range(layout.ROWS):
             for column in range(layout.LCD_COLUMNS):
-                want = self._key_mark(self.page.keys.get((row, column)), holding)
+                want = self._face_signature(row, column, holding)
                 if self._marks.get((row, column)) == want:
                     continue
                 self._marks[(row, column)] = want
-                if (row, column) in self.animator.tracks:
+                image, frames, fps = self._draw_key(row, column, size, holding)
+                if frames is not None:
+                    # A live value on an animated key: the frames carry the
+                    # text and the ring, so the animator gets a new loop.
+                    self.animator.set(row, column, frames, fps)
+                elif (row, column) in self.animator.tracks:
                     continue
-                image, _frames, _fps = self._draw_key(row, column, size, holding)
                 self.deck.set_position_image(row, column, image)
                 self._remember_tile(row, column, image)
                 sent = True
         if sent:
             self.deck.commit()
             self.hub.publish({"type": "tiles", "page": self.page.name,
-                              "columns": list(range(layout.LCD_COLUMNS))})
+                              "columns": list(range(layout.LCD_COLUMNS)),
+                              "animated": self.animated_positions()})
 
     def render_all(self) -> None:
         """<summary>Redraw the keys and the strip, and commit once.</summary>
@@ -649,6 +676,110 @@ class Controller:
                 break
         return shortest
 
+    def _audio_state(self) -> tuple[bool | None, str | None, list]:
+        """<summary>
+        Whether the sound is muted, which output is in use and the outputs
+        there are, asked of the sound system no more than every few seconds.
+        </summary>
+        <returns>(muted, default output id, outputs). Unknown parts are None
+        or empty, which draws the key as not active.</returns>
+        <remarks>
+        Asked lazily, so a page with no key that cares costs nothing, and
+        never more often than AUDIO_POLL_SECONDS, because on Linux each ask
+        is a pactl process. Any failure is swallowed into an unknown answer:
+        a machine with no sound control still draws its keys, just without
+        the muted face.
+        </remarks>
+        """
+        now = self.monotonic()
+        if self._audio_polled is not None and now - self._audio_polled < AUDIO_POLL_SECONDS:
+            return self._audio_status
+        self._audio_polled = now
+        try:
+            backend = self.runner.audio
+            self._audio_status = (backend.is_muted(), backend.default_output(), backend.outputs())
+        except Exception:  # no pactl, no pycaw, or a refusal: the face simply shows nothing
+            self._audio_status = (None, None, [])
+        return self._audio_status
+
+    def _key_face(self, key, position: tuple[int, int], holding, page) -> tuple[bool, "live.Face | None"]:
+        """<summary>
+        Whether a key is active right now, and the live face it shows if any.
+        </summary>
+        <param name="key">The key's config, or None for an empty position.</param>
+        <param name="position">Row and column, for the state store.</param>
+        <param name="holding">The task keys running now, from the action runner.</param>
+        <param name="page">The page the key is on, for the state store's key.</param>
+        <returns>(active, face). Active picks the key's active picture and
+        label; the face carries a timer's, stopwatch's or counter's text
+        and ring, or is None for a key with none.</returns>
+        <remarks>
+        Any of the key's three actions can make it active: a toggle that is
+        on, a hold, boost or repeat that is running, a timer or stopwatch
+        that is going, a mute key while the sound is muted, an output key
+        while its output is the one in use. The first live face found wins,
+        so a key with a timer on its press and a counter on its double press
+        shows the timer.
+
+        A timer or stopwatch that has never been pressed still has a face,
+        its length or 0:00, so the key reads as what it is before first use.
+        </remarks>
+        """
+        if key is None:
+            return False, None
+        at = (page.name, position[0], position[1])
+        state = self.states.peek(at)
+        now = self.monotonic()
+        active = False
+        face = None
+        for action in key.actions():
+            if action is None:
+                continue
+            kind = action.type
+            if kind == "toggle":
+                active = active or self.states.is_on(at)
+            elif kind in TOGGLING_ACTIONS:
+                active = active or holds.task_key(kind, action.params) in holding
+            elif kind in ("timer", "stopwatch") and not action.params.get("reset"):
+                if isinstance(state, live.ClockState):
+                    shown = state.face(now)
+                elif kind == "timer":
+                    shown = live.Face(text=live.format_seconds(action.params["seconds"]), ring=1.0)
+                else:
+                    shown = live.Face(text="0:00")
+                face = face or shown
+                active = active or shown.active
+            elif kind == "counter" and not action.params.get("reset"):
+                count = state.count if isinstance(state, live.CounterState) else 0
+                face = face or live.Face(text=str(count))
+            elif kind == "volume" and "mute" in action.params:
+                muted, _default, _outputs = self._audio_state()
+                active = active or bool(muted)
+            elif kind == "audio_output" and "device" in action.params:
+                _muted, default, outputs = self._audio_state()
+                chosen = audio.pick_output(outputs, action.params["device"])
+                active = active or (chosen is not None and chosen.id == default)
+        return active, face
+
+    def _face_signature(self, row: int, column: int, holding) -> tuple:
+        """<summary>
+        Everything that decides how a key is drawn right now, as one comparable value.
+        </summary>
+        <param name="row">Row from 0 at the top.</param>
+        <param name="column">Column from 0 at the left.</param>
+        <param name="holding">The task keys running now.</param>
+        <returns>(border colour, active, face).</returns>
+        <remarks>Compared with the last one drawn to decide whether the key
+        needs sending again. A face changes once a second at most, since its
+        text is whole seconds and its ring is rounded to the pixel.</remarks>
+        """
+        key = self.page.keys.get((row, column))
+        mark = self._key_mark(key, holding)
+        active, face = self._key_face(key, (row, column), holding, self.page)
+        if face is not None and face.ring is not None:
+            face = replace(face, ring=round(face.ring * 100) / 100)
+        return mark, active, face
+
     def _draw_key(self, row: int, column: int, size: int, holding, page=None, config=None) -> tuple:
         """<summary>
         Draw one key panel at any size, without sending anything.
@@ -673,11 +804,21 @@ class Controller:
         config = self.config if config is None else config
         key = page.keys.get((row, column))
         mark = self._key_mark(key, holding)
+        active, face = self._key_face(key, (row, column), holding, page)
+        if active and key is not None and (key.image_active or key.label_active):
+            key = replace(key, image=key.image_active or key.image, label=key.label_active or key.label)
         default_bg = config.deck.background
-        animated = tiles.key_frames(key, size, active=mark is not None,
-                                    default_background=default_bg, mark_colour=mark)
+        ring_colour = None
+        if face is not None:
+            ring_colour = tiles.ALERT if face.alert else images.ACCENT
+        animated = tiles.key_frames(key if face is None else replace(key, label=None), size,
+                                    active=mark is not None, default_background=default_bg, mark_colour=mark)
         if animated is not None:
             frames, fps = animated
+            if face is not None and face.text:
+                frames = [tiles.with_label(frame, face.text) for frame in frames]
+                if face.ring is not None:
+                    frames = [tiles.with_ring(frame, face.ring, ring_colour) for frame in frames]
             return frames[0], frames, fps
         backdrop = None
         if page.wallpaper is not None:
@@ -688,6 +829,12 @@ class Controller:
                 factor = size / self.deck.image_size
                 pitch = (round(pitch[0] * factor), round(pitch[1] * factor))
             backdrop = tiles.wallpaper_slice(page.wallpaper, size, pitch, row, column)
+        if face is not None and face.text:
+            tile = tiles.live_tile(key, size, face.text, face.ring, ring_colour,
+                                   default_background=default_bg, backdrop=backdrop)
+            if mark is not None:
+                tile = tiles.with_mark(tile, mark)
+            return tile, None, 0
         return tiles.key_tile(key, size, active=mark is not None, default_background=default_bg,
                               backdrop=backdrop, mark_colour=mark), None, 0
 
@@ -778,8 +925,7 @@ class Controller:
                     self.animator.set(row, column, frames, fps)
                 self.deck.set_position_image(row, column, image)
                 self._remember_tile(row, column, image)
-                self._marks[(row, column)] = self._key_mark(
-                    self.page.keys.get((row, column)), holding)
+                self._marks[(row, column)] = self._face_signature(row, column, holding)
         if commit:
             self.deck.commit()
         self.hub.publish({"type": "tiles", "page": self.page.name, "columns": list(range(layout.LCD_COLUMNS)),
@@ -1092,12 +1238,34 @@ class Controller:
         key = self.page.keys.get((row, column))
         if key is None:
             return
-        actions = Actions(*key.actions())
+        actions = Actions(*self._bind(key.actions(), row, column))
         if not actions.any:
             return
         if self.config.deck.press_flash:
             self._flash(row, column)
         self._run_actions(self.router.press(row, column, actions, self.monotonic()))
+
+    def _bind(self, actions, row: int, column: int):
+        """<summary>
+        Give the positional actions among a key's three the key they sit on.
+        </summary>
+        <param name="actions">The key's plain, long and double actions, any None.</param>
+        <param name="row">Row from 0 at the top.</param>
+        <param name="column">Column from 0 at the left.</param>
+        <returns>The same three, with each toggle, timer, stopwatch or
+        counter copied to carry ``at``: the page name, row and column.</returns>
+        <remarks>
+        The router hands actions back long after the press, on a release or
+        a tick, with no memory of which key they came from, so the position
+        travels with the action. It is a runtime copy: the config's own
+        Action objects are never written to, and the document form never
+        sees the extra key.
+        </remarks>
+        """
+        at = (self.page.name, row, column)
+        return tuple(Action(action.type, {**action.params, "at": at})
+                     if action is not None and action.type in POSITIONAL_ACTIONS else action
+                     for action in actions)
 
     def _run_actions(self, actions: list) -> None:
         """<summary>
@@ -1106,17 +1274,92 @@ class Controller:
         <param name="actions">Nothing, or one or more actions to run in
         order.</param>
         <remarks>
-        The keys are redrawn once at the end rather than once per action, and
-        only when a hold was involved, because that is the only action whose
-        result shows on the key itself.
+        The positional actions, toggle, timer, stopwatch and counter, are run
+        here rather than by the runner, since only the controller has the
+        state they act on; their inner actions go to the runner as usual.
+
+        The keys are redrawn once at the end rather than once per action. A
+        hold redraws the whole page, as it always has; anything else whose
+        result shows on a key, a state that moved or a volume that changed,
+        redraws only the keys whose face changed, after asking the sound
+        system afresh.
         </remarks>
         """
         if not actions:
             return
         for action in actions:
-            self.runner.run(action)
+            if action.type in POSITIONAL_ACTIONS:
+                self._run_positional(action)
+            else:
+                self.runner.run(action)
         if any(action.type == "hold" for action in actions):
             self.render_keys()  # show or clear the holding mark
+        elif any(action.type in POSITIONAL_ACTIONS or action.type in ("volume", "audio_output")
+                 for action in actions):
+            self._audio_polled = None
+            self._refresh_marks()
+
+    def _run_positional(self, action: Action) -> None:
+        """<summary>
+        Run a toggle, timer, stopwatch or counter against its own key.
+        </summary>
+        <param name="action">The action, carrying ``at`` from <see cref="_bind"/>.</param>
+        <remarks>
+        A toggle flips and runs the half for its new state; a timer or
+        stopwatch starts, pauses or resumes, or resets when the action says
+        so; a counter moves by its step or resets. An action that somehow
+        arrives without a position is logged and dropped rather than applied
+        to a guessed key.
+        </remarks>
+        """
+        at = action.params.get("at")
+        if at is None:
+            self.log(f"{action.type}: no key position, nothing done")
+            return
+        now = self.monotonic()
+        params = action.params
+        if action.type == "toggle":
+            inner = params.get("on" if self.states.toggle(at) else "off")
+            if inner is not None:
+                self.runner.run(inner)
+        elif action.type in ("timer", "stopwatch"):
+            if params.get("reset"):
+                state = self.states.peek(at)
+                if isinstance(state, live.ClockState):
+                    state.reset()
+            else:
+                total = params.get("seconds") if action.type == "timer" else None
+                self.states.clock(at, total).press(now)
+        elif action.type == "counter":
+            self.states.count(at, params.get("step", 0), params.get("reset", False))
+
+    def _timer_done(self, at) -> None:
+        """<summary>
+        Run the done action of the timer that just finished at a position.
+        </summary>
+        <param name="at">Page name, row and column of the key.</param>
+        <remarks>
+        The action is looked up in the config at that moment rather than
+        kept with the state, so a done action edited while the timer ran is
+        the one that fires. The key is flashed too, whether or not it is on
+        the page showing, which is harmless off page: the flash restores
+        whatever tile the position holds.
+        </remarks>
+        """
+        name, row, column = at
+        for page in self.config.pages:
+            if page.name != name:
+                continue
+            key = page.keys.get((row, column))
+            if key is None:
+                return
+            for action in key.actions():
+                if action is not None and action.type == "timer" and action.params.get("done") is not None:
+                    self.runner.run(action.params["done"])
+                    break
+            if page is self.page and self.config.deck.press_flash:
+                self._flash(row, column)
+            return
 
     def test_press(self, row: int, column: int, gesture: str = "press") -> None:
         """<summary>
@@ -1139,8 +1382,8 @@ class Controller:
         key = self.page.keys.get((row, column))
         if key is None:
             return
-        action = {"press": key.action, "long": key.action_long,
-                  "double": key.action_double}.get(gesture)
+        bound = self._bind(key.actions(), row, column)
+        action = {"press": bound[0], "long": bound[1], "double": bound[2]}.get(gesture)
         if action is None:
             return
         if self.config.deck.press_flash:
@@ -1227,11 +1470,18 @@ class Controller:
                 sent = True
             if sent:
                 self.deck.commit()
-            # Keeps a blinking repeat border going, and clears any border the
-            # moment its task stops.
+            # A timer that has run out fires its done action once, then its
+            # key shows the finish until the state settles back to idle.
+            for at in self.states.settle(now):
+                self._timer_done(at)
+            # Keeps a blinking repeat border going, clears any border the
+            # moment its task stops, and moves the digits on a live key.
             self._refresh_marks()
+            # A timer or stopwatch going on the page counts as activity: the
+            # deck was asked to show it, and sleeping would hide the count.
             idle_limit = self.config.deck.sleep_after_minutes * 60
-            if idle_limit and now - self.last_activity >= idle_limit:
+            if idle_limit and now - self.last_activity >= idle_limit \
+                    and not self.states.any_running(self.page.name):
                 self.sleep_deck()
         if now - self.last_keepalive >= KEEPALIVE_SECONDS:
             self.deck.keepalive()

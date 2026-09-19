@@ -282,7 +282,10 @@ def test_key_actions_may_be_empty_while_being_set_up():
     The empty value has to keep its type: a hotkey holds an empty string and
     a sequence an empty tuple, because the action layer tests emptiness on
     what it was given. A chord with neither side captured is the freshest
-    case of all and is checked separately.
+    case of all and is checked separately. A launch with no command is the
+    same shape: choosing "Launch a program" on the page saved a key the
+    parser then refused, and the page sat on "not saved" until a command
+    was typed.
     </remarks>
     """
     text = """
@@ -300,11 +303,17 @@ action = { type = "sequence", keys = [] }
 row = 0
 column = 2
 action = { type = "hold", keys = "" }
+[[pages.keys]]
+row = 0
+column = 3
+action = { type = "launch" }
 """
     keys = cfg.parse(text, "/base").pages[0].keys
     assert keys[(0, 0)].action.params["keys"] == ""
     assert keys[(0, 1)].action.params["keys"] == ()
     assert keys[(0, 2)].action.params["keys"] == ""
+    # a launch fresh from the page: the type chosen, no command typed yet
+    assert keys[(0, 3)].action.params["command"] == ""
     # a chord fresh from the page: nothing captured on either side yet
     text = '[[pages]]\nname = "A"\n[[pages.keys]]\nrow = 0\ncolumn = 0\naction = { type = "chord", hold = "", keys = [] }'
     chord = cfg.parse(text, "/base").pages[0].keys[(0, 0)].action
@@ -923,5 +932,241 @@ def test_bad_toggling_actions_are_reported_at_load(action, message):
     </remarks>
     """
     text = f"[[pages]]\nname = 'A'\n[[pages.keys]]\nrow = 0\ncolumn = 0\naction = {action}"
+    with pytest.raises(cfg.ConfigError, match=message):
+        cfg.parse(text, "/base")
+
+
+def test_text_action_parses_with_defaults_and_may_be_empty():
+    """<summary>
+    Pins a text action keeping its text as written, defaulting enter off and
+    the delay to zero, and loading with no text at all.
+    </summary>
+    <remarks>
+    The text is kept whole, spaces and newlines included, because the
+    whitespace stripping that every other text field gets would eat a
+    deliberate trailing space or a line break the user typed. Empty text has
+    to load for the same reason an empty key list does: the page saves the
+    key the moment its type is chosen.
+    </remarks>
+    """
+    text = """
+[[pages]]
+name = "A"
+[[pages.keys]]
+row = 0
+column = 0
+action = { type = "text", text = "hello world \\n", enter = true, delay_ms = 40 }
+[[pages.keys]]
+row = 0
+column = 1
+action = { type = "text" }
+"""
+    keys = cfg.parse(text, "/base").pages[0].keys
+    assert keys[(0, 0)].action.params == {"text": "hello world \n", "enter": True, "delay_ms": 40}
+    assert keys[(0, 1)].action.params == {"text": "", "enter": False, "delay_ms": 0}
+
+
+def test_request_action_parses_with_defaults():
+    """<summary>
+    Pins a request action's defaults (GET, ten seconds, nothing else) and
+    that every optional part is kept when given, with the method upper cased.
+    </summary>
+    <remarks>
+    The absent parts must be absent from the params rather than present as
+    None or empty, because the document form writes the params out as they
+    stand and TOML has no way to write None. The method is upper cased so a
+    hand written "post" means the same as "POST" and the runner never has to
+    care.
+    </remarks>
+    """
+    text = """
+[[pages]]
+name = "A"
+[[pages.keys]]
+row = 0
+column = 0
+action = { type = "request", url = "https://example.org/hook" }
+[[pages.keys]]
+row = 0
+column = 1
+action = { type = "request", url = "https://example.org/api", method = "post", body = '{"a": 1}', headers = { X-Test = "1" }, token_file = "~/tokens/ha", timeout_s = 30 }
+"""
+    keys = cfg.parse(text, "/base").pages[0].keys
+    assert keys[(0, 0)].action.params == {"url": "https://example.org/hook", "method": "GET", "timeout_s": cfg.REQUEST_DEFAULT_TIMEOUT_S}
+    assert keys[(0, 1)].action.params == {
+        "url": "https://example.org/api", "method": "POST", "body": '{"a": 1}',
+        "headers": {"X-Test": "1"}, "token_file": "~/tokens/ha", "timeout_s": 30,
+    }
+
+
+@pytest.mark.parametrize("action, message", [
+    ("{ type = 'text', text = 5 }", "'text' must be text"),
+    ("{ type = 'text', text = 'a', enter = 'yes' }", "true or false"),
+    ("{ type = 'text', text = 'a', delay_ms = 5000 }", "between 0 and 1000"),
+    ("{ type = 'request' }", "'url' is required"),
+    ("{ type = 'request', url = 'https://example.org', method = 'FETCH' }", "'method' must be one of"),
+    ("{ type = 'request', url = 'https://example.org', body = 5 }", "'body' must be text"),
+    ("{ type = 'request', url = 'https://example.org', headers = { X = 5 } }", "table of text values"),
+    ("{ type = 'request', url = 'https://example.org', token_file = 'tokens/ha' }", "absolute path"),
+    ("{ type = 'request', url = 'https://example.org', timeout_s = 0 }", "between 1 and 120"),
+])
+def test_bad_text_and_request_actions_are_reported_at_load(action, message):
+    """<summary>
+    Pins the refusals for the text and request types, each naming the field
+    at fault.
+    </summary>
+    <remarks>
+    The relative token file case is the one with a reason beyond tidiness.
+    A relative path would resolve somewhere the user did not choose, most
+    likely inside the config folder, which is the one place a token must not
+    live because that folder is what gets copied between machines and what
+    the page writes back.
+    </remarks>
+    """
+    text = f'[[pages]]\nname = "A"\n[[pages.keys]]\nrow = 0\ncolumn = 0\naction = {action}'
+    with pytest.raises(cfg.ConfigError, match=message):
+        cfg.parse(text, "/base")
+
+
+def test_new_action_types_parse_with_their_defaults():
+    """<summary>
+    Pins the shape each of the seven new types parses to: toggle halves as
+    nested actions, timer seconds and done, stopwatch and counter with their
+    step and reset forms, the three volume forms, the two output forms, and
+    a window action's operation defaulting to focus.
+    </summary>
+    <remarks>
+    The absent parts must be absent from params, not present as None or
+    False, because the document form writes params out as they stand and
+    the page then shows a value nobody set. The mute spelled as ``true`` is
+    accepted as "on" because that is what a hand written file will say.
+    </remarks>
+    """
+    text = """
+[[pages]]
+name = "A"
+[[pages.keys]]
+row = 0
+column = 0
+action = { type = "toggle", on = { type = "hotkey", keys = "ctrl+1" }, off = { type = "hotkey", keys = "ctrl+2" } }
+[[pages.keys]]
+row = 0
+column = 1
+action = { type = "timer", seconds = 300, done = { type = "launch", command = "paplay ding.wav" } }
+action_long = { type = "timer", reset = true }
+[[pages.keys]]
+row = 0
+column = 2
+action = { type = "stopwatch" }
+action_long = { type = "stopwatch", reset = true }
+[[pages.keys]]
+row = 0
+column = 3
+action = { type = "counter" }
+action_long = { type = "counter", reset = true }
+action_double = { type = "counter", step = -1 }
+[[pages.keys]]
+row = 0
+column = 4
+action = { type = "volume", value = 50 }
+action_long = { type = "volume", delta = -5 }
+action_double = { type = "volume", mute = true }
+[[pages.keys]]
+row = 1
+column = 0
+action = { type = "audio_output", device = "headphones" }
+action_long = { type = "audio_output", cycle = true }
+[[pages.keys]]
+row = 1
+column = 1
+action = { type = "window", match = "firefox", command = "firefox" }
+action_long = { type = "window", match = "firefox", operation = "minimise" }
+[[pages.keys]]
+row = 1
+column = 2
+action = { type = "toggle" }
+"""
+    keys = cfg.parse(text, "/base").pages[0].keys
+    toggle = keys[(0, 0)].action
+    assert toggle.type == "toggle" and toggle.params["on"].params["keys"] == "ctrl+1" and toggle.params["off"].type == "hotkey"
+    timer = keys[(0, 1)]
+    assert timer.action.params["seconds"] == 300 and timer.action.params["done"].type == "launch"
+    assert timer.action_long.params == {"reset": True}
+    assert keys[(0, 2)].action.params == {} and keys[(0, 2)].action_long.params == {"reset": True}
+    counter = keys[(0, 3)]
+    assert counter.action.params == {"step": 1} and counter.action_long.params == {"reset": True}
+    assert counter.action_double.params == {"step": -1}
+    volume = keys[(0, 4)]
+    assert volume.action.params == {"value": 50} and volume.action_long.params == {"delta": -5}
+    assert volume.action_double.params == {"mute": "on"}
+    output = keys[(1, 0)]
+    assert output.action.params == {"device": "headphones"} and output.action_long.params == {"cycle": True}
+    window = keys[(1, 1)]
+    assert window.action.params == {"match": "firefox", "operation": "focus", "command": "firefox"}
+    assert window.action_long.params == {"match": "firefox", "operation": "minimise"}
+    assert keys[(1, 2)].action.params == {}
+
+
+def test_active_face_fields_parse_and_resolve():
+    """<summary>
+    Pins a key's active picture resolving like its ordinary one and its
+    active label being kept, with both absent by default.
+    </summary>
+    """
+    text = """
+[[pages]]
+name = "A"
+[[pages.keys]]
+row = 0
+column = 0
+image = "images/mic.png"
+image_active = "images/mic-off.png"
+label_active = "Muted"
+action = { type = "volume", mute = "toggle" }
+[[pages.keys]]
+row = 0
+column = 1
+"""
+    keys = cfg.parse(text, "/base").pages[0].keys
+    assert keys[(0, 0)].image_active == Path("/base/images/mic-off.png")
+    assert keys[(0, 0)].label_active == "Muted"
+    assert keys[(0, 1)].image_active is None and keys[(0, 1)].label_active is None
+
+
+@pytest.mark.parametrize("action, message", [
+    ("{ type = 'multi', steps = [ { type = 'toggle' } ] }", "cannot be a step"),
+    ("{ type = 'multi', steps = [ { type = 'counter' } ] }", "cannot be a step"),
+    ("{ type = 'toggle', on = { type = 'hold', keys = 'w' } }", "cannot be a step"),
+    ("{ type = 'toggle', on = { type = 'timer', seconds = 5 } }", "cannot be a step"),
+    ("{ type = 'timer' }", "needs 'seconds'"),
+    ("{ type = 'timer', seconds = 0 }", "between 1 and 86400"),
+    ("{ type = 'timer', seconds = 5, done = { type = 'multi', steps = [] } }", "cannot contain"),
+    ("{ type = 'counter', step = 5000 }", "between -1000 and 1000"),
+    ("{ type = 'counter', reset = 'yes' }", "true or false"),
+    ("{ type = 'volume' }", "exactly one of"),
+    ("{ type = 'volume', value = 10, delta = 5 }", "exactly one of"),
+    ("{ type = 'volume', delta = 0 }", "must not be zero"),
+    ("{ type = 'volume', mute = 'sometimes' }", "'mute' must be one of"),
+    ("{ type = 'audio_output' }", "needs 'device'"),
+    ("{ type = 'audio_output', device = '(' }", "not a valid regular expression"),
+    ("{ type = 'window' }", "'match' is required"),
+    ("{ type = 'window', match = 'x', operation = 'explode' }", "'operation' must be one of"),
+    ("{ type = 'toggle', on = { type = 'page', page = 'Nowhere' } }", "does not exist"),
+    ("{ type = 'timer', seconds = 5, done = { type = 'page', page = 'Nowhere' } }", "does not exist"),
+])
+def test_bad_new_actions_are_reported_at_load(action, message):
+    """<summary>
+    Pins the refusals for the new types, each naming the field at fault,
+    and pins the page target check reaching into a toggle's halves and a
+    timer's done.
+    </summary>
+    <remarks>
+    The nesting refusals are the ones with a reason beyond tidiness. A
+    positional action inside a multi would have no key to act on, and a
+    hold inside a toggle would run until pressed again with nothing to
+    press: both would load fine and then do something surprising.
+    </remarks>
+    """
+    text = f'[[pages]]\nname = "A"\n[[pages.keys]]\nrow = 0\ncolumn = 0\naction = {action}'
     with pytest.raises(cfg.ConfigError, match=message):
         cfg.parse(text, "/base")

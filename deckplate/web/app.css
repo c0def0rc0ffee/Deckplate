@@ -447,11 +447,12 @@ label.check input { width: auto; accent-color: var(--signal); }
   sitting inside it.
   </remarks>
  */
-details.second { margin: 4px 0 14px; border-top: 1px solid var(--rule); padding-top: 10px; }
-details.second > summary { cursor: pointer; color: var(--steel); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; list-style: none; }
-details.second > summary::-webkit-details-marker { display: none; }
-details.second > summary::before { content: "\25b8"; display: inline-block; width: 14px; }
-details.second[open] > summary::before { content: "\25be"; }
+details.second, details.active-face { margin: 4px 0 14px; border-top: 1px solid var(--rule); padding-top: 10px; }
+details.second > summary, details.active-face > summary { cursor: pointer; color: var(--steel); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; list-style: none; }
+details.second > summary::-webkit-details-marker, details.active-face > summary::-webkit-details-marker { display: none; }
+details.second > summary::before, details.active-face > summary::before { content: "\25b8"; display: inline-block; width: 14px; }
+details.second[open] > summary::before, details.active-face[open] > summary::before { content: "\25be"; }
+details.active-face > .field { margin-top: 10px; }
 details.second > summary:hover { color: var(--ink); }
 details.second[open] > summary { margin-bottom: 12px; }
 

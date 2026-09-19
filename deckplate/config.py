@@ -49,7 +49,15 @@ KEY_COLUMNS = 5
 STRIP_ROWS = 3
 STRIP_TILE_KINDS = ("clock", "date", "weather", "blank")
 ACTION_TYPES = ("hotkey", "sequence", "chord", "hold", "boost", "repeat",
-                "launch", "url", "page", "brightness", "sleep", "multi")
+                "text", "launch", "url", "request", "page", "brightness", "sleep", "multi",
+                "toggle", "volume", "audio_output", "window", "timer", "stopwatch", "counter")
+# Actions that act on the key they sit on rather than on the PC, and so need
+# to know their position: the controller runs these itself. None of them can
+# be a step of another action, because a step has no key of its own.
+POSITIONAL_ACTIONS = ("toggle", "timer", "stopwatch", "counter")
+# The parameters that hold one nested action: a toggle's two halves and a
+# timer's done. Walked wherever a multi action's steps are walked.
+NESTED_ACTION_KEYS = ("on", "off", "done")
 CHORD_DEFAULTS = {"delay_min_ms": 50, "delay_max_ms": 200}
 SEQUENCE_MAX_DELAY_MS = 10_000
 SEQUENCE_DEFAULT_DELAY_MS = 100
@@ -62,6 +70,22 @@ HOTKEY_MAX_HOLD_MS = 10_000
 BOOST_DEFAULTS = {"on_ms": 10_000, "off_ms": 12_000}
 # Repeat: tap a key, wait, tap it again, until it is switched off.
 REPEAT_DEFAULT_EVERY_MS = 30_000
+# Text: the longest pause allowed between typed characters.
+TEXT_MAX_DELAY_MS = 1_000
+# Request: the verbs a key may send, and how long it may wait for the answer.
+REQUEST_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")
+REQUEST_DEFAULT_TIMEOUT_S = 10
+REQUEST_TIMEOUT_RANGE = (1, 120)
+# Volume: pactl allows above 100, Windows does not; the config allows the
+# larger range and the Windows backend clamps.
+VOLUME_RANGE = (0, 150)
+VOLUME_DELTA_RANGE = (-100, 100)
+MUTE_MODES = ("toggle", "on", "off")
+# Window actions a key may do to the window it names.
+WINDOW_OPERATIONS = ("focus", "minimise", "maximise", "close")
+# Timer: one second to a day. Counter: how far one press may move it.
+TIMER_RANGE = (1, 86_400)
+COUNTER_STEP_RANGE = (-1000, 1000)
 # The border a key carries while its toggling action runs.
 MARK_STYLES = ("auto", "steady", "blink", "none")
 MARK_DEFAULT_FLASH_MS = 500
@@ -244,6 +268,12 @@ class KeyConfig:
     Every field is optional past the position. A key with no picture, no
     label and no action is legal and draws as background, which is how the
     configuration page saves a key the moment it is created.
+
+    ``image_active`` and ``label_active`` are the key's other face, shown
+    while its thing is on: a toggle that is on, a hold, boost or repeat that
+    is running, a timer or stopwatch that is going, a mute key while the
+    sound is muted, an output key while that output is in use. Either may be
+    left unset, in which case the ordinary picture or label stays.
     </remarks>
     """
 
@@ -257,6 +287,8 @@ class KeyConfig:
     action_long: Action | None = None
     action_double: Action | None = None
     mark: MarkSettings = field(default_factory=MarkSettings)
+    image_active: Path | None = None
+    label_active: str | None = None
 
     def actions(self) -> tuple[Action | None, Action | None, Action | None]:
         """<summary>
@@ -1084,6 +1116,7 @@ def _parse_keys(raw: Any, where: str, base_dir: Path) -> dict[tuple[int, int], K
         if (row, column) in keys:
             raise ConfigError(f"{here}: row {row} column {column} is assigned twice")
         image = _str(table, "image", here)
+        image_active = _str(table, "image_active", here)
         animation = table.get("animation")
 
         def action_for(field: str, label: str):
@@ -1108,6 +1141,8 @@ def _parse_keys(raw: Any, where: str, base_dir: Path) -> dict[tuple[int, int], K
             mark=_parse_mark(table.get("mark"), here),
             action_long=action_for("action_long", "long press action"),
             action_double=action_for("action_double", "double press action"),
+            image_active=_resolve(image_active, base_dir) if image_active else None,
+            label_active=_str(table, "label_active", here),
         )
     return keys
 
@@ -1131,7 +1166,10 @@ def _parse_action(table: Any, where: str, nested: bool = False) -> Action:
     ``nested`` bars hold, boost, repeat and multi as steps. The first three
     are toggles: they run until the key is pressed again, and a step that
     never finishes would strand the rest of the sequence behind it. A multi
-    inside a multi is barred to keep the nesting one deep.
+    inside a multi is barred to keep the nesting one deep. The positional
+    types, toggle, timer, stopwatch and counter, are barred as steps too,
+    since a step has no key of its own to act on. The same rule covers a
+    toggle's on and off and a timer's done, which are parsed as nested.
 
     An empty key list is allowed for the key sending types on purpose. The
     configuration page saves a key as soon as its type is chosen, before
@@ -1212,14 +1250,58 @@ def _parse_action(table: Any, where: str, nested: bool = False) -> Action:
         params["every_ms"] = _int(table, "every_ms", where, REPEAT_DEFAULT_EVERY_MS, 0, HOLD_MAX_MS)
         if params["every_ms"] == 0:
             raise ConfigError(f"{where}: every_ms must be above zero")
+    elif kind == "text":
+        # Empty text is allowed for the same reason an empty key list is: the
+        # page saves the key before anything has been typed into it.
+        text = table.get("text", "")
+        if not isinstance(text, str):
+            raise ConfigError(f"{where}: 'text' must be text")
+        params["text"] = text
+        enter = table.get("enter", False)
+        if not isinstance(enter, bool):
+            raise ConfigError(f"{where}: 'enter' must be true or false")
+        params["enter"] = enter
+        params["delay_ms"] = _int(table, "delay_ms", where, 0, 0, TEXT_MAX_DELAY_MS)
     elif kind == "launch":
-        params["command"] = _str(table, "command", where, required=True)
+        # Empty is allowed for the same reason as an empty key list: the page
+        # saves the key as soon as "Launch a program" is chosen, before a
+        # command has been typed, and the runner does nothing for an empty one.
+        command = table.get("command", "")
+        if not isinstance(command, str):
+            raise ConfigError(f"{where}: 'command' must be text")
+        params["command"] = command.strip()
         for override in ("command_windows", "command_linux"):
             value = _str(table, override, where)
             if value:
                 params[override] = value
     elif kind == "url":
         params["url"] = _str(table, "url", where, required=True)
+    elif kind == "request":
+        params["url"] = _str(table, "url", where, required=True)
+        method = (_str(table, "method", where, "GET") or "GET").upper()
+        if method not in REQUEST_METHODS:
+            raise ConfigError(f"{where}: 'method' must be one of {', '.join(REQUEST_METHODS)}")
+        params["method"] = method
+        body = table.get("body")
+        if body is not None:
+            if not isinstance(body, str):
+                raise ConfigError(f"{where}: 'body' must be text")
+            params["body"] = body
+        headers = table.get("headers", {})
+        if not isinstance(headers, dict) or not all(
+                isinstance(k, str) and k.strip() and isinstance(v, str) for k, v in headers.items()):
+            raise ConfigError(f"{where}: 'headers' must be a table of text values")
+        if headers:
+            params["headers"] = dict(headers)
+        token_file = _str(table, "token_file", where)
+        if token_file:
+            # The token stays in its own file and the config only names it,
+            # so a saved config or a copied config folder never carries it.
+            # Absolute so it cannot quietly point inside the config folder.
+            if not os.path.isabs(os.path.expanduser(token_file)):
+                raise ConfigError(f"{where}: 'token_file' must be an absolute path (a ~ is allowed)")
+            params["token_file"] = token_file
+        params["timeout_s"] = _int(table, "timeout_s", where, REQUEST_DEFAULT_TIMEOUT_S, *REQUEST_TIMEOUT_RANGE)
     elif kind == "page":
         params["page"] = _str(table, "page", where, required=True)
     elif kind == "brightness":
@@ -1238,7 +1320,97 @@ def _parse_action(table: Any, where: str, nested: bool = False) -> Action:
         params["steps"] = tuple(_parse_action(step, f"{where} steps[{i}]", nested=True)
                                 for i, step in enumerate(steps))
         params["delay_ms"] = _int(table, "delay_ms", where, 0, 0, 60_000)
+    elif kind in POSITIONAL_ACTIONS:
+        if nested:
+            raise ConfigError(f"{where}: a {kind} action cannot be a step of another action")
+        if kind == "toggle":
+            # Either half may be empty while the page is filling the key in;
+            # a toggle with neither still flips its face, which is a use.
+            for half in ("on", "off"):
+                raw = table.get(half)
+                if raw is not None:
+                    params[half] = _parse_action(raw, f"{where} {half}", nested=True)
+        elif kind == "timer":
+            reset = table.get("reset", False)
+            if not isinstance(reset, bool):
+                raise ConfigError(f"{where}: 'reset' must be true or false")
+            if reset:
+                params["reset"] = True
+            elif "seconds" in table:
+                params["seconds"] = _int(table, "seconds", where, None, *TIMER_RANGE)
+            else:
+                raise ConfigError(f"{where}: timer action needs 'seconds' (or reset = true)")
+            raw = table.get("done")
+            if raw is not None:
+                params["done"] = _parse_action(raw, f"{where} done", nested=True)
+        elif kind == "stopwatch":
+            reset = table.get("reset", False)
+            if not isinstance(reset, bool):
+                raise ConfigError(f"{where}: 'reset' must be true or false")
+            if reset:
+                params["reset"] = True
+        elif kind == "counter":
+            reset = table.get("reset", False)
+            if not isinstance(reset, bool):
+                raise ConfigError(f"{where}: 'reset' must be true or false")
+            if reset:
+                params["reset"] = True
+            else:
+                params["step"] = _int(table, "step", where, 1, *COUNTER_STEP_RANGE)
+    elif kind == "volume":
+        given = [name for name in ("value", "delta", "mute") if name in table]
+        if len(given) != 1:
+            raise ConfigError(f"{where}: volume action needs exactly one of 'value', 'delta' or 'mute'")
+        if given[0] == "value":
+            params["value"] = _int(table, "value", where, None, *VOLUME_RANGE)
+        elif given[0] == "delta":
+            params["delta"] = _int(table, "delta", where, None, *VOLUME_DELTA_RANGE)
+            if params["delta"] == 0:
+                raise ConfigError(f"{where}: 'delta' must not be zero")
+        else:
+            mute = table.get("mute")
+            if mute is True:
+                mute = "on"
+            if mute not in MUTE_MODES:
+                raise ConfigError(f"{where}: 'mute' must be one of {', '.join(MUTE_MODES)}")
+            params["mute"] = mute
+    elif kind == "audio_output":
+        cycle = table.get("cycle", False)
+        if not isinstance(cycle, bool):
+            raise ConfigError(f"{where}: 'cycle' must be true or false")
+        device = _str(table, "device", where)
+        if cycle:
+            params["cycle"] = True
+        elif device:
+            params["device"] = _regex(device, where, "device")
+        else:
+            raise ConfigError(f"{where}: audio_output action needs 'device' or cycle = true")
+    elif kind == "window":
+        params["match"] = _regex(_str(table, "match", where, required=True) or "", where, "match")
+        operation = _str(table, "operation", where, "focus") or "focus"
+        if operation not in WINDOW_OPERATIONS:
+            raise ConfigError(f"{where}: 'operation' must be one of {', '.join(WINDOW_OPERATIONS)}")
+        params["operation"] = operation
+        command = _str(table, "command", where)
+        if command:
+            params["command"] = command
     return Action(type=kind, params=params)
+
+
+def _regex(value: str, where: str, key: str) -> str:
+    """<summary>
+    Text that must compile as a regular expression, returned as written.
+    </summary>
+    <param name="value">The pattern.</param>
+    <param name="where">How to name this place in an error.</param>
+    <param name="key">The field name, for the message.</param>
+    <returns>The same text.</returns>
+    <exception cref="ConfigError">The pattern will not compile.</exception>"""
+    try:
+        re.compile(value, re.IGNORECASE)
+    except re.error as err:
+        raise ConfigError(f"{where}: '{key}' is not a valid regular expression: {err}") from err
+    return value
 
 
 def _optional_keys(table: dict, where: str) -> str:
@@ -1317,6 +1489,10 @@ def _check_page_targets(action: Action | None, names: set[str], where: str) -> N
     elif action.type == "multi":
         for step in action.params["steps"]:
             _check_page_targets(step, names, where)
+    else:
+        for inner in NESTED_ACTION_KEYS:
+            if inner in action.params:
+                _check_page_targets(action.params[inner], names, where)
 
 
 def _resolve(value: str, base_dir: Path) -> Path:
@@ -1405,6 +1581,8 @@ def _action_document(action: Action | None) -> dict | None:
     for key, value in action.params.items():
         if key == "steps":
             doc["steps"] = [_action_document(step) for step in value]
+        elif key in NESTED_ACTION_KEYS:
+            doc[key] = _action_document(value)
         elif isinstance(value, tuple):
             doc[key] = list(value)
         else:
@@ -1465,6 +1643,8 @@ def document_from_config(config: Config) -> dict:
                 "animation": _animation_document(key.animation),
                 "background": key.background,
                 "mark": _mark_document(key.mark),
+                "image_active": _relative(key.image_active, config.base_dir),
+                "label_active": key.label_active,
             })
         pages.append({"name": page.name, "keys": keys, "match_window": page.match_window,
                       "wallpaper": _relative(page.wallpaper, config.base_dir)})
@@ -1692,8 +1872,8 @@ def to_toml(document: dict) -> str:
             if not isinstance(key, dict):
                 raise ConfigError("each key must be an object")
             lines.append("[[pages.keys]]")
-            for field in ("row", "column", "image", "label", "background", "mark",
-                          "action", "action_long", "action_double", "animation"):
+            for field in ("row", "column", "image", "label", "image_active", "label_active",
+                          "background", "mark", "action", "action_long", "action_double", "animation"):
                 if key.get(field) is not None:
                     lines.append(f"{field} = {_toml_value(key[field])}")
             lines.append("")
