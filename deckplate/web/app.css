@@ -1,0 +1,600 @@
+/**
+ * <summary>
+ * The whole look of the configuration page, in one stylesheet.
+ * </summary>
+ * <remarks>
+ * One file, no preprocessor and no framework, because the daemon serves this
+ * as a static file on both platforms and there is nothing on either to build
+ * it with. The colours are custom properties on :root and nothing outside that
+ * block writes a colour literally, so the palette is changed in one place.
+ *
+ * The page is dark only. That is not a preference: the deck's own panels are
+ * drawn dark by the daemon, and a light page beside them made the preview
+ * useless to judge.
+ *
+ * The recurring trap here is WebKitGTK, which is the engine on Linux. It paints
+ * native form controls from the light desktop theme straight over our
+ * background, so buttons and selects come out white on a dark page. Every
+ * appearance:none in this file is that, not decoration, and removing one shows
+ * up on Linux only: Chromium, which is what Windows uses, honours the
+ * background either way.
+ * </remarks>
+ */
+
+/**
+ * <summary>The palette, the type stacks and the one size everything else follows.</summary>
+ * <remarks>
+ * Nothing below this block states a colour of its own, apart from a handful of
+ * shadows and tints that are the same colour at a different opacity. Change one
+ * of these and the whole page follows.
+ * </remarks>
+ */
+:root {
+  /* Native form controls (select popups, scrollbars) draw in the dark scheme
+     too: WebKitGTK otherwise paints them from the light desktop theme. */
+  color-scheme: dark;
+  --paper: #12181f;
+  --card: #1b242e;
+  --card2: #222d39;
+  --ink: #e8edf2;
+  --steel: #8fa0af;
+  --rule: #2c3843;
+  --signal: #5c9bde;
+  --signal-soft: rgba(92, 155, 222, 0.18);
+  --ok: #4caf7d;
+  --warn: #d6a04a;
+  --bad: #d66a6a;
+  /* A starting size only. app.js overwrites it on the grid to fit the window,
+     and this is what the page shows for the moment before that first runs. */
+  --tile: 84px;
+  --radius: 8px;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans", Ubuntu, Cantarell, sans-serif;
+  --mono: ui-monospace, "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace;
+}
+
+/**
+ * <summary>The page itself and the plain text elements on it.</summary>
+ * <remarks>
+ * The body is a column flexbox with a full height minimum so the header stays
+ * put at the top and the main grid takes the rest, however little there is to
+ * show. border-box everywhere means a width in this file is the width a thing
+ * actually occupies, which the deck sizing in app.js relies on when it measures
+ * the pane.
+ * </remarks>
+ */
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 14px/1.5 var(--font);
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+h1 { font-size: 17px; margin: 0; letter-spacing: 0.01em; }
+h2 { font-size: 15px; margin: 0 0 14px; }
+h2 .pos { color: var(--steel); font-weight: 500; }
+p { margin: 0 0 10px; }
+.muted { color: var(--steel); }
+.hint { color: var(--steel); font-size: 13px; margin-top: 12px; }
+a { color: var(--signal); }
+
+/**
+ * <summary>Every form control on the page, given one consistent dark look.</summary>
+ * <remarks>
+ * Form controls do not inherit the page font by themselves, so that is set
+ * first for all of them. Everything after it is fighting the engine's own idea
+ * of what a control looks like, which is the whole reason this section is as
+ * long as it is. See the file header for why.
+ * </remarks>
+ */
+button, input, select, textarea {
+  font: inherit;
+  color: var(--ink);
+}
+/* appearance:none for the same reason as the select below: WebKitGTK draws its
+   own native button, painted from the light desktop theme, over our background
+   and the buttons come out white. Chromium (WebView2 on Windows) honours the
+   background either way, so this only shows on Linux. */
+button {
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--signal);
+  color: #0b1218;
+  border: 0;
+  border-radius: 6px;
+  padding: 7px 13px;
+  cursor: pointer;
+  font-weight: 600;
+}
+button:hover { filter: brightness(1.1); }
+button:disabled { opacity: 0.45; cursor: default; filter: none; }
+button.ghost {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--rule);
+  font-weight: 500;
+}
+button.ghost:hover { border-color: var(--steel); }
+button.ghost.danger { color: var(--bad); }
+button.ghost.danger:hover { border-color: var(--bad); }
+button.small { padding: 4px 9px; font-size: 13px; }
+input[type="text"], input[type="number"], input[type="search"], select, textarea {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 7px 9px;
+  width: 100%;
+}
+/* Selects draw their own arrow so every engine shows the same dark field,
+   instead of the engine's native control, which came out white in WebKitGTK. */
+select {
+  -webkit-appearance: none;
+  appearance: none;
+  padding-right: 30px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%238fa0af' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 11px center;
+  cursor: pointer;
+}
+select:disabled { opacity: 0.45; cursor: default; }
+select option { background: var(--card); color: var(--ink); }
+input:focus-visible, select:focus-visible, button:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 1px;
+}
+input[type="range"] { accent-color: var(--signal); width: 140px; }
+
+/**
+  <summary>
+  The header row: brand, connection status, save state, spacer, controls.
+  </summary>
+  <remarks>
+  The spacer takes up the slack, so on a wide window the controls sit hard
+  against the right and nothing else moves. A narrow window cannot fit the row
+  on one line, and without wrapping it overflowed to the right and carried the
+  settings cog off the edge of the window. It wraps now, and
+  <c>justify-content</c> keeps each wrapped line against the right rather than
+  stranding the controls on the left under the brand. Nothing is allowed to sit
+  after the controls: anything that did, even an empty box, would hold them off
+  the right edge.
+  </remarks>
+  <see cref=".controls"/>
+ */
+.top {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 18px;
+  background: var(--card);
+  border-bottom: 1px solid var(--rule);
+}
+.brand { display: flex; align-items: center; gap: 10px; }
+.logo {
+  width: 22px; height: 22px; border-radius: 5px;
+  background:
+    linear-gradient(var(--card) 0 0) padding-box,
+    repeating-linear-gradient(90deg, var(--signal) 0 5px, transparent 5px 7px) border-box;
+  border: 2px solid transparent;
+  background-color: var(--signal-soft);
+}
+.status { display: flex; align-items: center; gap: 7px; color: var(--steel); font-size: 13px; }
+.status .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--warn); }
+.status.ok .dot { background: var(--ok); }
+.status.bad .dot { background: var(--bad); }
+.spacer { flex: 1; }
+/**
+  <summary>The brightness slider, Sleep, Undo and the settings cog.</summary>
+  <remarks>
+  One flex item as far as the header is concerned, so a window too narrow for a
+  single line moves the whole cluster down together instead of breaking it up
+  and leaving the cog alone on a line. The cog is the last thing in here, so the
+  cluster always ends flush with the right hand padding. It wraps inside itself
+  only when it is too wide for the window on its own, and right aligns when it
+  does, matching the header around it.
+  </remarks>
+ */
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 16px;
+}
+.slider { display: flex; align-items: center; gap: 8px; color: var(--steel); font-size: 13px; }
+.slider output { min-width: 2.5ch; text-align: right; color: var(--ink); font-variant-numeric: tabular-nums; }
+/**
+  <summary>Where "Saved" and save failures appear, beside the connection status.</summary>
+  <remarks>
+  It reserved 90px at the end of the header once, so the row would not jump
+  when the word appeared and went again. That reserve was invisible and it held
+  the controls off the right edge at every width. On this side the spacer takes
+  up whatever the message needs, so it can come and go without moving anything
+  and nothing has to be reserved for it.
+  </remarks>
+ */
+.save { text-align: right; font-size: 13px; color: var(--steel); }
+.save.ok { color: var(--ok); }
+.save.bad { color: var(--bad); }
+
+/**
+  <summary>The page body: tabs above, the deck on the left, the editor on the right.</summary>
+  <remarks>
+  Named areas rather than source order, because the tabs need a row to
+  themselves across the top. With them inside the deck pane the deck started one
+  row lower than the editor beside it and the two boxes did not line up. Giving
+  the tabs their own auto height row keeps the deck and the editor level however
+  many lines the tabs wrap onto.
+  </remarks>
+  <remarks>
+  The editor column is a fixed width and the deck column takes the rest, with a
+  minmax so the deck can be squeezed rather than forcing the page wider. Below
+  960px the three areas stack instead, which is the only breakpoint in the file.
+  </remarks>
+ */
+main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  grid-template-areas:
+    "tabs   ."
+    "deck   editor";
+  gap: 18px;
+  padding: 18px;
+  align-items: start;
+}
+.tabs { grid-area: tabs; }
+.deck-pane { grid-area: deck; }
+.editor { grid-area: editor; }
+@media (max-width: 960px) {
+  main {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "tabs"
+      "deck"
+      "editor";
+  }
+}
+
+.deck-pane { min-width: 0; }
+
+/**
+ * <summary>The page tabs, and the dashed one that adds a page.</summary>
+ * <remarks>
+ * No bottom margin: the grid's row gap is the space below them now. They wrap,
+ * and wrapping is what moves the deck down, which is why app.js sizes the deck
+ * after the tabs have been rebuilt and not before. The drag states are shared
+ * with the key cells further down, so a tab and a key look the same while being
+ * dragged.
+ * </remarks>
+ */
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+.tab {
+  background: transparent;
+  color: var(--steel);
+  border: 1px solid var(--rule);
+  font-weight: 500;
+  padding: 6px 14px;
+}
+.tab.active { background: var(--signal-soft); color: var(--ink); border-color: var(--signal); }
+.tab.add { border-style: dashed; }
+
+/**
+  <summary>The frame around the key grid.</summary>
+  <remarks>
+  Inline block, so it is only as wide as the grid inside it and the frame ends
+  where the panels end. The grid's width comes from --tile, which app.js sizes
+  to the space the window actually has, so the deck grows and shrinks with the
+  window instead of sitting at one size in the corner of a large one.
+  </remarks>
+ */
+.deck {
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  padding: 18px;
+  display: inline-block;
+}
+/**
+ * <summary>The grid of key cells, the spacer, and the strip panels beside them.</summary>
+ * <remarks>
+ * Seven columns: five keys, a fixed spacer standing for the gap in the deck's
+ * own plastic, then the strip. The tile size is a custom property because
+ * app.js overwrites it on this element to fit the window, and the gaps are
+ * overwritten too once the key pitch has been measured, so a wallpaper reads
+ * through them here as it does on the hardware.
+ *
+ * A cell is a button so it is reachable from the keyboard and reads as pressable
+ * to a screen reader. Strip cells are dashed and carry the crop overlay, which
+ * shades the edges the panel behind the plastic never shows.
+ * </remarks>
+ */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(5, var(--tile)) 22px var(--tile);
+  grid-auto-rows: var(--tile);
+  gap: 10px;
+}
+.cell {
+  position: relative;
+  border-radius: 9px;
+  overflow: hidden;
+  background: #0d1218;
+  border: 2px solid var(--rule);
+  cursor: pointer;
+  padding: 0;
+  transition: border-color 0.12s, box-shadow 0.12s, transform 0.08s;
+}
+.cell img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.cell:hover { border-color: var(--steel); }
+.cell.selected { border-color: var(--signal); box-shadow: 0 0 0 3px var(--signal-soft); }
+.cell.pressed { border-color: var(--ok); transform: scale(0.94); box-shadow: 0 0 0 3px rgba(76, 175, 125, 0.3); }
+.cell.strip { border-style: dashed; cursor: pointer; }
+.gap { grid-column: 6; }
+.cell.dragging { opacity: 0.4; }
+.cell.dragover { border-color: var(--warn); box-shadow: 0 0 0 3px rgba(214, 160, 74, 0.3); }
+.cell .crop {
+  position: absolute; inset: 8% 8%;
+  pointer-events: none;
+  box-shadow: 0 0 0 200px rgba(0, 0, 0, 0.55);
+  border: 1px dashed rgba(143, 160, 175, 0.6);
+}
+.tab.dragging { opacity: 0.4; }
+.tab.dragover { border-color: var(--warn); }
+
+/**
+ * <summary>Modals: the backdrop, the box, and the widths the three of them take.</summary>
+ * <remarks>
+ * One backdrop element holds one box, and closing means removing the backdrop,
+ * so nothing can be left behind on screen. The z-index only has to beat the
+ * page, as nothing else in this file sets one.
+ *
+ * Three widths come off the same box: the plain dialog, the wide settings
+ * window, and the wider still icon gallery, each capped as a share of the
+ * viewport so a small window still shows the whole thing.
+ * </remarks>
+ */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 50;
+  background: rgba(8, 12, 18, 0.7);
+  display: flex; align-items: center; justify-content: center;
+}
+.modal {
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  padding: 20px 22px;
+  width: min(420px, 90vw);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+.modal h2 { margin-bottom: 8px; }
+.modal .field { margin: 14px 0 0; }
+.modal-buttons { justify-content: flex-end; margin-top: 18px; }
+.modal-buttons > * { flex: 0 0 auto; }
+button.danger-solid { background: var(--bad); color: #fff; }
+.help.bad { color: var(--bad); margin-top: 6px; }
+.page-row .page-name { flex: 1; padding: 6px 4px; }
+label.check { display: flex; align-items: center; gap: 8px; margin-top: 8px; cursor: pointer; }
+.span-all { grid-column: 1 / -1; }
+.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+.gallery-item {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--card2); border: 1px solid var(--rule); border-radius: 8px; padding: 8px;
+}
+.gallery-item img { width: 48px; height: 48px; object-fit: cover; border-radius: 6px; background: #0d1218; flex: none; }
+.gallery-text { flex: 1; min-width: 0; }
+.gallery-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/**
+ * <summary>The theme icon picker: a wider scrolling modal with a dense grid of tiles.</summary>
+ * <remarks>
+ * The grid fills automatically at a minimum tile width rather than taking a
+ * fixed column count, so the same rules hold from a narrow window to a wide
+ * one. Searching hides tiles with display:none in place, which is why nothing
+ * in here positions a tile relative to its neighbours.
+ * </remarks>
+ */
+.modal.gallery-modal { width: min(680px, 92vw); max-height: 82vh; overflow: auto; }
+.modal.gallery-modal h3 { margin: 14px 0 8px; }
+.gallery-search { margin-bottom: 14px; }
+/* The way back to the page settings, above the selected key's own fields. */
+.editor-back { margin-bottom: 12px; }
+.icon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: 8px; }
+.icon-tile {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 10px 6px; font: inherit; font-size: 12px; cursor: pointer;
+  background: var(--card2); color: var(--steel);
+  border: 1px solid var(--rule); border-radius: 8px;
+}
+.icon-tile:hover { border-color: var(--signal); color: var(--ink); }
+.icon-tile img { width: 46px; height: 46px; object-fit: contain; background: #0d1218; border-radius: 6px; padding: 4px; }
+.icon-tile span { text-align: center; line-height: 1.15; }
+.inline input[type="color"] { width: 44px; height: 30px; padding: 2px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); flex: 0 0 auto; }
+.inline > span.muted { flex: 1; }
+.anim-controls { margin-top: 8px; }
+.anim-controls input[type="color"] { width: 38px; height: 28px; padding: 2px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); flex: 0 0 auto; }
+.anim-controls input[type="range"] { flex: 1; width: auto; }
+.anim-controls output { min-width: 4ch; text-align: right; }
+label.check input { width: auto; accent-color: var(--signal); }
+
+/**
+ * <summary>The editor pane on the right, and the fields inside it.</summary>
+ * <remarks>
+ * A minimum height so the pane does not collapse to nothing while a key with
+ * almost no settings on it is selected, which made the whole layout jump on
+ * every click. The field, row and inline classes in here are the ones app.js
+ * builds by name, so renaming one means changing both files.
+ * </remarks>
+ */
+.editor {
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  padding: 18px;
+  min-height: 300px;
+}
+.field { margin-bottom: 14px; }
+.field > label { display: block; color: var(--steel); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 5px; }
+.field .help { color: var(--steel); font-size: 12px; margin-top: 4px; }
+/**
+  <summary>The long press and double press fold in the key editor.</summary>
+  <remarks>
+  Set apart from the plain action above it with a rule and a tint rather than a
+  box, so an open fold reads as more of the same panel and not as a dialog
+  sitting inside it.
+  </remarks>
+ */
+details.second { margin: 4px 0 14px; border-top: 1px solid var(--rule); padding-top: 10px; }
+details.second > summary { cursor: pointer; color: var(--steel); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; list-style: none; }
+details.second > summary::-webkit-details-marker { display: none; }
+details.second > summary::before { content: "\25b8"; display: inline-block; width: 14px; }
+details.second[open] > summary::before { content: "\25be"; }
+details.second > summary:hover { color: var(--ink); }
+details.second[open] > summary { margin-bottom: 12px; }
+
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+.row > * { flex: 1; }
+.row > button { flex: 0 0 auto; }
+.inline { display: flex; gap: 8px; align-items: center; }
+.inline > input, .inline > select { flex: 1; }
+
+.picker { display: flex; gap: 10px; align-items: center; }
+.picker .preview {
+  width: 56px; height: 56px; border-radius: 7px; flex: none;
+  background: #0d1218; border: 1px solid var(--rule);
+  object-fit: cover;
+}
+.picker .controls { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+.picker input[type="file"] { display: none; }
+
+/**
+ * <summary>The steps of a multi action, each in its own tinted box.</summary>
+ * <remarks>
+ * The tint and the border are what keep a step's own fields from reading as
+ * fields of the action around it, since a step is edited with exactly the same
+ * markup as a plain action. Only one level deep: app.js refuses to nest a multi
+ * action inside a multi action, so there is no third tint to design.
+ * </remarks>
+ */
+.steps { display: flex; flex-direction: column; gap: 8px; }
+.step {
+  background: var(--card2);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 10px;
+}
+.step .step-head { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.step .step-head select { flex: 1; }
+.step .field { margin-bottom: 8px; }
+.step .field:last-child { margin-bottom: 0; }
+
+/**
+ * <summary>The settings window, opened from the cog in the header.</summary>
+ * <remarks>
+ * The grid fills automatically at a minimum column width, so the sections lay
+ * themselves out from one column in a narrow window up to three in a wide one
+ * without a breakpoint. A section that has to run the full width says so with
+ * span-all rather than being placed by hand.
+ * </remarks>
+ */
+button.icon {
+  padding: 6px 8px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--steel);
+}
+button.icon:hover { color: var(--ink); }
+.modal.wide {
+  width: min(920px, 94vw);
+  max-height: 88vh;
+  overflow: auto;
+  padding: 18px 22px 22px;
+}
+.modal-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.modal-head h2 { margin: 0; flex: 1; }
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 18px 28px;
+}
+.settings-grid h3 { font-size: 13px; color: var(--steel); text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 10px; }
+.places { list-style: none; margin: 6px 0 0; padding: 0; }
+.places li { padding: 5px 8px; border-radius: 6px; cursor: pointer; }
+.places li:hover { background: var(--signal-soft); }
+.pages-list { display: flex; flex-direction: column; gap: 6px; }
+.pages-list .page-row { display: flex; gap: 6px; align-items: center; }
+.pages-list .page-row input { flex: 1; }
+.kbd {
+  font-family: var(--mono);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  padding: 1px 6px;
+}
+.capturing { outline: 2px solid var(--warn); }
+
+/**
+ * <summary>Captured key combinations, shown as chips in a bordered well.</summary>
+ * <remarks>
+ * The well keeps a minimum height so the field does not collapse when the last
+ * chip is removed, which would move everything below it. A chip is a button
+ * because clicking one removes it, and it turns red on hover to say so before
+ * it is clicked.
+ * </remarks>
+ */
+.keys {
+  display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+  min-height: 42px; padding: 7px 9px;
+  background: var(--paper); border: 1px solid var(--rule); border-radius: 6px;
+}
+.chip {
+  font-family: var(--mono); font-size: 13px; font-weight: 500;
+  background: var(--card2); color: var(--ink);
+  border: 1px solid var(--steel); border-bottom-width: 2px; border-radius: 5px;
+  padding: 3px 8px; cursor: pointer;
+}
+.chip:hover { border-color: var(--bad); color: var(--bad); }
+button.link {
+  background: none; border: 0; color: var(--signal); font-weight: 500;
+  padding: 4px 6px; text-decoration: underline; flex: 0 0 auto;
+}
+.typed { margin-top: 8px; }
+.slider-row input[type="range"] { flex: 1; width: auto; }
+
+/**
+ * <summary>Two handles on one track, for the low and high end of a random time.</summary>
+ * <remarks>
+ * There is no such control, so it is two range inputs stacked exactly on top of
+ * each other with transparent tracks, over one drawn track in the ::before.
+ * pointer-events is off on the inputs and back on for the thumbs alone, which
+ * is the only reason the lower handle can still be grabbed when the upper one
+ * is sitting over it.
+ *
+ * The thumb rules have to be written once per engine and cannot be combined:
+ * a selector an engine does not know invalidates the whole rule, so listing the
+ * WebKit and Gecko pseudo elements together would lose both.
+ * </remarks>
+ */
+.dual { position: relative; height: 26px; margin: 2px 0; }
+.dual::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 11px; height: 4px;
+  border-radius: 2px; background: var(--rule);
+}
+.dual input[type="range"] {
+  position: absolute; left: 0; top: 0; width: 100%; height: 26px; margin: 0;
+  background: transparent; pointer-events: none; -webkit-appearance: none; appearance: none;
+}
+.dual input[type="range"]::-webkit-slider-runnable-track { background: transparent; height: 26px; }
+.dual input[type="range"]::-moz-range-track { background: transparent; height: 26px; }
+.dual input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; pointer-events: auto;
+  width: 16px; height: 16px; margin-top: 5px; border-radius: 50%;
+  background: var(--signal); border: 2px solid var(--paper); cursor: grab;
+}
+.dual input[type="range"]::-moz-range-thumb {
+  pointer-events: auto; width: 12px; height: 12px; border-radius: 50%;
+  background: var(--signal); border: 2px solid var(--paper); cursor: grab;
+}
+.slider-row output { min-width: 6ch; text-align: right; font-variant-numeric: tabular-nums; }

@@ -1,0 +1,204 @@
+# <summary>
+# Deckplate configuration.
+# </summary>
+# <remarks>
+# Positions are row and column counted from the top left of the deck, rows 0
+# to 2 and columns 0 to 4. The display strip on the right is configured in
+# [strip] and cannot be pressed. Relative image paths are looked up next to
+# this file, so put pictures in the images/ folder beside it.
+#
+# The daemon watches this file and applies changes as soon as it is saved.
+# </remarks>
+
+[deck]
+brightness = 80
+# Turn the screens off after this many minutes without a key press. Any key
+# wakes the deck again. 0 means never, which is the default: the deck stays on
+# until you sleep it yourself.
+sleep_after_minutes = 0
+# Brighten a key for a moment when it is pressed.
+press_flash = true
+# Second actions. A key can carry action_long and action_double beside its
+# action; see the notes above [[pages]]. These two decide what a gesture was.
+# How long a key must be held before its long press action runs. The long
+# press fires at this point, without waiting for the key to be let go.
+long_press_ms = 400
+# How long after letting go a second press still counts as a double press.
+# A key with a double press action waits this long before its plain action.
+double_press_ms = 300
+# Follow the window that has focus: a page with a match_window of its own
+# comes up by itself when a window matching it is in front, and switching
+# page by hand sticks until the focused window changes. Linux needs an X11
+# session with xprop installed; a Wayland session cannot be asked which
+# window is focused, and pages stay manual there.
+follow_focus = false
+focus_poll_ms = 200
+# Key pitch: how far apart the centres of neighbouring keys are, across and
+# down, in pixels of a key image (a key is 95). Unset until measured on your
+# deck: stop the daemon and run  deckplate calibrate-grid --pitch 142,158  and
+# adjust until the pattern's lines run straight through the gaps, then put
+# the numbers here. Lets one picture be split over all the keys. Measured at
+# 142 by 158 on the XF-CN001 on 16/09/2026.
+# key_pitch_x = 142
+# key_pitch_y = 158
+# The colour behind every key and panel that does not set its own
+# background = "#rrggbb". This is the original navy.
+background = "#141c28"
+# The official SOOMFON app (and OpenDeck or StreamController on Linux) fights
+# over the deck if it is running at the same time. What to do when one is
+# found at start: "ask" in the terminal, "stop" it without asking, or "keep"
+# it running and carry on regardless. The --stop-official and --keep-official
+# flags on the run command override this for one run.
+official_software = "ask"
+
+[server]
+# The local channel the configuration page uses. Only this machine can reach
+# it unless bind is changed, and then a token is required on every request.
+enabled = true
+bind = "127.0.0.1"
+port = 8765
+# token = "choose-a-long-random-string"
+
+[weather]
+# Coordinates of the place to show. Find them with:  deckplate geocode "Town name"
+latitude = 51.5072
+longitude = -0.1276
+location_name = "London"
+units = "metric"        # metric or imperial
+refresh_minutes = 10
+
+[strip]
+# The three panels on the right show less than the 95 pixel picture they are
+# sent: the edges are cut off. Clock, date and weather are drawn to fit this
+# visible area. A picture fills the whole panel unless it says fit = true.
+# Measured on the XF-CN001: about 79 of the 95 pixels show each way.
+# Check yours with:  deckplate calibrate-strip
+visible_width = 78
+visible_height = 78
+# Top to bottom: clock, date, weather, blank, a picture path,
+# { image = "images/logo.png", fit = true }, or an animation such as
+# { animation = { kind = "wave", colour = "#5c9bde", speed = 1.0 } }
+tiles = ["clock", "date", "weather"]
+
+# Pages. Each page is a full set of keys. Keys not listed are left blank.
+# A key can carry an animation instead of a picture, for example
+#   animation = { kind = "pulse", colour = "#4caf7d", speed = 1.0 }
+# with kinds pulse, spinner, wave, rainbow and scroll (the label scrolling).
+# An animated GIF given as the image plays by itself.
+# Action types:
+#   hotkey     keys = "ctrl+alt+t"            same names on both platforms
+#   sequence   keys = ["ctrl+l", "h", "enter"], delay_ms = 100   several keys in a row
+#   chord      hold = "alt", keys = ["1", "2"], delay_min_ms = 50, delay_max_ms = 200
+#              keep one key down while tapping the others, a random pause before each tap
+#   hold       keys = "w"                      press once to hold the key down, again to let go;
+#              hold_min_ms / hold_max_ms and release_min_ms / release_max_ms make it
+#              let go for a random moment now and then, like a human would
+#   launch     command = "..."                optional command_windows / command_linux
+#   url        url = "https://..."
+#   page       page = "Name" | "next" | "previous"
+#   brightness value = 50  or  delta = -10
+#   sleep      turns the screens off until a key is pressed
+#   multi      steps = [ {type=...}, ... ]   optional delay_ms between steps
+#
+# Beside action, a key may also carry action_long for holding it down and
+# action_double for two quick presses, each taking the same action types:
+#   action        = { type = "hotkey", keys = "ctrl+c" }
+#   action_long   = { type = "launch", command = "gedit" }
+#   action_double = { type = "page", page = "Second" }
+# A key with either of those does its plain action when it is let go rather
+# than when it is pressed, so the gesture can be told apart. Keys with
+# neither are untouched and still act the moment they are pressed.
+#
+# A page may carry match_window, a pattern matched without regard to case
+# against the focused window's class, program name and title. With
+# follow_focus on in [deck], the deck brings that page up when the window it
+# names comes to the front:
+#   match_window = "firefox|chromium"
+# The first page without one is where the deck goes when nothing matches.
+
+[[pages]]
+name = "Main"
+
+[[pages.keys]]
+row = 0
+column = 0
+label = "Web"
+action = { type = "url", url = "https://www.bbc.co.uk/news" }
+
+[[pages.keys]]
+row = 0
+column = 1
+label = "Mute"
+action = { type = "hotkey", keys = "media_volume_mute" }
+
+[[pages.keys]]
+row = 1
+column = 0
+label = "Vol -"
+action = { type = "hotkey", keys = "media_volume_down" }
+
+[[pages.keys]]
+row = 1
+column = 1
+label = "Vol +"
+action = { type = "hotkey", keys = "media_volume_up" }
+
+[[pages.keys]]
+row = 2
+column = 0
+label = "Dim"
+action = { type = "brightness", delta = -20 }
+
+[[pages.keys]]
+row = 2
+column = 1
+label = "Bright"
+action = { type = "brightness", delta = 20 }
+
+[[pages.keys]]
+row = 2
+column = 4
+label = "Page 2"
+action = { type = "page", page = "next" }
+# Held down for long_press_ms, this one goes straight to the second page
+# instead of stepping to the next.
+action_long = { type = "page", page = "Second" }
+
+[[pages]]
+name = "Second"
+
+[[pages.keys]]
+row = 0
+column = 0
+label = "Editor"
+action = { type = "launch", command = "gedit", command_windows = "notepad.exe" }
+
+[[pages.keys]]
+row = 1
+column = 0
+label = "Hello"
+action = { type = "sequence", keys = ["h", "e", "l", "l", "o"], delay_ms = 80 }
+
+[[pages.keys]]
+row = 1
+column = 1
+label = "Hold W"
+action = { type = "hold", keys = "w", hold_min_ms = 3000, hold_max_ms = 8000, release_min_ms = 150, release_max_ms = 600 }
+
+[[pages.keys]]
+row = 0
+column = 2
+label = "Pulse"
+animation = { kind = "pulse", colour = "#4caf7d" }
+action = { type = "url", url = "https://www.bbc.co.uk/weather" }
+
+[[pages.keys]]
+row = 0
+column = 3
+animation = { kind = "spinner", colour = "#d6a04a", speed = 1.5 }
+
+[[pages.keys]]
+row = 2
+column = 4
+label = "Back"
+action = { type = "page", page = "previous" }

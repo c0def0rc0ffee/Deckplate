@@ -1,0 +1,16 @@
+# <summary>Application menu and desktop entry for Deckplate.</summary>
+# <remarks>
+# Installed by deploy/install-desktop.sh, which rewrites Exec and Icon to the
+# absolute paths it installed to, so nothing here needs to be on PATH. A click
+# runs deckplate-launch.sh: start the daemon if needed, then open the window.
+# </remarks>
+[Desktop Entry]
+Type=Application
+Name=Deckplate
+Comment=Drive the Soomfon stream deck and open its configuration page
+Exec=deckplate-launch.sh
+Icon=deckplate
+Terminal=false
+Categories=Utility;
+Keywords=deck;stream;keys;macro;
+StartupNotify=false

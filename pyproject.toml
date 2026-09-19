@@ -1,0 +1,38 @@
+# <summary>
+# Packaging metadata for the deckplate distribution: build backend, project
+# name and version, dependencies and entry points.
+# </summary>
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deckplate"
+version = "1.0.10"
+description = "Small Linux and Windows driver and controller for the Soomfon Stream Controller (Mirabox 293S family)"
+license = { text = "GPL-2.0-or-later" }
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "hidapi>=0.14",
+    "Pillow>=10",
+    "requests>=2.31",
+    "pynput>=1.7",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pyinstaller>=6"]
+gui = ["pywebview>=5"]
+
+[project.scripts]
+deckplate = "deckplate.cli:main"
+
+[tool.setuptools]
+packages = ["deckplate"]
+
+[tool.setuptools.package-data]
+deckplate = ["default-config.toml", "web/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

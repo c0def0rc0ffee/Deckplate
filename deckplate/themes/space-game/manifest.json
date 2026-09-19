@@ -1,0 +1,101 @@
+{
+  "name": "Space Game",
+  "icons": [
+    {
+      "id": "hangar",
+      "label": "Hangar"
+    },
+    {
+      "id": "landing-gear",
+      "label": "Landing Gear"
+    },
+    {
+      "id": "quantum",
+      "label": "Quantum"
+    },
+    {
+      "id": "power",
+      "label": "Power"
+    },
+    {
+      "id": "engines",
+      "label": "Engines"
+    },
+    {
+      "id": "shields",
+      "label": "Shields"
+    },
+    {
+      "id": "weapons",
+      "label": "Weapons"
+    },
+    {
+      "id": "missiles",
+      "label": "Missiles"
+    },
+    {
+      "id": "scan",
+      "label": "Scan"
+    },
+    {
+      "id": "starmap",
+      "label": "Star Map"
+    },
+    {
+      "id": "mobiglas",
+      "label": "mobiGlas"
+    },
+    {
+      "id": "comms",
+      "label": "Comms"
+    },
+    {
+      "id": "cargo",
+      "label": "Cargo"
+    },
+    {
+      "id": "mining",
+      "label": "Mining"
+    },
+    {
+      "id": "medical",
+      "label": "Medical"
+    },
+    {
+      "id": "exit",
+      "label": "Exit"
+    },
+    {
+      "id": "lights",
+      "label": "Lights"
+    },
+    {
+      "id": "cruise",
+      "label": "Cruise"
+    },
+    {
+      "id": "decoupled",
+      "label": "Decoupled"
+    },
+    {
+      "id": "inventory",
+      "label": "Inventory"
+    },
+    {
+      "id": "helmet",
+      "label": "Helmet"
+    },
+    {
+      "id": "scan-loop",
+      "label": "Scan Loop"
+    },
+    {
+      "id": "landing-lock",
+      "label": "Landing Lock"
+    },
+    {
+      "id": "view-change",
+      "label": "View Change"
+    }
+  ]
+}

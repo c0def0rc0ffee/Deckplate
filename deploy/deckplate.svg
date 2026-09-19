@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+<summary>Deckplate application icon: the deck as the page draws it, a dark
+plate with three rows of five keys and the display strip down the right.</summary>
+<remarks>Installed under ~/.local/share/icons/hicolor/scalable/apps by
+deploy/install-desktop.sh. Colours are the page's card, key and signal blue
+from deckplate/web/app.css.</remarks>
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <rect x="2" y="14" width="60" height="36" rx="6" fill="#1b242e" stroke="#5c9bde" stroke-width="2"/>
+  <g fill="#2c3a48">
+    <rect x="8" y="21" width="6" height="6" rx="1"/><rect x="16" y="21" width="6" height="6" rx="1"/>
+    <rect x="24" y="21" width="6" height="6" rx="1"/><rect x="32" y="21" width="6" height="6" rx="1"/>
+    <rect x="40" y="21" width="6" height="6" rx="1"/>
+    <rect x="8" y="29" width="6" height="6" rx="1"/><rect x="16" y="29" width="6" height="6" rx="1"/>
+    <rect x="24" y="29" width="6" height="6" rx="1"/><rect x="32" y="29" width="6" height="6" rx="1"/>
+    <rect x="40" y="29" width="6" height="6" rx="1"/>
+    <rect x="8" y="37" width="6" height="6" rx="1"/><rect x="16" y="37" width="6" height="6" rx="1"/>
+    <rect x="24" y="37" width="6" height="6" rx="1"/><rect x="32" y="37" width="6" height="6" rx="1"/>
+    <rect x="40" y="37" width="6" height="6" rx="1"/>
+  </g>
+  <g fill="#5c9bde">
+    <rect x="8" y="21" width="6" height="6" rx="1"/><rect x="16" y="21" width="6" height="6" rx="1"/>
+    <rect x="8" y="29" width="6" height="6" rx="1"/><rect x="40" y="37" width="6" height="6" rx="1"/>
+  </g>
+  <g fill="#0f1620" stroke="#5c9bde" stroke-width="1">
+    <rect x="49" y="21" width="6" height="6" rx="1"/><rect x="49" y="29" width="6" height="6" rx="1"/>
+    <rect x="49" y="37" width="6" height="6" rx="1"/>
+  </g>
+</svg>

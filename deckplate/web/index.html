@@ -1,0 +1,264 @@
+<!doctype html>
+<!--
+  <summary>
+  The configuration page: the only page the daemon serves, and the whole of it.
+  </summary>
+  <remarks>
+  Almost nothing here is filled in. This file is the frame and the two editor
+  templates; every key, tab, field and dialog on the finished page is built by
+  app.js at runtime, because what they are depends on the config the daemon
+  hands back. So an id in here is a contract with app.js, and renaming one
+  silently stops that part of the page working: there is no build step to catch
+  it and nothing throws, the element simply is not found.
+
+  The two template elements are cloned once per selection rather than written
+  out as markup, which is why a key editor and a strip panel editor can sit in
+  the same pane without either being built by hand.
+  </remarks>
+-->
+<html lang="en">
+<!--
+  <summary>Character set, viewport, title and the one stylesheet.</summary>
+  <remarks>
+  Both files are served from /static by the daemon itself, never from a CDN:
+  the page has to work on a machine with no connection, which is most of the
+  point of a deck that keeps running when the network does not.
+  </remarks>
+-->
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deckplate</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<!--
+  <summary>The header: brand, connection status, save state, and the deck controls.</summary>
+  <remarks>
+  Everything in here is about the deck as a whole. Anything about one key or one
+  panel belongs in the editor pane instead. The order of these children is load
+  bearing, and the stylesheet says why: the spacer takes up the slack so the
+  controls sit hard against the right, and nothing may follow them.
+  </remarks>
+-->
+<header class="top">
+  <div class="brand">
+    <span class="logo" aria-hidden="true"></span>
+    <h1>Deckplate</h1>
+  </div>
+  <div class="status" id="status"><span class="dot"></span><span id="statusText">connecting</span></div>
+  <!--
+    <summary>Where "Saved" and save failures appear.</summary>
+    <remarks>
+    On the left beside the connection status, not out with the controls.
+    Out there it had to reserve width for a word that is absent most of
+    the time, and that reserved gap is what kept the buttons off the right
+    edge. Here the spacer absorbs it, so the message can come and go
+    without moving anything.
+    </remarks>
+  -->
+  <div class="save" id="saveState" aria-live="polite"></div>
+  <div class="spacer"></div>
+  <!--
+    <summary>The deck controls, kept together as one block.</summary>
+    <remarks>
+    Grouped so a narrow window moves the whole cluster onto the next line
+    rather than breaking it up and stranding the settings cog on its own.
+    Nothing follows the cog in here, so the cluster always ends flush with
+    the right hand padding.
+    </remarks>
+  -->
+  <div class="controls">
+    <label class="slider" title="Deck brightness">
+      <span>Brightness</span>
+      <input type="range" id="brightness" min="0" max="100" value="80">
+      <output id="brightnessValue">80</output>
+    </label>
+    <button id="sleepBtn" class="ghost" type="button">Sleep</button>
+    <button id="undoBtn" class="ghost" type="button" disabled>Undo</button>
+    <button id="settingsBtn" class="ghost icon" type="button" title="Settings" aria-label="Settings"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+  </div>
+</header>
+
+<!--
+  <summary>The working area: the page tabs, the deck preview, and the editor.</summary>
+  <remarks>
+  Three named grid areas rather than source order, so the tabs can take a row of
+  their own across the top while the deck and the editor line up below them. The
+  stylesheet holds the arrangement; all this file decides is which element is
+  which area.
+  </remarks>
+-->
+<main>
+  <!--
+    <summary>Page tabs, a direct child of the layout grid.</summary>
+    <remarks>
+    They used to sit inside the deck pane, which pushed the deck down a row
+    while the editor beside it started at the top, so the two boxes did not line
+    up. On the grid they get a row of their own above both, and the editor lines
+    up with the deck however many lines the tabs wrap onto.
+    </remarks>
+  -->
+  <div class="tabs" id="pageTabs" role="tablist"></div>
+
+  <!--
+    <summary>The deck preview: the key grid, the strip panels, and the hint below.</summary>
+    <remarks>
+    The grid is empty here and built once by app.js, which also sets the tile
+    size on it to fit the window. The pictures on the keys are fetched from the
+    daemon rather than drawn here, so what this shows is what the deck shows,
+    animations included.
+    </remarks>
+  -->
+  <section class="deck-pane">
+    <div class="deck" id="deck">
+      <div class="grid" id="grid" aria-label="Deck keys"></div>
+    </div>
+    <p class="hint">Click a key to edit it, drag it to move or swap. The right hand column is the display strip: it shows tiles but cannot be pressed, and the shaded edges are the part the panels cut off.</p>
+  </section>
+
+  <!--
+    <summary>The editor pane, filled from one of the templates below.</summary>
+    <remarks>
+    Emptied and refilled on every selection, so nothing may be stored on the
+    elements inside it. The placeholder text is what shows before the first
+    render, and with nothing selected the pane holds the page's own settings
+    instead, which is where the wallpaper lives.
+    </remarks>
+  -->
+  <aside class="editor" id="editor">
+    <p class="muted">Select a key.</p>
+  </aside>
+</main>
+
+<!--
+  <summary>The key editor, cloned into the editor pane when a key is selected.</summary>
+  <remarks>
+  Everything a single key can carry: its label, its picture, an animation, a
+  background, the running border, and three actions. The empty divs are slots
+  app.js appends built fields into; the selects are the fixed lists, since their
+  options are the action types the daemon actually supports and adding one means
+  changing the daemon too.
+
+  Inside a template, so the ids in here are not in the document until it is
+  cloned. That is also why there can be two editors in this file with no ids
+  clashing, but it means an id in here must be looked up on the clone, never on
+  the document.
+  </remarks>
+-->
+<template id="tpl-editor-key">
+  <h2>Key <span class="pos"></span></h2>
+  <div class="field">
+    <label for="keyLabel">Label</label>
+    <input id="keyLabel" type="text" maxlength="24" placeholder="text shown on the key">
+  </div>
+  <div class="field">
+    <label>Picture</label>
+    <div class="picker" id="keyPicture"></div>
+    <div class="help">An animated GIF plays on the key by itself.</div>
+  </div>
+  <div id="keyAnimation"></div>
+  <div id="keyBackground"></div>
+  <div class="field">
+    <label for="actionType">Action</label>
+    <select id="actionType">
+      <option value="">Nothing</option>
+      <option value="hotkey">Send a hotkey</option>
+      <option value="sequence">Send several keys</option>
+      <option value="chord">Hold one key while pressing others</option>
+      <option value="hold">Hold a key down (press again to let go)</option>
+      <option value="boost">Hold a key and pulse another (press again to stop)</option>
+      <option value="repeat">Press a key over and over (press again to stop)</option>
+      <option value="launch">Launch a program</option>
+      <option value="url">Open a web address</option>
+      <option value="page">Switch page</option>
+      <option value="brightness">Deck brightness</option>
+      <option value="sleep">Sleep the deck</option>
+      <option value="multi">Several steps</option>
+    </select>
+  </div>
+  <div id="actionFields"></div>
+  <!--
+    <summary>How the key shows that a toggling action on it is running.</summary>
+    <remarks>
+    Next to the action because it only means anything for a hold, a boost or a
+    repeat. A key with any other action never carries the border, whatever is
+    set here.
+    </remarks>
+  -->
+  <div id="keyMark"></div>
+  <!--
+    <summary>The long press and double press actions, folded away by default.</summary>
+    <remarks>
+    Behind a fold because most keys never get one, and unfolded the panel would
+    be three action editors tall for every key. The two selects are filled from
+    the main Action select above rather than repeating its option list here, so
+    a new action type only has to be added in one place.
+    </remarks>
+  -->
+  <details class="second">
+    <summary>Long press and double press</summary>
+    <div class="field">
+      <label for="actionLongType">Hold the key down</label>
+      <select id="actionLongType"></select>
+    </div>
+    <div id="actionLongFields"></div>
+    <div class="field">
+      <label for="actionDoubleType">Press it twice quickly</label>
+      <select id="actionDoubleType"></select>
+    </div>
+    <div id="actionDoubleFields"></div>
+    <div class="help">A key with either of these waits for you to let go before it does the plain action. How long counts as a hold, and how quick counts as twice, are in Settings.</div>
+  </details>
+  <div class="row">
+    <button type="button" id="pressBtn" class="ghost">Press now</button>
+    <button type="button" id="pressLongBtn" class="ghost" hidden>Try the hold</button>
+    <button type="button" id="pressDoubleBtn" class="ghost" hidden>Try the double</button>
+    <button type="button" id="clearBtn" class="ghost danger">Clear key</button>
+  </div>
+</template>
+
+<!--
+  <summary>The strip panel editor, cloned when one of the three panels is selected.</summary>
+  <remarks>
+  A panel shows one of a fixed set of things and cannot be pressed, so it has no
+  action fields at all. The picture, animation and weather slots start hidden
+  and app.js shows whichever the chosen kind needs. The weather settings appear
+  here but are shared by every panel showing the weather, which the pane says
+  out loud so nobody sets it twice.
+  </remarks>
+-->
+<template id="tpl-editor-strip">
+  <h2>Strip panel <span class="pos"></span></h2>
+  <div class="field">
+    <label for="stripKind">Shows</label>
+    <select id="stripKind">
+      <option value="clock">Clock</option>
+      <option value="date">Date</option>
+      <option value="weather">Weather</option>
+      <option value="image">A picture</option>
+      <option value="animation">An animation</option>
+      <option value="blank">Nothing</option>
+    </select>
+  </div>
+  <div class="field" id="stripPictureField" hidden>
+    <label>Picture</label>
+    <div class="picker" id="stripPicture"></div>
+  </div>
+  <div id="stripAnimationField" hidden></div>
+  <div id="stripWeatherField" hidden></div>
+  <div id="stripBackground"></div>
+  <p class="muted">The strip is shared by every page.</p>
+</template>
+
+<!--
+  <summary>The whole of the page's behaviour, loaded last.</summary>
+  <remarks>
+  At the end of the body, not in the head, and with no defer: it runs at once
+  and expects the header, the grid container and both templates to exist
+  already. Moving this tag up breaks the page silently.
+  </remarks>
+-->
+<script src="/static/app.js"></script>
+</body>
+</html>

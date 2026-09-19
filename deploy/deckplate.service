@@ -1,0 +1,29 @@
+# <summary>
+# systemd user unit for Deckplate. Install with:
+# </summary>
+# <remarks>
+#   mkdir -p ~/.config/systemd/user
+#   cp deploy/deckplate.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now deckplate
+#
+# ExecStart assumes the single file program from the release zip was copied
+# to ~/.local/bin/deckplate. Running from source instead? Use
+#   ExecStart=%h/path/to/.venv/bin/python -m deckplate run
+# There is no terminal under systemd, so the question about the official
+# software cannot be asked; it is left running with a warning unless the
+# config says otherwise.
+# </remarks>
+
+[Unit]
+Description=Deckplate controller
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/deckplate run
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
