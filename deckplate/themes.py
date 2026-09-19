@@ -32,6 +32,9 @@ from pathlib import Path
 
 THEMES_DIR = Path(__file__).resolve().parent / "themes"
 REF_PREFIX = "theme:"
+# The picture forms an icon may take, in the order they are looked for. A
+# GIF is an animated icon and plays on the key like any animated picture.
+ICON_SUFFIXES = (".png", ".gif")
 
 
 def _segment_ok(segment: str) -> bool:
@@ -51,9 +54,21 @@ def _segment_ok(segment: str) -> bool:
             and "/" not in segment and "\\" not in segment and "\x00" not in segment)
 
 
+def _icon_file(folder: Path, icon: str) -> Path | None:
+    """<summary>The file behind an icon id, PNG first, or None when there is none.</summary>
+    <param name="folder">The theme folder.</param>
+    <param name="icon">The icon id, already checked as a safe segment or not yet.</param>
+    <returns>The path, or None.</returns>"""
+    for suffix in ICON_SUFFIXES:
+        path = folder / f"{icon}{suffix}"
+        if path.is_file():
+            return path
+    return None
+
+
 def list_themes() -> list[dict]:
     """<summary>
-    Every theme with its icons: ``[{slug, name, icons: [{id, label}]}]``.
+    Every theme with its icons: ``[{slug, name, file_prefix, icons: [{id, label, file, animated}]}]``.
     </summary>
     <returns>One entry per usable theme, sorted by folder name, possibly empty.</returns>
     <remarks>
@@ -62,6 +77,12 @@ def list_themes() -> list[dict]:
     as an empty gallery. A theme whose manifest will not parse is skipped without
     complaint, which means a typo in one manifest shows up as a theme quietly
     absent from the picker rather than as an error to read.
+
+    ``file_prefix`` is the name prefix the icon tool put on these icons when it
+    wrote them straight into an images folder, before themes existed, and is
+    empty for a theme that was never written that way. It is what lets
+    <see cref="copy_ref"/> recognise such a file as a theme icon rather than an
+    upload.
 
     This touches the disk on every call and does no caching. Call it once and
     hold the answer rather than once per key being drawn.
@@ -78,13 +99,54 @@ def list_themes() -> list[dict]:
             data = json.loads(manifest.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        icons = [{"id": entry["id"], "label": entry.get("label", entry["id"])}
-                 for entry in data.get("icons", [])
-                 if isinstance(entry, dict) and "id" in entry
-                 and (folder / f"{entry['id']}.png").is_file()]
+        icons = []
+        for entry in data.get("icons", []):
+            if not (isinstance(entry, dict) and "id" in entry):
+                continue
+            file = _icon_file(folder, str(entry["id"]))
+            if file is not None:
+                icons.append({"id": entry["id"], "label": entry.get("label", entry["id"]),
+                              "file": file.name, "animated": file.suffix.lower() == ".gif"})
         if icons:
-            themes.append({"slug": folder.name, "name": data.get("name", folder.name), "icons": icons})
+            prefix = data.get("file_prefix", "")
+            themes.append({"slug": folder.name, "name": data.get("name", folder.name),
+                           "file_prefix": prefix if isinstance(prefix, str) else "", "icons": icons})
     return themes
+
+
+def copy_ref(name: str, themes: list[dict] | None = None) -> str | None:
+    """<summary>
+    The ``theme:<slug>/<id>`` reference for a file in an images folder that is
+    really a theme icon written there under the tool's old name, or None.
+    </summary>
+    <param name="name">A bare file name from the images folder, such as
+    ``sc-hangar.png``.</param>
+    <param name="themes">The listing from <see cref="list_themes"/>, passed in
+    when the caller already has it so the disk is not walked again.</param>
+    <returns>The reference the file stands for, or None for an ordinary upload.</returns>
+    <remarks>
+    The match is on the name alone, prefix plus icon id plus ``.png``, because
+    the bytes cannot be trusted to match: the tool's rendering has moved on
+    since those files were written and every one differs slightly from the
+    shipped icon. A theme with no prefix declared never matches, so a user's
+    own ``hangar.png`` is never mistaken for the shipped one.
+
+    Only ``.png`` counts, in any case of the suffix, since that is all the tool
+    ever wrote.
+    </remarks>
+    """
+    lower = name.lower()
+    if not lower.endswith(".png"):
+        return None
+    stem = name[:-4]
+    for theme in list_themes() if themes is None else themes:
+        prefix = theme.get("file_prefix") or ""
+        if not prefix or not stem.startswith(prefix):
+            continue
+        icon = stem[len(prefix):]
+        if any(entry["id"] == icon for entry in theme["icons"]):
+            return f"{REF_PREFIX}{theme['slug']}/{icon}"
+    return None
 
 
 def icon_path(slug: str, icon: str, must_exist: bool = True) -> Path | None:
@@ -109,14 +171,15 @@ def icon_path(slug: str, icon: str, must_exist: bool = True) -> Path | None:
     """
     if not (_segment_ok(slug) and _segment_ok(icon)):
         return None
-    path = THEMES_DIR / slug / f"{icon}.png"
+    folder = THEMES_DIR / slug
     try:
-        path.resolve().relative_to(THEMES_DIR.resolve())
+        folder.resolve().relative_to(THEMES_DIR.resolve())
     except (ValueError, OSError):
         return None
-    if must_exist and not path.is_file():
-        return None
-    return path
+    found = _icon_file(folder, icon)
+    if found is not None:
+        return found
+    return None if must_exist else folder / f"{icon}{ICON_SUFFIXES[0]}"
 
 
 def parse_ref(value: str) -> tuple[str, str] | None:
@@ -155,14 +218,17 @@ def ref_for(path: Path) -> str | None:
     vanish anywhere else.
 
     Only a file sitting directly in a theme folder qualifies. Anything deeper,
-    anything outside the themes folder, and anything that is not a .png answers
-    None and is then written as an ordinary path.
+    anything outside the themes folder, and anything that is not a .png or a
+    .gif answers None and is then written as an ordinary path.
     </remarks>
     """
     try:
         rel = path.resolve().relative_to(THEMES_DIR.resolve())
     except (ValueError, OSError):
         return None
-    if len(rel.parts) == 2 and rel.parts[1].endswith(".png"):
-        return f"{REF_PREFIX}{rel.parts[0]}/{rel.parts[1][:-4]}"
+    if len(rel.parts) == 2:
+        name = rel.parts[1]
+        for suffix in ICON_SUFFIXES:
+            if name.lower().endswith(suffix):
+                return f"{REF_PREFIX}{rel.parts[0]}/{name[:-len(suffix)]}"
     return None

@@ -2,10 +2,15 @@
 Run the action behind a key.
 </summary>
 <remarks>
-The runner only knows how to do things on the PC (hotkeys, programs, URLs)
-and delegates anything about the deck itself (pages, brightness, sleep) to a
+The runner only knows how to do things on the PC (hotkeys, typed text,
+programs, URLs, web requests, the sound, other programs' windows) and
+delegates anything about the deck itself (pages, brightness, sleep) to a
 context object, which in practice is the Controller. Every dependency is
 injectable so the tests never send a real keystroke or start a real program.
+
+The four positional types, toggle, timer, stopwatch and counter, act on the
+key they sit on and never reach here: the controller runs those itself and
+hands only their inner actions to the runner.
 
 Nothing here speaks to the deck. That separation is deliberate: an action is
 user supplied configuration, and configuration must never be able to reach
@@ -30,8 +35,13 @@ import time
 import webbrowser
 from typing import Callable, Protocol
 
+import requests
+
+from . import audio as audio_module
+from . import desktop as desktop_module
 from . import hotkeys
-from .config import Action
+from .audio import AudioError
+from .config import POSITIONAL_ACTIONS, Action
 from .holds import HoldManager
 
 
@@ -99,6 +109,70 @@ def default_launch(command: str) -> None:
         subprocess.Popen(shlex.split(command), start_new_session=True)
 
 
+def read_token(path: str) -> str:
+    """<summary>
+    The Authorization header value held in a token file.
+    </summary>
+    <param name="path">The file, as written in the config. A ``~`` is expanded.</param>
+    <returns>The header value: ``Bearer`` and the token, or the file's text as
+    it stands when it already names a scheme.</returns>
+    <remarks>
+    Read on every press rather than once at load, so a rotated token is picked
+    up without a restart and so the token never sits inside a Config object
+    that the page or a log might print.
+
+    The rule for the scheme is the presence of a space. A bare token gets
+    ``Bearer`` in front, which is what nearly every HTTP API wants. Text with a
+    space in it, such as ``Basic abc123``, is taken to be the whole header
+    value already, so any scheme can be used without another config key.
+    Surrounding whitespace and a trailing newline are stripped, because every
+    editor leaves one.
+    </remarks>
+    
+    <exception cref="OSError">The file cannot be read.</exception>
+    <exception cref="ValueError">The file is empty.</exception>"""
+    with open(os.path.expanduser(path), encoding="utf-8") as handle:
+        value = handle.read().strip()
+    if not value:
+        raise ValueError(f"token file is empty: {path}")
+    return value if " " in value else f"Bearer {value}"
+
+
+def default_request(method: str, url: str, headers: dict, body: str | None, timeout: float) -> None:
+    """<summary>
+    Send one HTTP request and wait for the answer.
+    </summary>
+    <param name="method">The verb, already checked by the config layer.</param>
+    <param name="url">Where to send it.</param>
+    <param name="headers">The headers to send, Authorization included when there is one.</param>
+    <param name="body">The request body as text, or None for none.</param>
+    <param name="timeout">How long to wait for the connection and the answer, in seconds.</param>
+    <remarks>
+    The answer's content is thrown away. A key that fires a request has no
+    way to show what came back, so the only outcome that matters is whether
+    the server accepted it, and a status of 400 or above is raised as a
+    failure so it reaches the action log instead of passing as a success.
+
+    A body is sent as JSON unless the headers say otherwise, since JSON is
+    what the APIs a deck key is likely to poke (Home Assistant, OBS, most
+    home grown services) expect. Nothing here checks that the body parses.
+
+    Blocks the action thread for up to the timeout. That is the caller's
+    problem to bound, and the config layer caps it.
+    </remarks>
+    
+    <exception cref="requests.RequestException">The request could not be sent,
+    timed out, or came back with an error status.</exception>"""
+    sent = dict(headers)
+    data = None
+    if body is not None:
+        data = body.encode("utf-8")
+        if not any(name.lower() == "content-type" for name in sent):
+            sent["Content-Type"] = "application/json"
+    response = requests.request(method, url, headers=sent, data=data, timeout=timeout)
+    response.raise_for_status()
+
+
 def platform_command(params: dict) -> str:
     """<summary>
     The command for this platform, falling back to the shared one.
@@ -114,7 +188,8 @@ def platform_command(params: dict) -> str:
     </remarks>
     
     <exception cref="KeyError">No ``command`` key and no override for this
-    platform, which means the config was written wrongly.</exception>"""
+    platform, which means the config was written wrongly. An empty command
+    is not an error here: it comes back empty and the runner skips it.</exception>"""
     if sys.platform == "win32":
         return params.get("command_windows") or params["command"]
     return params.get("command_linux") or params["command"]
@@ -147,6 +222,11 @@ class ActionRunner:
                  press_keys: Callable[[str], None] = hotkeys.press,
                  release_keys: Callable[[str], None] = hotkeys.release,
                  rng: Callable[[float, float], float] = random.uniform,
+                 type_text: Callable[[str, int], None] = hotkeys.type_text,
+                 send_request: Callable[[str, str, dict, str | None, float], None] = default_request,
+                 read_token: Callable[[str], str] = read_token,
+                 audio=None,
+                 desktop=None,
                  log: Callable[[str], None] = print) -> None:
         """<summary>
         Build a runner, taking its deck context and its way out to the machine.
@@ -160,9 +240,15 @@ class ActionRunner:
         the daemon runs in the foreground under its unit.</param>
         <remarks>
         Every other argument is a seam for the tests: the hotkey senders, the
-        launcher, the URL opener, the sleep and the random source. The defaults
-        are the real implementations, so constructing this with only a context
-        gives a runner that genuinely presses keys.
+        text typer, the launcher, the URL opener, the request sender, the token
+        reader, the sound backend, the desktop, the sleep and the random
+        source. The defaults are the real implementations, so constructing
+        this with only a context gives a runner that genuinely presses keys,
+        talks to the network and changes the volume.
+
+        The sound backend and the desktop are built lazily on first use when
+        not given, so a machine without pactl or xdotool starts the same and
+        only the keys that need them complain, in the log, when pressed.
 
         The defaults are bound at class definition time, so patching
         <see cref="hotkeys.send"/> after a runner exists will not affect it.
@@ -178,7 +264,28 @@ class ActionRunner:
         self.press_keys = press_keys
         self.release_keys = release_keys
         self.rng = rng
+        self.type_text = type_text
+        self.send_request = send_request
+        self.read_token = read_token
+        self._audio = audio
+        self._desktop = desktop
         self.log = log
+
+    @property
+    def audio(self):
+        """<summary>The sound backend, built for this machine on first use.</summary>
+        <returns>A backend from the audio module.</returns>"""
+        if self._audio is None:
+            self._audio = audio_module.default_backend()
+        return self._audio
+
+    @property
+    def desktop(self):
+        """<summary>The desktop, built for this machine on first use.</summary>
+        <returns>A desktop from the desktop module.</returns>"""
+        if self._desktop is None:
+            self._desktop = desktop_module.default_desktop()
+        return self._desktop
 
     def run(self, action: Action) -> bool:
         """<summary>
@@ -261,10 +368,27 @@ class ActionRunner:
             if not params["keys"]:
                 return
             self.holds.toggle_repeat(params["keys"], params["every_ms"])
+        elif action.type == "text":
+            # Empty text with enter still presses enter: a key that only
+            # sends a return is a reasonable thing to want.
+            if params["text"]:
+                self.type_text(params["text"], params.get("delay_ms", 0))
+            if params.get("enter"):
+                self.send_hotkey("enter")
         elif action.type == "launch":
-            self.launch(platform_command(params))
+            # Nothing to run yet: the key was saved before its command was
+            # typed, and doing nothing beats launching an empty string.
+            command = platform_command(params)
+            if command:
+                self.launch(command)
         elif action.type == "url":
             self.open_url(params["url"])
+        elif action.type == "request":
+            headers = dict(params.get("headers", {}))
+            if params.get("token_file"):
+                headers["Authorization"] = self.read_token(params["token_file"])
+            self.send_request(params["method"], params["url"], headers,
+                              params.get("body"), params["timeout_s"])
         elif action.type == "page":
             self.context.switch_page(params["page"])
         elif action.type == "brightness":
@@ -277,8 +401,92 @@ class ActionRunner:
                 if index and delay:
                     self.sleep(delay)
                 self._dispatch(step)
+        elif action.type == "volume":
+            self._volume(params)
+        elif action.type == "audio_output":
+            self._audio_output(params)
+        elif action.type == "window":
+            self._window(params)
+        elif action.type in POSITIONAL_ACTIONS:
+            raise ValueError(f"a {action.type} action acts on its key and must be run by the controller")
         else:
             raise ValueError(f"unknown action type {action.type}")
+
+    def _volume(self, params: dict) -> None:
+        """<summary>
+        Set, step or mute the sound, falling back to the media keys where
+        the sound backend cannot help.
+        </summary>
+        <param name="params">A volume action's params: one of ``value``,
+        ``delta`` or ``mute``.</param>
+        <remarks>
+        The fallback is for Windows without pycaw, and for any machine whose
+        backend raises: a step becomes a run of media volume presses, two
+        percent each as Windows counts them, and a mute becomes the media
+        mute key. An absolute level has no fallback, since no key sets one,
+        so that is logged with what to install. Muting "on" or "off" through
+        the fallback can only toggle, which is said in the log.
+        </remarks>
+        """
+        try:
+            if "value" in params:
+                self.audio.set_volume(params["value"])
+            elif "delta" in params:
+                self.audio.change_volume(params["delta"])
+            else:
+                self.audio.set_mute(params["mute"])
+        except AudioError as err:
+            if "value" in params:
+                raise
+            self.log(f"volume: {err}; using the media keys instead")
+            if "delta" in params:
+                delta = params["delta"]
+                combo = "media_volume_up" if delta > 0 else "media_volume_down"
+                for _ in range(max(1, round(abs(delta) / 2))):
+                    self.send_hotkey(combo)
+            else:
+                if params["mute"] != "toggle":
+                    self.log("volume: the media mute key can only toggle")
+                self.send_hotkey("media_volume_mute")
+
+    def _audio_output(self, params: dict) -> None:
+        """<summary>
+        Switch the default output to the one the key names, or the next one.
+        </summary>
+        <param name="params">An audio_output action's params: ``device`` or ``cycle``.</param>
+        <remarks>Nothing matching is logged rather than raised, with the
+        outputs that exist, so the user can see what to write.</remarks>
+        <exception cref="AudioError">The outputs could not be listed or switched.</exception>"""
+        outputs = self.audio.outputs()
+        if params.get("cycle"):
+            chosen = audio_module.pick_output(outputs, cycle=True, current=self.audio.default_output())
+        else:
+            chosen = audio_module.pick_output(outputs, params["device"])
+        if chosen is None:
+            names = ", ".join(output.name for output in outputs) or "none found"
+            self.log(f"audio output: nothing matches '{params.get('device', 'cycle')}' (outputs: {names})")
+            return
+        self.audio.set_output(chosen.id)
+
+    def _window(self, params: dict) -> None:
+        """<summary>
+        Act on the window the key names, or launch its program when there is
+        no such window.
+        </summary>
+        <param name="params">A window action's params: ``match``,
+        ``operation`` and an optional ``command``.</param>
+        <remarks>The launch happens only for the focus operation. Minimising
+        or closing a program that is not running is nothing to do, and
+        starting it would be the opposite of what was asked.</remarks>
+        <exception cref="DesktopError">The desktop could not be driven.</exception>"""
+        found = desktop_module.act(params["match"], params["operation"], self.desktop)
+        if found or params["operation"] != "focus":
+            return
+        command = params.get("command")
+        if command:
+            self.launch(command)
+        else:
+            self.log(f"window: nothing matches '{params['match']}' and no command to launch")
 
     def _chord(self, params: dict) -> None:
         """<summary>

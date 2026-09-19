@@ -93,8 +93,24 @@ tiles = ["clock", "date", "weather"]
 #   hold       keys = "w"                      press once to hold the key down, again to let go;
 #              hold_min_ms / hold_max_ms and release_min_ms / release_max_ms make it
 #              let go for a random moment now and then, like a human would
+#   text       text = "hello", enter = true   typed as written into whatever has focus;
+#              delay_ms puts a pause between characters for programs that drop fast typing
 #   launch     command = "..."                optional command_windows / command_linux
 #   url        url = "https://..."
+#   request    url = "https://...", method = "POST", body = '{"a": 1}'
+#              calls the address without a browser; headers = { X-Name = "value" } and
+#              token_file = "~/.deckplate-tokens/name" (a file outside this folder whose
+#              contents go in the Authorization header) are optional, timeout_s defaults to 10
+#   volume     value = 50  or  delta = -5  or  mute = "toggle" | "on" | "off"
+#   audio_output  device = "headphones" (a pattern)  or  cycle = true
+#   window     match = "firefox", operation = "focus" | "minimise" | "maximise" | "close",
+#              optional command = "firefox" launched when no window matches
+#   toggle     on = { type = ... }, off = { type = ... }   alternate presses
+#   timer      seconds = 300, optional done = { type = ... };  reset = true resets
+#   stopwatch  press to start and pause;  reset = true resets
+#   counter    step = 1 (negative counts down);  reset = true resets
+#   A key may carry image_active and label_active, shown while its toggle is on,
+#   its hold or repeat runs, its timer counts, or the sound is muted by it.
 #   page       page = "Name" | "next" | "previous"
 #   brightness value = 50  or  delta = -10
 #   sleep      turns the screens off until a key is pressed

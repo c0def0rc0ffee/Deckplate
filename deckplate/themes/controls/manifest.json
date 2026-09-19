@@ -1,0 +1,138 @@
+{
+  "name": "Controls",
+  "file_prefix": "",
+  "icons": [
+    {
+      "id": "volume-up",
+      "label": "Volume Up"
+    },
+    {
+      "id": "volume-down",
+      "label": "Volume Down"
+    },
+    {
+      "id": "mute",
+      "label": "Mute"
+    },
+    {
+      "id": "speaker",
+      "label": "Speaker"
+    },
+    {
+      "id": "headphones",
+      "label": "Headphones"
+    },
+    {
+      "id": "cycle",
+      "label": "Next Output"
+    },
+    {
+      "id": "window",
+      "label": "Window"
+    },
+    {
+      "id": "window-minimise",
+      "label": "Minimise"
+    },
+    {
+      "id": "window-maximise",
+      "label": "Maximise"
+    },
+    {
+      "id": "window-close",
+      "label": "Close Window"
+    },
+    {
+      "id": "timer",
+      "label": "Timer"
+    },
+    {
+      "id": "stopwatch",
+      "label": "Stopwatch"
+    },
+    {
+      "id": "counter",
+      "label": "Counter"
+    },
+    {
+      "id": "toggle-on",
+      "label": "Toggle On"
+    },
+    {
+      "id": "toggle-off",
+      "label": "Toggle Off"
+    },
+    {
+      "id": "camera",
+      "label": "Camera"
+    },
+    {
+      "id": "camera-off",
+      "label": "Camera Off"
+    },
+    {
+      "id": "mic",
+      "label": "Microphone"
+    },
+    {
+      "id": "mic-off",
+      "label": "Microphone Off"
+    },
+    {
+      "id": "play",
+      "label": "Play"
+    },
+    {
+      "id": "pause",
+      "label": "Pause"
+    },
+    {
+      "id": "stop",
+      "label": "Stop"
+    },
+    {
+      "id": "record",
+      "label": "Record"
+    },
+    {
+      "id": "reset",
+      "label": "Reset"
+    },
+    {
+      "id": "plus",
+      "label": "Plus"
+    },
+    {
+      "id": "minus",
+      "label": "Minus"
+    },
+    {
+      "id": "bell",
+      "label": "Bell"
+    },
+    {
+      "id": "bright",
+      "label": "Bright"
+    },
+    {
+      "id": "dim",
+      "label": "Dim"
+    },
+    {
+      "id": "hourglass-running",
+      "label": "Hourglass Running"
+    },
+    {
+      "id": "stopwatch-running",
+      "label": "Stopwatch Running"
+    },
+    {
+      "id": "ring-running",
+      "label": "Ring Running"
+    },
+    {
+      "id": "counting",
+      "label": "Counting"
+    }
+  ]
+}

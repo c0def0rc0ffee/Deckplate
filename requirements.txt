@@ -3,3 +3,4 @@ Pillow>=10
 requests>=2.31
 pynput>=1.7
 pywebview>=5
+pycaw>=20240210; sys_platform == "win32"

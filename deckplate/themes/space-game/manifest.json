@@ -1,5 +1,6 @@
 {
   "name": "Space Game",
+  "file_prefix": "sc-",
   "icons": [
     {
       "id": "hangar",

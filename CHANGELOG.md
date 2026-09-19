@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.0.12 (19/09/2026)
+
+- Theme icons that the icon tool wrote straight into an images folder before
+  themes existed, as `sc-<id>.png`, were being treated as uploads: every glyph
+  appeared in the picture dropdown beside the gallery and in the pictures list
+  with a Delete button. A theme's manifest now declares the prefix the tool
+  used, the daemon keeps any such file out of the upload list and reports it
+  as the theme icon it is, and the page shows a key that still names one as a
+  theme icon. The files stay where they are and keys that use them draw as
+  before; theme icons are chosen from the gallery only.
+- Choosing "Launch a program" on a key left the page saying not saved until
+  a command was typed, because the parser refused an empty command while
+  every other type accepted its half filled in shape. An empty command now
+  loads, and the key does nothing until one is given.
+
+## 1.0.11 (19/09/2026)
+
+- Two new action types. `text` types a piece of text into whatever has
+  focus, as written rather than parsed as key names, with an optional enter
+  afterwards and an optional pause between characters for programs that drop
+  fast typing. `request` calls a web address without a browser, with a
+  method, a body, headers and a token read from a file outside the config
+  folder on every press, so a key can reach anything with an HTTP API. Both
+  are on the configuration page and in the multi action's step menu. Nothing
+  here touches the deck: both live on the PC side of the action runner.
+
 ## 1.0.10 (19/09/2026)
 
 - The comment tags outside Python are in the order the house style sets. The

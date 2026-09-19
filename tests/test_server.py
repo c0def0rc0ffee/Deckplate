@@ -1050,3 +1050,27 @@ def test_themes_endpoint_lists_and_serves_icons(api):
     assert status == 200 and ctype.startswith("image/png") and raw[:8] == b"\x89PNG\r\n\x1a\n"
     assert request(srv, "GET", "/api/themes/space-game/not-an-icon.png")[0] == 404
     assert request(srv, "GET", "/api/themes/space-game/nested%2Fbad.png")[0] == 404
+
+
+def test_theme_icon_copies_in_the_images_folder_are_not_listed_as_uploads(api):
+    """<summary>
+    A file in the images folder that is a theme icon under the icon tool's old
+    name is kept out of the upload list and the delete list, and reported
+    apart with the reference it stands for.
+    </summary>
+    <remarks>
+    Those files predate the themes and are the same glyphs, so showing them in
+    the dropdown beside the gallery offered every icon twice, and showing them
+    in the pictures list offered a theme icon for deletion. The file is still
+    served, because a key that names it must keep drawing.
+    </remarks>
+    """
+    srv, holder = api
+    png = (b"\x89PNG\r\n\x1a\n" + b"\x00" * 32)
+    for name in ("sc-hangar.png", "mine.png"):
+        assert request(srv, "POST", "/api/images", body=png, headers={"Content-Type": "image/png", "X-Filename": name})[0] == 200
+    listing = json.loads(request(srv, "GET", "/api/images")[2])
+    assert listing["images"] == ["mine.png"]
+    assert [d["name"] for d in listing["details"]] == ["mine.png"]
+    assert listing["theme_copies"] == {"sc-hangar.png": "theme:space-game/hangar"}
+    assert request(srv, "GET", "/api/images/sc-hangar.png")[0] == 200

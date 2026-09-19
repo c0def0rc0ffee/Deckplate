@@ -18,6 +18,8 @@ list, which cannot be done through separate recorders.
 
 import sys
 
+import pytest
+
 from deckplate.actions import ActionRunner, platform_command
 from deckplate.config import Action
 
@@ -370,3 +372,290 @@ def test_platform_command_override():
     expected = "notepad.exe" if sys.platform == "win32" else "xed"
     assert platform_command(params) == expected
     assert platform_command({"command": "shared"}) == "shared"
+
+
+def test_launch_with_no_command_does_nothing():
+    """<summary>
+    Pins an empty launch command, the half filled in key from the page, as a
+    success that launches nothing.
+    </summary>
+    <remarks>
+    Launching an empty string would raise on Linux and open nothing useful on
+    Windows, and either way the key would look broken rather than unfinished.
+    True is the right return: nothing failed, there was simply nothing to do.
+    </remarks>
+    """
+    runner, _, seen = make_runner()
+    assert runner.run(Action("launch", {"command": ""}))
+    assert runner.run(Action("launch", {"command": "", "command_linux": "", "command_windows": ""}))
+    assert seen["launched"] == [] and seen["log"] == []
+
+
+def test_text_action_types_then_optionally_presses_enter():
+    """<summary>
+    Pins a text action typing its text with its delay, pressing enter only
+    when asked, and pressing enter alone when the text is empty.
+    </summary>
+    <remarks>
+    Enter is sent as a hotkey and not as a newline in the text, so it goes
+    through the same path every other keystroke does and a backend that
+    treats a newline oddly cannot swallow it. Empty text with enter must
+    still press enter: a key whose whole job is to send a return is a real
+    use, and the empty text check exists only so the half filled in key from
+    the page types nothing.
+    </remarks>
+    """
+    runner, _, seen = make_runner()
+    typed = []
+    runner.type_text = lambda text, delay_ms: typed.append((text, delay_ms))
+    assert runner.run(Action("text", {"text": "hello", "enter": False, "delay_ms": 0}))
+    assert runner.run(Action("text", {"text": "gg", "enter": True, "delay_ms": 30}))
+    assert runner.run(Action("text", {"text": "", "enter": True, "delay_ms": 0}))
+    assert typed == [("hello", 0), ("gg", 30)]
+    assert seen["hotkeys"] == ["enter", "enter"]
+
+
+def test_request_action_sends_what_was_configured_with_the_token():
+    """<summary>
+    Pins a request action passing its method, address, headers, body and
+    timeout through, and adding the token file's contents as Authorization.
+    </summary>
+    <remarks>
+    The token is read through a seam and never appears in the action's
+    parameters, which is the property that keeps a secret out of the config
+    file, the page and the log. The headers the user wrote are kept and the
+    Authorization header is added beside them rather than replacing them, so
+    a custom header and a token can be used together. A request with no
+    token file must not call the reader at all, since there is no file to
+    read and a failure there would fail a request that needed no token.
+    </remarks>
+    """
+    runner, _, seen = make_runner()
+    sent, read = [], []
+    runner.send_request = lambda method, url, headers, body, timeout: sent.append((method, url, headers, body, timeout))
+    runner.read_token = lambda path: read.append(path) or "Bearer abc"
+    assert runner.run(Action("request", {"url": "https://example.org/api", "method": "POST",
+                                         "headers": {"X-Test": "1"}, "body": '{"a": 1}',
+                                         "token_file": "/somewhere/token", "timeout_s": 5}))
+    assert runner.run(Action("request", {"url": "https://example.org/ping", "method": "GET", "timeout_s": 10}))
+    assert sent == [
+        ("POST", "https://example.org/api", {"X-Test": "1", "Authorization": "Bearer abc"}, '{"a": 1}', 5),
+        ("GET", "https://example.org/ping", {}, None, 10),
+    ]
+    assert read == ["/somewhere/token"]
+
+
+def test_request_failure_is_logged_not_raised():
+    """<summary>
+    Pins a refused request as a False return with the cause in the log.
+    </summary>
+    <remarks>
+    A request reaches the network, which is the least reliable thing an
+    action does, so this is the type most likely to fail on an ordinary day.
+    It has to fail the same way every other action does: quietly, logged,
+    with the deck still working.
+    </remarks>
+    """
+    runner, _, seen = make_runner()
+    runner.send_request = lambda *args: (_ for _ in ()).throw(RuntimeError("503 Service Unavailable"))
+    assert not runner.run(Action("request", {"url": "https://example.org", "method": "GET", "timeout_s": 10}))
+    assert seen["log"] and "503" in seen["log"][0]
+
+
+def test_read_token_adds_bearer_unless_a_scheme_is_written(tmp_path):
+    """<summary>
+    Pins the token file rule: a bare token gets Bearer in front, text with a
+    space is used as it stands, whitespace is stripped, and an empty file is
+    refused.
+    </summary>
+    <remarks>
+    The trailing newline in the first file is deliberate, because every
+    editor leaves one and a token sent with a newline on the end is refused
+    by the server with a message that does not say why. The empty file case
+    must raise rather than send "Bearer " with nothing after it, which would
+    be a request that fails at the far end for a reason invisible here.
+    </remarks>
+    """
+    from deckplate.actions import read_token
+    bare = tmp_path / "bare"
+    bare.write_text("abc123\n")
+    basic = tmp_path / "basic"
+    basic.write_text("  Basic dXNlcjpwYXNz  ")
+    empty = tmp_path / "empty"
+    empty.write_text("\n")
+    assert read_token(str(bare)) == "Bearer abc123"
+    assert read_token(str(basic)) == "Basic dXNlcjpwYXNz"
+    with pytest.raises(ValueError):
+        read_token(str(empty))
+
+
+def test_default_request_sends_json_body_and_raises_on_error_status(monkeypatch):
+    """<summary>
+    Pins the real sender: the body goes as UTF-8 bytes with a JSON content
+    type unless one was given, no body means no content type, and an error
+    status is raised rather than returned.
+    </summary>
+    <remarks>
+    The requests library is replaced at its one entry point so nothing
+    leaves the machine. The content type rule is checked both ways because
+    the wrong default is silent: a server that wanted a form and got JSON
+    answers 400 with the body ignored, and the key looks dead. The error
+    status is the reason the response is looked at at all, since the action
+    has no other way to learn the server said no.
+    </remarks>
+    """
+    from deckplate import actions
+
+    calls = []
+
+    class Response:
+        """<summary>The two things the sender touches on a response.</summary>"""
+
+        def __init__(self, status):
+            """<summary>Remember the status.</summary>"""
+            self.status = status
+
+        def raise_for_status(self):
+            """<summary>Raise the way requests does for 400 and above.</summary>"""
+            if self.status >= 400:
+                raise actions.requests.HTTPError(f"{self.status} error")
+
+    def fake_request(method, url, headers=None, data=None, timeout=None):
+        """<summary>Record the call and answer with the queued status.</summary>"""
+        calls.append((method, url, headers, data, timeout))
+        return Response(statuses.pop(0))
+
+    statuses = [200, 200, 200, 404]
+    monkeypatch.setattr(actions.requests, "request", fake_request)
+    actions.default_request("POST", "https://example.org/a", {}, '{"x": 1}', 5)
+    actions.default_request("POST", "https://example.org/b", {"content-type": "text/plain"}, "hi", 5)
+    actions.default_request("GET", "https://example.org/c", {"X-A": "1"}, None, 7)
+    with pytest.raises(actions.requests.HTTPError):
+        actions.default_request("GET", "https://example.org/d", {}, None, 5)
+    assert calls[0] == ("POST", "https://example.org/a", {"Content-Type": "application/json"}, b'{"x": 1}', 5)
+    assert calls[1] == ("POST", "https://example.org/b", {"content-type": "text/plain"}, b"hi", 5)
+    assert calls[2] == ("GET", "https://example.org/c", {"X-A": "1"}, None, 7)
+
+
+class FakeAudio:
+    """<summary>A sound backend that records what it was asked and can be told to fail.</summary>"""
+
+    def __init__(self, fail=False, outputs=(), default=None):
+        """<summary>Start with a call log, and optionally refuse everything.</summary>"""
+        from deckplate.audio import AudioError, Output
+        self.calls = []
+        self.fail = fail
+        self.error = AudioError("no pycaw")
+        self._outputs = [Output(*o) for o in outputs]
+        self._default = default
+
+    def _do(self, *call):
+        """<summary>Record, or raise when told to fail.</summary>"""
+        if self.fail:
+            raise self.error
+        self.calls.append(call)
+
+    def set_volume(self, percent): self._do("set", percent)
+    def change_volume(self, delta): self._do("change", delta)
+    def set_mute(self, mode): self._do("mute", mode)
+    def outputs(self): return list(self._outputs)
+    def default_output(self): return self._default
+    def set_output(self, output_id): self.calls.append(("output", output_id))
+
+
+def test_volume_action_uses_the_backend_and_falls_back_to_media_keys():
+    """<summary>
+    Pins each volume form reaching the backend, and pins the fallback when
+    the backend refuses: a step becomes media key presses, a mute the media
+    mute key, and an absolute level fails outright.
+    </summary>
+    <remarks>
+    The fallback exists for Windows without pycaw, where the media keys
+    still work. Two percent a press is how Windows counts a media key, so a
+    change of ten is five presses. The absolute level has no fallback and
+    must report failure rather than pretend, since nothing was set.
+    </remarks>
+    """
+    runner, _, seen = make_runner()
+    good = FakeAudio()
+    runner._audio = good
+    assert runner.run(Action("volume", {"value": 40}))
+    assert runner.run(Action("volume", {"delta": -5}))
+    assert runner.run(Action("volume", {"mute": "toggle"}))
+    assert good.calls == [("set", 40), ("change", -5), ("mute", "toggle")]
+    runner._audio = FakeAudio(fail=True)
+    assert runner.run(Action("volume", {"delta": 10}))
+    assert runner.run(Action("volume", {"delta": -3}))
+    assert runner.run(Action("volume", {"mute": "on"}))
+    assert seen["hotkeys"] == ["media_volume_up"] * 5 + ["media_volume_down"] * 2 + ["media_volume_mute"]
+    assert not runner.run(Action("volume", {"value": 40}))
+    assert any("no pycaw" in line for line in seen["log"])
+
+
+def test_audio_output_action_picks_by_pattern_or_cycles():
+    """<summary>
+    Pins an output key switching to the first output matching its pattern,
+    cycling to the one after the current, and logging rather than failing
+    when nothing matches.
+    </summary>
+    """
+    runner, _, seen = make_runner()
+    audio = FakeAudio(outputs=[("sink_a", "Built-in Audio"), ("sink_b", "Headphones")], default="sink_a")
+    runner._audio = audio
+    assert runner.run(Action("audio_output", {"device": "head"}))
+    assert runner.run(Action("audio_output", {"cycle": True}))
+    assert runner.run(Action("audio_output", {"device": "nothing"}))
+    assert audio.calls == [("output", "sink_b"), ("output", "sink_b")]
+    assert any("nothing matches 'nothing'" in line and "Headphones" in line for line in seen["log"])
+
+
+def test_window_action_acts_on_a_window_or_launches_the_program():
+    """<summary>
+    Pins a window key acting on the window found, launching its command only
+    when nothing matched and the operation is focus, and logging when there
+    is nothing to launch.
+    </summary>
+    <remarks>
+    Launching on a failed minimise would start a program the user was
+    trying to put away, so the launch is tied to focus alone.
+    </remarks>
+    """
+    class FakeDesktop:
+        """<summary>A desktop with one window, recording what is done to it.</summary>"""
+
+        def __init__(self):
+            """<summary>Start with an empty log.</summary>"""
+            self.done = []
+
+        def find(self, pattern):
+            """<summary>Only "code" exists.</summary>"""
+            return "77" if pattern == "code" else None
+
+        def focus(self, w): self.done.append(("focus", w))
+        def minimise(self, w): self.done.append(("minimise", w))
+        def maximise(self, w): self.done.append(("maximise", w))
+        def close(self, w): self.done.append(("close", w))
+
+    runner, _, seen = make_runner()
+    desktop = FakeDesktop()
+    runner._desktop = desktop
+    assert runner.run(Action("window", {"match": "code", "operation": "focus", "command": "code"}))
+    assert runner.run(Action("window", {"match": "code", "operation": "close"}))
+    assert runner.run(Action("window", {"match": "gimp", "operation": "focus", "command": "gimp"}))
+    assert runner.run(Action("window", {"match": "gimp", "operation": "minimise", "command": "gimp"}))
+    assert runner.run(Action("window", {"match": "gimp", "operation": "focus"}))
+    assert desktop.done == [("focus", "77"), ("close", "77")]
+    assert seen["launched"] == ["gimp"]
+    assert any("nothing matches 'gimp'" in line for line in seen["log"])
+
+
+def test_positional_actions_are_refused_by_the_runner():
+    """<summary>
+    Pins a toggle, timer, stopwatch or counter reaching the runner as a
+    logged failure, since only the controller knows which key they belong to.
+    </summary>
+    """
+    runner, _, seen = make_runner()
+    for kind in ("toggle", "timer", "stopwatch", "counter"):
+        assert not runner.run(Action(kind, {}))
+    assert len(seen["log"]) == 4 and "controller" in seen["log"][0]

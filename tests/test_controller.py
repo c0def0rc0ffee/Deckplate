@@ -1797,3 +1797,237 @@ def test_a_held_key_does_not_blink(tmp_path):
         clock.advance(controller_module.MARK_FLASH_SECONDS)
         controller.tick()
         assert deck.tiles() == []                           # and it stays put
+
+
+# The live keys, on a deck that never sleeps by itself so a finished timer
+# can be watched settling back to idle.
+LIVE_TEXT = TEXT.replace("sleep_after_minutes = 1", "sleep_after_minutes = 0") + """
+[[pages.keys]]
+row = 1
+column = 0
+label = "Cam"
+label_active = "Cam off"
+action = { type = "toggle", on = { type = "url", url = "https://on.example.org" }, off = { type = "url", url = "https://off.example.org" } }
+[[pages.keys]]
+row = 1
+column = 1
+label = "Tea"
+action = { type = "timer", seconds = 120, done = { type = "url", url = "https://done.example.org" } }
+action_long = { type = "timer", reset = true }
+[[pages.keys]]
+row = 1
+column = 2
+action = { type = "counter", step = 2 }
+action_long = { type = "counter", reset = true }
+[[pages.keys]]
+row = 1
+column = 3
+action = { type = "stopwatch" }
+"""
+
+
+def live_setup(setup):
+    """<summary>
+    The everyday controller reloaded with a toggle, a timer, a counter and a
+    stopwatch on its second page, shown and settled.
+    </summary>
+    <returns>The controller, deck, clock and opened URL list.</returns>
+    """
+    controller, deck, clock, urls, path = setup
+    controller.reload(cfg.parse(LIVE_TEXT, path.parent, path))
+    controller.switch_page("Second")
+    controller.tick()
+    deck.reset()
+    return controller, deck, clock, urls
+
+
+def test_toggle_flips_its_face_and_runs_the_half_for_its_new_state(setup):
+    """<summary>
+    Pins a toggle key running its on action, redrawing only itself with its
+    active label, and then running its off action and going back.
+    </summary>
+    <remarks>
+    One tile redrawn, not fifteen, is the economy the whole face mechanism
+    exists for: a toggle flipped ten times a minute must not repaint the
+    page each time. The active label is checked through the tile changing,
+    since the state itself is private to the controller.
+    </remarks>
+    """
+    controller, deck, clock, urls = live_setup(setup)
+    before = controller.tile_image(1, 0).tobytes()
+    controller.handle_event(KeyEvent(14, True))  # key 14 is row 1 column 0
+    assert urls == ["https://on.example.org"]
+    assert [c[1:] for c in deck.tiles()] == [(1, 0)]
+    assert controller.states.is_on(("Second", 1, 0))
+    assert controller.tile_image(1, 0).tobytes() != before
+    deck.reset()
+    controller.handle_event(KeyEvent(14, True))
+    assert urls == ["https://on.example.org", "https://off.example.org"]
+    assert not controller.states.is_on(("Second", 1, 0))
+    assert controller.tile_image(1, 0).tobytes() == before
+
+
+def test_timer_counts_on_the_tick_finishes_once_and_runs_its_done_action(setup):
+    """<summary>
+    Pins a timer key redrawing itself only when its digits move, keeping
+    the loop awake while it runs, firing its done action once when it
+    reaches zero, and resetting on its long press.
+    </summary>
+    <remarks>
+    The redraw count is the contract with the USB link: a running timer
+    costs one tile a second and nothing between seconds. The done action
+    firing exactly once is what stops a URL opening on every tick after the
+    timer ends.
+    </remarks>
+    """
+    controller, deck, clock, urls = live_setup(setup)
+    idle = controller.tile_image(1, 1).tobytes()
+    # key 11 is row 1 column 1; it has a long press action, so the plain
+    # press fires on the release
+    controller.handle_event(KeyEvent(11, True))
+    controller.handle_event(KeyEvent(11, False))
+    assert controller.states.any_running("Second")
+    controller.tick()
+    assert controller._live_ms == controller_module.LIVE_READ_MS
+    deck.reset()
+    clock.advance(0.3)
+    controller.tick()
+    assert [c[1:] for c in deck.tiles()] == [(1, 1)]  # 2:00 became 1:59 at once, since seconds are cut
+    deck.reset()
+    clock.advance(0.3)
+    controller.tick()
+    assert deck.tiles() == []  # still 1:59, nothing sent
+    clock.advance(0.5)
+    controller.tick()
+    assert [c[1:] for c in deck.tiles()] == [(1, 1)]  # 1:58
+    deck.reset()
+    clock.advance(125)
+    controller.tick()
+    assert urls == ["https://done.example.org"]
+    clock.advance(1)
+    controller.tick()
+    assert urls == ["https://done.example.org"]  # once
+    finished = controller.tile_image(1, 1).tobytes()
+    assert finished != idle
+    clock.advance(20)
+    controller.tick()
+    assert controller.tile_image(1, 1).tobytes() == idle  # back to showing 2:00
+    assert controller._live_ms is None
+    # long press resets a running timer
+    controller.handle_event(KeyEvent(11, True))
+    controller.handle_event(KeyEvent(11, False))
+    clock.advance(5)
+    controller.tick()
+    controller.test_press(1, 1, "long")
+    assert not controller.states.any_running("Second")
+
+
+def test_counter_and_stopwatch_show_their_values(setup):
+    """<summary>
+    Pins a counter moving by its step and resetting on its long press, and a
+    stopwatch starting and pausing, each redrawing only its own key.
+    </summary>
+    """
+    controller, deck, clock, urls = live_setup(setup)
+    zero = controller.tile_image(1, 2).tobytes()
+    for _ in range(2):  # key 8 is row 1 column 2; its long press means the press fires on release
+        controller.handle_event(KeyEvent(8, True))
+        controller.handle_event(KeyEvent(8, False))
+    assert controller.states.count(("Second", 1, 2)) == 4
+    assert [c[1:] for c in deck.tiles()] == [(1, 2), (1, 2)]
+    assert controller.tile_image(1, 2).tobytes() != zero
+    controller.test_press(1, 2, "long")
+    assert controller.states.count(("Second", 1, 2)) == 0
+    assert controller.tile_image(1, 2).tobytes() == zero
+    deck.reset()
+    controller.handle_event(KeyEvent(5, True))  # key 5 is row 1 column 3
+    clock.advance(1.1)
+    controller.tick()
+    assert [c[1:] for c in deck.tiles()] == [(1, 3), (1, 3)]
+    controller.handle_event(KeyEvent(5, True))  # pause
+    clock.advance(5)
+    deck.reset()
+    controller.tick()
+    assert deck.tiles() == []  # paused: nothing moves
+
+
+def test_mute_key_wears_its_active_face_while_muted(setup):
+    """<summary>
+    Pins a mute key drawing its active picture and label while the sound
+    system says it is muted, asked no more than every few seconds, and
+    going back when it is not.
+    </summary>
+    <remarks>
+    The poll count is the point: each ask is a process on Linux, so the
+    face must come from a cached answer between polls, and a press must
+    force a fresh one so the key changes at once.
+    </remarks>
+    """
+    controller, deck, clock, urls, path = setup
+    controller.reload(cfg.parse(TEXT + """
+[[pages.keys]]
+row = 1
+column = 4
+label = "Sound"
+label_active = "Muted"
+action = { type = "volume", mute = "toggle" }
+""", path.parent, path))
+
+    class Sound:
+        """<summary>A sound backend that counts its polls and flips on mute.</summary>"""
+
+        def __init__(self):
+            """<summary>Start unmuted with no polls.</summary>"""
+            self.muted = False
+            self.polls = 0
+
+        def set_mute(self, mode): self.muted = not self.muted
+        def is_muted(self):
+            self.polls += 1
+            return self.muted
+        def default_output(self): return "sink_a"
+        def outputs(self): return []
+
+    sound = Sound()
+    controller.runner._audio = sound
+    controller.switch_page("Second")
+    controller.tick()
+    unmuted = controller.tile_image(1, 4).tobytes()
+    polls = sound.polls
+    clock.advance(1)
+    controller.tick()
+    assert sound.polls == polls  # cached inside the poll window
+    controller.handle_event(KeyEvent(2, True))  # key 2 is row 1 column 4
+    assert sound.muted
+    assert controller.tile_image(1, 4).tobytes() != unmuted
+    controller.handle_event(KeyEvent(2, True))
+    assert controller.tile_image(1, 4).tobytes() == unmuted
+
+
+def test_a_running_clock_keeps_the_deck_awake(setup):
+    """<summary>
+    Pins a running stopwatch holding off the idle sleep, and the sleep
+    arriving once it is paused.
+    </summary>
+    <remarks>
+    The deck was asked to show a count, and a deck that blanked itself a
+    minute into a stopwatch would be showing nothing when the number was
+    wanted. Pausing hands the deck back to the ordinary idle rule.
+    </remarks>
+    """
+    controller, deck, clock, urls, path = setup
+    controller.reload(cfg.parse(TEXT + """
+[[pages.keys]]
+row = 1
+column = 3
+action = { type = "stopwatch" }
+""", path.parent, path))
+    controller.switch_page("Second")
+    controller.handle_event(KeyEvent(5, True))  # key 5 is row 1 column 3
+    clock.advance(90)
+    controller.tick()
+    assert not controller.asleep
+    controller.handle_event(KeyEvent(5, True))  # pause
+    clock.advance(90)
+    controller.tick()
+    assert controller.asleep
