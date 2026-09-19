@@ -412,6 +412,43 @@ label.check { display: flex; align-items: center; gap: 8px; margin-top: 8px; cur
 .icon-tile:hover { border-color: var(--signal); color: var(--ink); }
 .icon-tile img { width: 46px; height: 46px; object-fit: contain; background: #0d1218; border-radius: 6px; padding: 4px; }
 .icon-tile span { text-align: center; line-height: 1.15; }
+
+/**
+ * <summary>The action chooser: the button that opens it and the grid of tiles
+ * inside it, each a glyph, a name and a line of description.</summary>
+ * <remarks>
+ * The tiles are wider than the icon gallery's because they carry a sentence,
+ * so the grid fills at a much larger minimum width and drops to one column in
+ * a narrow window rather than squeezing the text into a column of single
+ * words. The glyph colour is inherited, which is what lets the chosen tile and
+ * a hovered tile light their drawing along with their text.
+ * </remarks>
+ */
+button.action-pick {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  text-align: left; padding: 8px 10px; font: inherit;
+  background: var(--paper); color: var(--ink);
+  border: 1px solid var(--rule); border-radius: 8px; cursor: pointer;
+}
+button.action-pick:hover { border-color: var(--signal); }
+button.action-pick > span:nth-child(2) { flex: 1; min-width: 0; }
+.action-pick-more { color: var(--steel); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; }
+.action-glyph { display: flex; flex: none; }
+.action-glyph svg { width: 22px; height: 22px; display: block; }
+.action-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(196px, 1fr)); gap: 8px; }
+.action-tile {
+  display: grid; grid-template-columns: 26px 1fr; grid-template-rows: auto auto;
+  gap: 2px 10px; align-items: center;
+  padding: 10px 12px; font: inherit; text-align: left; cursor: pointer;
+  background: var(--card2); color: var(--steel);
+  border: 1px solid var(--rule); border-radius: 8px;
+}
+.action-tile:hover { border-color: var(--signal); color: var(--ink); }
+.action-tile.chosen { border-color: var(--signal); background: var(--paper); color: var(--ink); }
+.action-tile .action-glyph { grid-row: 1 / span 2; align-self: start; margin-top: 2px; }
+.action-tile .action-glyph svg { width: 24px; height: 24px; }
+.action-name { color: var(--ink); }
+.action-help { font-size: 12px; line-height: 1.25; color: var(--steel); }
 .inline input[type="color"] { width: 44px; height: 30px; padding: 2px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); flex: 0 0 auto; }
 .inline > span.muted { flex: 1; }
 .anim-controls { margin-top: 8px; }

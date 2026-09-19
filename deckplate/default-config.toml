@@ -107,7 +107,8 @@ tiles = ["clock", "date", "weather"]
 #              optional command = "firefox" launched when no window matches
 #   toggle     on = { type = ... }, off = { type = ... }   alternate presses
 #   timer      seconds = 300, optional done = { type = ... };  reset = true resets
-#   stopwatch  press to start and pause;  reset = true resets
+#   stopwatch  press to start and pause;  holding the key resets it, and
+#              reset = true puts a reset on another gesture as well
 #   counter    step = 1 (negative counts down);  reset = true resets
 #   A key may carry image_active and label_active, shown while its toggle is on,
 #   its hold or repeat runs, its timer counts, or the sound is muted by it.

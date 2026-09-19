@@ -136,9 +136,9 @@
   <remarks>
   Everything a single key can carry: its label, its picture, an animation, a
   background, the running border, and three actions. The empty divs are slots
-  app.js appends built fields into; the selects are the fixed lists, since their
-  options are the action types the daemon actually supports and adding one means
-  changing the daemon too.
+  app.js appends built fields into; the three action buttons are filled by
+  app.js and open the chooser window, which is where the action types and what
+  each one does are described, since adding one means changing the daemon too.
 
   Inside a template, so the ids in here are not in the document until it is
   cloned. That is also why there can be two editors in this file with no ids
@@ -181,30 +181,7 @@
   <div id="keyBackground"></div>
   <div class="field">
     <label for="actionType">Action</label>
-    <select id="actionType">
-      <option value="">Nothing</option>
-      <option value="hotkey">Send a hotkey</option>
-      <option value="sequence">Send several keys</option>
-      <option value="chord">Hold one key while pressing others</option>
-      <option value="hold">Hold a key down (press again to let go)</option>
-      <option value="boost">Hold a key and pulse another (press again to stop)</option>
-      <option value="repeat">Press a key over and over (press again to stop)</option>
-      <option value="text">Type some text</option>
-      <option value="launch">Launch a program</option>
-      <option value="url">Open a web address</option>
-      <option value="request">Call a web address</option>
-      <option value="volume">Volume</option>
-      <option value="audio_output">Audio output</option>
-      <option value="window">A program's window</option>
-      <option value="toggle">Toggle between two actions</option>
-      <option value="timer">Timer</option>
-      <option value="stopwatch">Stopwatch</option>
-      <option value="counter">Counter</option>
-      <option value="page">Switch page</option>
-      <option value="brightness">Deck brightness</option>
-      <option value="sleep">Sleep the deck</option>
-      <option value="multi">Several steps</option>
-    </select>
+    <button type="button" id="actionType" class="action-pick"></button>
   </div>
   <div id="actionFields"></div>
   <!--
@@ -229,12 +206,12 @@
     <summary>Long press and double press</summary>
     <div class="field">
       <label for="actionLongType">Hold the key down</label>
-      <select id="actionLongType"></select>
+      <button type="button" id="actionLongType" class="action-pick"></button>
     </div>
     <div id="actionLongFields"></div>
     <div class="field">
       <label for="actionDoubleType">Press it twice quickly</label>
-      <select id="actionDoubleType"></select>
+      <button type="button" id="actionDoubleType" class="action-pick"></button>
     </div>
     <div id="actionDoubleFields"></div>
     <div class="help">A key with either of these waits for you to let go before it does the plain action. How long counts as a hold, and how quick counts as twice, are in Settings.</div>

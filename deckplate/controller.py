@@ -1238,34 +1238,52 @@ class Controller:
         key = self.page.keys.get((row, column))
         if key is None:
             return
-        actions = Actions(*self._bind(key.actions(), row, column))
+        actions = Actions(*self._bind(key, row, column))
         if not actions.any:
             return
         if self.config.deck.press_flash:
             self._flash(row, column)
         self._run_actions(self.router.press(row, column, actions, self.monotonic()))
 
-    def _bind(self, actions, row: int, column: int):
+    def _bind(self, key, row: int, column: int):
         """<summary>
-        Give the positional actions among a key's three the key they sit on.
+        Give the positional actions among a key's three the key they sit on,
+        and give a stopwatch key its unasked for reset on the long press.
         </summary>
-        <param name="actions">The key's plain, long and double actions, any None.</param>
+        <param name="key">The key's config.</param>
         <param name="row">Row from 0 at the top.</param>
         <param name="column">Column from 0 at the left.</param>
-        <returns>The same three, with each toggle, timer, stopwatch or
-        counter copied to carry ``at``: the page name, row and column.</returns>
+        <returns>The plain, long and double actions, with each toggle, timer,
+        stopwatch or counter copied to carry ``at``: the page name, row and
+        column.</returns>
         <remarks>
         The router hands actions back long after the press, on a release or
         a tick, with no memory of which key they came from, so the position
         travels with the action. It is a runtime copy: the config's own
         Action objects are never written to, and the document form never
         sees the extra key.
+
+        A stopwatch that runs and pauses on the press has nothing else its
+        key can usefully do, and holding a stopwatch to zero it is what the
+        physical ones do, so a stopwatch key with no long press of its own is
+        given a reset. It is not written to the config, so the key goes back
+        to having no long press if its action changes, and a long press
+        written by hand wins over it.
+
+        Giving a key a long press changes when its plain press fires: on the
+        release rather than on the way down, as it does for any key with a
+        second action. For a stopwatch that is the press to start arriving
+        when the key comes up, which is the price of holding it to reset.
         </remarks>
         """
         at = (self.page.name, row, column)
+        plain, long_press, double = key.actions()
+        if (long_press is None and plain is not None
+                and plain.type == "stopwatch" and not plain.params.get("reset")):
+            long_press = Action("stopwatch", {"reset": True})
         return tuple(Action(action.type, {**action.params, "at": at})
                      if action is not None and action.type in POSITIONAL_ACTIONS else action
-                     for action in actions)
+                     for action in (plain, long_press, double))
 
     def _run_actions(self, actions: list) -> None:
         """<summary>
@@ -1382,7 +1400,7 @@ class Controller:
         key = self.page.keys.get((row, column))
         if key is None:
             return
-        bound = self._bind(key.actions(), row, column)
+        bound = self._bind(key, row, column)
         action = {"press": bound[0], "long": bound[1], "double": bound[2]}.get(gesture)
         if action is None:
             return

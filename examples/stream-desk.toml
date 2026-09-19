@@ -1,0 +1,158 @@
+# Deckplate example: a streaming desk.
+#
+# Microphone and camera as toggles that change their own picture, the
+# recording controls, the sound, and a key that brings the broadcaster to the
+# front or starts it. Every picture is a shipped theme icon, so this config
+# works with no pictures of your own.
+#
+# Copy it to ~/.config/deckplate/config.toml, or open it beside your own and
+# take the keys you want. The hotkeys are the ones OBS Studio ships with
+# nothing bound to by default: set them there first, or change them here.
+
+[deck]
+brightness = 80
+sleep_after_minutes = 20
+background = "#141c28"
+
+[strip]
+tiles = ["clock", "date", "weather"]
+
+[weather]
+latitude = 51.5072
+longitude = -0.1276
+location_name = "London"
+units = "metric"
+
+[[pages]]
+name = "Stream"
+
+# Microphone: one hotkey does both, and the key shows which way it is now.
+[[pages.keys]]
+row = 0
+column = 0
+image = "theme:controls/mic"
+image_active = "theme:controls/mic-off"
+label = "Mic"
+label_active = "Muted"
+action = { type = "toggle", on = { type = "hotkey", keys = "ctrl+shift+f1" }, off = { type = "hotkey", keys = "ctrl+shift+f1" } }
+
+[[pages.keys]]
+row = 0
+column = 1
+image = "theme:controls/camera"
+image_active = "theme:controls/camera-off"
+label = "Camera"
+label_active = "Off"
+action = { type = "toggle", on = { type = "hotkey", keys = "ctrl+shift+f2" }, off = { type = "hotkey", keys = "ctrl+shift+f2" } }
+
+[[pages.keys]]
+row = 0
+column = 2
+image = "theme:controls/record"
+label = "Record"
+action = { type = "hotkey", keys = "ctrl+shift+f5" }
+
+[[pages.keys]]
+row = 0
+column = 3
+image = "theme:controls/pause"
+label = "Pause"
+action = { type = "hotkey", keys = "ctrl+shift+f6" }
+
+# The broadcaster: brought to the front if it is running, started if not.
+[[pages.keys]]
+row = 0
+column = 4
+image = "theme:controls/window"
+label = "OBS"
+action = { type = "window", match = "obs", command = "obs" }
+
+# A break timer with a bell at the end, and a hold to put it back.
+[[pages.keys]]
+row = 1
+column = 0
+image = "theme:controls/hourglass-running"
+label = "Break"
+action = { type = "timer", seconds = 300, done = { type = "hotkey", keys = "ctrl+shift+f7" } }
+action_long = { type = "timer", reset = true }
+
+[[pages.keys]]
+row = 1
+column = 1
+label = "Raids"
+action = { type = "counter", step = 1 }
+action_long = { type = "counter", reset = true }
+action_double = { type = "counter", step = -1 }
+
+[[pages.keys]]
+row = 1
+column = 3
+image = "theme:controls/volume-down"
+action = { type = "volume", delta = -5 }
+
+[[pages.keys]]
+row = 1
+column = 4
+image = "theme:controls/volume-up"
+action = { type = "volume", delta = 5 }
+
+[[pages.keys]]
+row = 2
+column = 0
+image = "theme:controls/mute"
+label = "Sound"
+label_active = "Muted"
+action = { type = "volume", mute = "toggle" }
+
+[[pages.keys]]
+row = 2
+column = 1
+image = "theme:controls/headphones"
+label = "Headset"
+action = { type = "audio_output", device = "headphones" }
+
+[[pages.keys]]
+row = 2
+column = 2
+image = "theme:controls/speaker"
+label = "Speakers"
+action = { type = "audio_output", device = "analog|built.?in|speaker" }
+
+[[pages.keys]]
+row = 2
+column = 4
+label = "Page 2"
+action = { type = "page", page = "next" }
+
+[[pages]]
+name = "Scenes"
+
+[[pages.keys]]
+row = 0
+column = 0
+label = "Starting"
+action = { type = "hotkey", keys = "ctrl+alt+1" }
+
+[[pages.keys]]
+row = 0
+column = 1
+label = "Desk"
+action = { type = "hotkey", keys = "ctrl+alt+2" }
+
+[[pages.keys]]
+row = 0
+column = 2
+label = "Full Screen"
+action = { type = "hotkey", keys = "ctrl+alt+3" }
+
+[[pages.keys]]
+row = 0
+column = 3
+label = "Back Soon"
+action = { type = "hotkey", keys = "ctrl+alt+4" }
+
+[[pages.keys]]
+row = 2
+column = 4
+label = "Back"
+action = { type = "page", page = "Stream" }

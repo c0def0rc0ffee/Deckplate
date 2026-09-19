@@ -8,7 +8,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "deckplate"
-version = "1.0.14"
+version = "1.0.16"
 description = "Small Linux and Windows driver and controller for the Soomfon Stream Controller (Mirabox 293S family)"
 license = { text = "GPL-2.0-or-later" }
 readme = "README.md"

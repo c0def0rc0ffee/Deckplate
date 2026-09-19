@@ -194,7 +194,11 @@ the key shows what it remembers:
   `done = { type = "launch", command = "paplay /usr/share/sounds/freedesktop/stereo/complete.oga" }`.
   A `{ type = "timer", reset = true }` on the key's long press resets it.
 - `stopwatch` counts up in the same way; its ring goes round once a minute.
-  `{ type = "stopwatch", reset = true }` resets it.
+  Holding the key puts it back to zero, with nothing to configure: a
+  stopwatch key with no long press of its own is given that reset. Because
+  it then has a second action, its press to start arrives when the key comes
+  up rather than on the way down. A long press written by hand wins over it,
+  and `{ type = "stopwatch", reset = true }` still works anywhere else.
 - `counter` adds `step` (default 1, negative to count down) to a count the
   key shows large. `{ type = "counter", reset = true }` puts it back to zero,
   so a long press reset and a double press `step = -1` make a full tally key.
@@ -240,6 +244,45 @@ microphone on and off, play, pause, stop, record, reset, bell) plus four
 animated ones: a running hourglass, a running stopwatch, an emptying ring
 and a tally counting up. An animated icon is a GIF and plays on the key.
 `tools/make_icons.py` draws them all in code.
+
+### Example setups
+
+Three complete configurations are in `examples/`, each drawn below as the
+deck shows it. Copy one over `~/.config/deckplate/config.toml`, or open it
+beside your own and take the keys you want. They use the shipped theme
+icons only, so none of them needs a picture of yours.
+
+`examples/stream-desk.toml`: microphone and camera as toggles that change
+their own picture, the recording controls, a break timer, a counter, the
+volume and the output, and a key that brings the broadcaster to the front
+or starts it. A second page holds the scene hotkeys.
+
+![The stream desk example on the deck](docs/images/stream-desk.png)
+
+`examples/focus-timer.toml`: the keys that remember something, on one page.
+A twenty five minute timer with a sound at the end, a break timer, a
+stopwatch, a counter for the tasks finished, and the brightness.
+
+![The focus timer example on the deck](docs/images/focus-timer.png)
+
+`examples/meetings.toml`: mute and camera with their own faces, which
+output the sound goes to, the windows a call needs, a stopwatch for how
+long it has run, and two sentences typed rather than said.
+
+![The meetings example on the deck](docs/images/meetings.png)
+
+The pictures are drawn from the configuration files themselves by
+`tools/render_layout.py`, which opens no device and needs no deck:
+
+```bash
+.venv/bin/python tools/render_layout.py examples/meetings.toml -o docs/images/meetings.png --active 0,1 --live "1,4=24:10"
+```
+
+`--live` shows a key part way through a count, and `--active` draws one
+with its active picture and label, so a picture can show the deck in use
+rather than every key sitting idle. The clock, the date and the weather
+come from fixed values, so regenerating a picture after a change gives a
+clean diff.
 
 ### Second actions
 
@@ -358,7 +401,9 @@ platforms.
 
 The page shows the deck as it really is, with the tiles the panels are
 showing and a flash when a real key is pressed. Click a key to set its
-label, picture and action; click a strip panel to choose clock, date,
+label, picture and action. The action is chosen from a window of tiles,
+each with a drawing and a line saying what it does, grouped and searchable,
+rather than from a list of names; click a strip panel to choose clock, date,
 weather or a picture. Keys for the hotkey, sequence and hold actions are
 captured rather than typed: click Capture and press them. Click a captured
 key to remove it. For keys the browser cannot see, such as media keys,
@@ -457,6 +502,9 @@ restart; everything else reloads live.
 | `deckplate/web/` | the configuration page: one HTML file, one stylesheet, one script, no build step |
 | `deckplate/gui.py` | the window around the page (pywebview), with the browser fallback |
 | `deckplate/cli.py` | the command line |
+| `examples/` | complete example configurations, drawn in the README |
+| `tools/make_icons.py` | draws the shipped icon themes, stills and animated |
+| `tools/render_layout.py` | draws a configuration as a picture of the deck, for the documentation |
 | `tests/` | pytest suite, no hardware needed |
 | `tools/probe.py` | the original milestone 1 probe, now a wrapper around `probe` |
 | `tools/build.py` | the PyInstaller build and platform zip, used by build-zip.sh on Linux and directly on Windows |

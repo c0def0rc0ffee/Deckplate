@@ -524,20 +524,28 @@ def live_tile(key: KeyConfig, size: int, text: str, ring: float | None,
     key's own label, if any, moves into the band underneath it so a counter
     called "Deaths" still says so.
 
-    The ring is drawn last so it sits over everything, band included. It is
-    a share of the key rather than a pixel width so it reads the same on the
-    deck and in the page's larger previews.
+    The ring goes on before the band and not after it. Drawn last it cut
+    straight through the text in the band, which is the half of the key that
+    has to be readable; the band is translucent, so with the order this way
+    round the ring still shows through it and the text stays clean. On a key
+    with no band the two do not meet at all.
+
+    The ring is a share of the key rather than a pixel width, so it reads
+    the same on the deck and in the page's larger previews.
     </remarks>
     """
     background = key_background(key, default_background)
+    band = None
     if key.image is not None:
-        tile = with_label(picture_tile(key.image, size, background), text)
+        tile = picture_tile(key.image, size, background)
+        band = text
     else:
         tile = _text_face(text, size, background, backdrop)
-        if key.label:
-            tile = with_label(tile, key.label)
+        band = key.label or None
     if ring is not None:
         tile = with_ring(tile, ring, ring_colour or images.ACCENT)
+    if band:
+        tile = with_label(tile, band)
     return tile
 
 

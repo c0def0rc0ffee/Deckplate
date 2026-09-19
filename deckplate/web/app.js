@@ -981,23 +981,21 @@
 
     // The plain action and the two second actions are edited the same way and
     // differ only in which field of the key they write to.
-    const type = tpl.querySelector("#actionType");
-    const actionSlot = (field, select, fields) => {
-      if (!select.options.length) for (const option of type.options) {
-        select.append(el("option", { value: option.value, text: option.textContent }));
-      }
-      select.value = key[field] ? key[field].type : "";
-      select.addEventListener("change", () => change(d => {
-        const k = ensureKey(currentPage(), selected.row, selected.column);
-        k[field] = select.value ? defaultAction(select.value) : null;
-        dropEmptyKey(currentPage(), k);
-      }));
+    const actionSlot = (field, button, fields) => {
+      actionButton(button, key[field] ? key[field].type : null, {
+        allowNone: true,
+        onPick: type => change(d => {
+          const k = ensureKey(currentPage(), selected.row, selected.column);
+          k[field] = type ? defaultAction(type) : null;
+          dropEmptyKey(currentPage(), k);
+        }),
+      });
       if (key[field]) fields.append(actionFields(key[field], () => {
         const k = ensureKey(currentPage(), selected.row, selected.column);
         return k[field];
       }, false));
     };
-    actionSlot("action", type, tpl.querySelector("#actionFields"));
+    actionSlot("action", tpl.querySelector("#actionType"), tpl.querySelector("#actionFields"));
     actionSlot("action_long", tpl.querySelector("#actionLongType"), tpl.querySelector("#actionLongFields"));
     actionSlot("action_double", tpl.querySelector("#actionDoubleType"), tpl.querySelector("#actionDoubleFields"));
     if (key.action_long || key.action_double) tpl.querySelector("details.second").open = true;
@@ -1159,10 +1157,200 @@
    * daemon refuses the same set, so this is the page agreeing rather than
    * deciding.</remarks>
    */
-  const NESTED_TYPES = [["hotkey", "Send a hotkey"], ["sequence", "Send several keys"], ["chord", "Hold one key while pressing others"],
-    ["text", "Type some text"], ["launch", "Launch a program"], ["url", "Open a web address"], ["request", "Call a web address"],
-    ["volume", "Volume"], ["audio_output", "Audio output"], ["window", "A program's window"],
-    ["page", "Switch page"], ["brightness", "Deck brightness"], ["sleep", "Sleep the deck"]];
+  /**
+   * <summary>Every action type: its name, what it does in one line, the glyph
+   * that stands for it, and whether it may sit inside another action.</summary>
+   * <remarks>
+   * The single place the page describes the action types. The chooser window,
+   * the button that opens it and the nested slots all read this, so a new type
+   * is added here once and appears everywhere.
+   *
+   * ``nested: false`` marks the types that cannot be a step of a multi action,
+   * a toggle's half or a timer's done: the toggling ones run until pressed
+   * again, and the ones that keep state have no key of their own inside
+   * another action. The daemon refuses the same set, so this is the page
+   * agreeing with it rather than deciding.
+   *
+   * The glyphs are inline SVG drawn on a 24 grid in the current text colour,
+   * not pictures from an icon theme: they label the editor, and a theme is a
+   * set of pictures for the deck's own keys.
+   * </remarks>
+   */
+  const ACTION_META = {
+    hotkey: { label: "Send a hotkey", help: "Send a key combination to whatever has focus.",
+      icon: '<rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M7 10h.01M11 10h.01M15 10h.01M7.5 14h9"/>' },
+    sequence: { label: "Send several keys", help: "Send key combinations one after another.",
+      icon: '<rect x="1.5" y="8" width="6" height="8" rx="1.5"/><rect x="9" y="8" width="6" height="8" rx="1.5"/><rect x="16.5" y="8" width="6" height="8" rx="1.5"/>' },
+    chord: { label: "Hold one key, tap others", help: "Keep one key down while tapping the rest.",
+      icon: '<rect x="1.5" y="7" width="8" height="10" rx="2" fill="currentColor" opacity=".4"/><rect x="12.5" y="7" width="10" height="10" rx="2"/><path d="M15.5 12h4"/>' },
+    hold: { label: "Hold a key down", help: "Holds a key until the deck key is pressed again.", nested: false,
+      icon: '<rect x="4" y="10" width="16" height="10" rx="2.5"/><path d="M12 2v6M9 5.5L12 8.5l3-3"/>' },
+    boost: { label: "Hold a key and pulse another", help: "One key held, a second tapped on and off, until pressed again.", nested: false,
+      icon: '<rect x="1.5" y="9" width="9" height="11" rx="2.5"/><path d="M17 3l-3 7h4l-3 8"/>' },
+    repeat: { label: "Press a key over and over", help: "Taps a key on a timer, until pressed again.", nested: false,
+      icon: '<path d="M4 10a8 8 0 0113.4-4M20 14A8 8 0 016.6 18"/><path d="M4 5v5h5M20 19v-5h-5"/>' },
+    text: { label: "Type some text", help: "Types a piece of text, exactly as written.",
+      icon: '<path d="M5 7V5h14v2M12 5v14M9 19h6"/>' },
+    launch: { label: "Launch a program", help: "Starts a program or a script.",
+      icon: '<path d="M14 3h7v7M21 3l-9 9"/><path d="M18 14v6a1 1 0 01-1 1H4a1 1 0 01-1-1V7a1 1 0 011-1h6"/>' },
+    url: { label: "Open a web address", help: "Opens a page in the browser.",
+      icon: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 010 18A14 14 0 0112 3"/>' },
+    request: { label: "Call a web address", help: "Calls an address with no browser, for anything with an API.",
+      icon: '<path d="M3 8h13M12 4l4 4-4 4"/><path d="M21 16H8M12 12l-4 4 4 4"/>' },
+    volume: { label: "Volume", help: "Set the level, step it up or down, or mute.",
+      icon: '<path d="M3 9.5v5h4l5 4v-13l-5 4H3z"/><path d="M16.5 8.5a5 5 0 010 7M19.5 6a9 9 0 010 12"/>' },
+    audio_output: { label: "Audio output", help: "Switch the sound to the headphones, the speakers or the next output.",
+      icon: '<path d="M4 15v-3.5a8 8 0 0116 0V15"/><rect x="1.5" y="14" width="5" height="7" rx="2"/><rect x="17.5" y="14" width="5" height="7" rx="2"/>' },
+    window: { label: "A program's window", help: "Bring a window to the front, or minimise, maximise or close it.",
+      icon: '<rect x="2.5" y="4" width="19" height="16" rx="2.5"/><path d="M2.5 9h19"/><path d="M12 18v-5M9.5 15.5L12 13l2.5 2.5"/>' },
+    toggle: { label: "Toggle between two actions", help: "One action on the first press, another on the next.", nested: false,
+      icon: '<rect x="1.5" y="7" width="21" height="10" rx="5"/><circle cx="17" cy="12" r="3.2" fill="currentColor"/>' },
+    timer: { label: "Timer", help: "Counts down on the key, with a ring that empties.", nested: false,
+      icon: '<path d="M7 3h10M7 21h10M8.5 3v3.5L12 11l3.5-4.5V3M8.5 21v-3.5L12 13l3.5 4.5V21"/>' },
+    stopwatch: { label: "Stopwatch", help: "Counts up on the key. Hold the key to put it back to zero.", nested: false,
+      icon: '<circle cx="12" cy="14" r="7.5"/><path d="M12 10.5V14l2.5 1.5M9.5 2h5M19 6.5l1.5-1.5"/>' },
+    counter: { label: "Counter", help: "Counts presses and shows the number on the key.", nested: false,
+      icon: '<path d="M6.5 6v12M10.5 6v12M14.5 6v12M18.5 6v12M4 18L20 6"/>' },
+    page: { label: "Switch page", help: "Shows another page of keys.",
+      icon: '<rect x="2.5" y="4" width="11" height="16" rx="2"/><path d="M6 9h4M6 13h4"/><path d="M17 8l4 4-4 4z" fill="currentColor"/>' },
+    brightness: { label: "Deck brightness", help: "Sets the backlight, or steps it up or down.",
+      icon: '<circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/>' },
+    sleep: { label: "Sleep the deck", help: "Turns the screens off until a key is pressed.",
+      icon: '<path d="M20.5 14.8A9 9 0 019.2 3.5 9 9 0 1020.5 14.8z"/>' },
+    multi: { label: "Several steps", help: "Do several of these, one after another.", nested: false,
+      icon: '<path d="M4 7h16M4 12h16M4 17h10"/><circle cx="19" cy="17" r="1.6" fill="currentColor"/>' },
+  };
+
+  /** <summary>The chooser's sections, in the order they are shown.</summary>
+   * <remarks>Every type in ACTION_META appears in exactly one section. A type
+   * added to the map and not to a section is not offered, which is a quiet
+   * enough failure to be worth saying out loud here.</remarks> */
+  const ACTION_GROUPS = [
+    { title: "Keys and text", types: ["hotkey", "sequence", "chord", "text", "hold", "boost", "repeat"] },
+    { title: "Programs and the web", types: ["launch", "url", "request"] },
+    { title: "Sound and windows", types: ["volume", "audio_output", "window"] },
+    { title: "Keys that remember", types: ["toggle", "timer", "stopwatch", "counter"] },
+    { title: "The deck", types: ["page", "brightness", "sleep", "multi"] },
+  ];
+
+  /** <summary>A glyph element for an action type, or the empty slot's own.</summary>
+   * <param name="type">An action type, or "" for nothing chosen.</param>
+   * <returns>A span holding the inline SVG.</returns> */
+  function actionIcon(type) {
+    const glyph = type && ACTION_META[type] ? ACTION_META[type].icon
+      : '<circle cx="12" cy="12" r="9"/><path d="M6 6l12 12"/>';
+    return el("span", { class: "action-glyph",
+      html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" '
+        + 'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + glyph + '</svg>' });
+  }
+
+  /**
+   * <summary>The action chooser: a window of tiles, each a glyph, a name and a
+   * line saying what it does.</summary>
+   * <param name="opts">``nested`` leaves out the types that cannot sit inside
+   * another action, ``allowNone`` offers an empty tile, ``current`` marks the
+   * one in use, and ``onPick`` is called with the chosen type, or "" for none.</param>
+   * <remarks>
+   * Replaces a dropdown of twenty odd names, which said nothing about what any
+   * of them did. Searching hides tiles in place and hides a section whose tiles
+   * have all gone, the same way the icon gallery does.
+   *
+   * ``onPick`` is not called at all when the window is closed without choosing,
+   * so a cancelled chooser leaves the key exactly as it was.
+   * </remarks>
+   */
+  function openActionChooser(opts) {
+    const backdrop = el("div", { class: "modal-backdrop" });
+    const box = el("div", { class: "modal gallery-modal", role: "dialog", "aria-modal": "true", "aria-label": "Choose an action" });
+    const close = el("button", { type: "button", class: "ghost icon", "aria-label": "Close", text: "\u2715" });
+    const finish = () => { backdrop.remove(); document.removeEventListener("keydown", onKey, true); };
+    const onKey = e => { if (e.key === "Escape") { e.preventDefault(); finish(); } };
+    close.addEventListener("click", finish);
+    backdrop.addEventListener("click", e => { if (e.target === backdrop) finish(); });
+    document.addEventListener("keydown", onKey, true);
+    box.append(el("div", { class: "modal-head" }, [el("h2", { text: "What should this key do?" }), close]));
+    const search = el("input", { type: "search", class: "gallery-search", placeholder: "Search actions", "aria-label": "Search actions" });
+    box.append(search);
+    const body = el("div");
+    box.append(body);
+
+    const tile = (type, label, help) => {
+      const button = el("button", { type: "button", class: "action-tile" }, [
+        actionIcon(type),
+        el("span", { class: "action-name", text: label }),
+        el("span", { class: "action-help", text: help }),
+      ]);
+      if (type === (opts.current || "")) button.classList.add("chosen");
+      button.addEventListener("click", () => { finish(); opts.onPick(type); });
+      return { el: button, text: (label + " " + help + " " + type).toLowerCase() };
+    };
+
+    const sections = [];
+    if (opts.allowNone) {
+      const grid = el("div", { class: "action-grid" });
+      const only = tile("", "Nothing", "The key does nothing when pressed.");
+      grid.append(only.el);
+      body.append(grid);
+      sections.push({ heading: null, grid, tiles: [only] });
+    }
+    for (const group of ACTION_GROUPS) {
+      const types = group.types.filter(type => !(opts.nested && ACTION_META[type].nested === false));
+      if (!types.length) continue;
+      const heading = el("h3", { text: group.title });
+      const grid = el("div", { class: "action-grid" });
+      const tiles = types.map(type => {
+        const made = tile(type, ACTION_META[type].label, ACTION_META[type].help);
+        grid.append(made.el);
+        return made;
+      });
+      body.append(heading, grid);
+      sections.push({ heading, grid, tiles });
+    }
+    const empty = el("p", { class: "muted", text: "No action matches that." });
+    empty.style.display = "none";
+    body.append(empty);
+    search.addEventListener("input", () => {
+      const query = search.value.trim().toLowerCase();
+      let anyAtAll = false;
+      for (const section of sections) {
+        let visible = 0;
+        for (const one of section.tiles) {
+          const match = !query || one.text.includes(query);
+          one.el.style.display = match ? "" : "none";
+          if (match) visible += 1;
+        }
+        if (section.heading) section.heading.style.display = visible ? "" : "none";
+        section.grid.style.display = visible ? "" : "none";
+        anyAtAll = anyAtAll || visible > 0;
+      }
+      empty.style.display = anyAtAll ? "none" : "";
+    });
+    backdrop.append(box);
+    document.body.append(backdrop);
+    search.focus();
+  }
+
+  /**
+   * <summary>Fill a button with the action it stands for and have it open the
+   * chooser.</summary>
+   * <param name="button">The button element to fill and wire.</param>
+   * <param name="current">The action type now, or null for none.</param>
+   * <param name="opts">``nested`` and ``allowNone`` as the chooser takes them,
+   * and ``onPick`` called with the chosen type.</param>
+   * <returns>The same button.</returns>
+   * <remarks>The button is emptied first, so this can refill one that is
+   * already on screen rather than only a fresh one.</remarks>
+   */
+  function actionButton(button, current, opts) {
+    button.innerHTML = "";
+    button.classList.add("action-pick");
+    button.type = "button";
+    const meta = current ? ACTION_META[current] : null;
+    button.append(actionIcon(current || ""), el("span", { text: meta ? meta.label : "Nothing" }),
+      el("span", { class: "action-pick-more", text: "Change" }));
+    button.addEventListener("click", () => openActionChooser(Object.assign({ current: current || "" }, opts)));
+    return button;
+  }
 
   /**
    * <summary>One nested action slot: a type select and, below it, the fields
@@ -1174,15 +1362,15 @@
    * <returns>The field element.</returns>
    * <remarks>Used for a toggle's on and off and a timer's done. The fields are
    * rebuilt by the editor's own re-render when the type changes, which is why
-   * the change handler goes through change() without a silent flag.</remarks>
+   * the pick handler goes through change() without a silent flag.</remarks>
    */
   function nestedAction(labelText, get, set, help) {
-    const select = el("select", {}, [el("option", { value: "", text: "Nothing" })]);
-    for (const [value, text] of NESTED_TYPES) select.append(el("option", { value, text }));
     const current = get();
-    select.value = current ? current.type : "";
-    select.addEventListener("change", () => change(d => { set(select.value ? defaultAction(select.value) : null); }));
-    const field = el("div", { class: "field" }, [el("label", { text: labelText }), select]);
+    const button = actionButton(el("button", {}), current ? current.type : null, {
+      nested: true, allowNone: true,
+      onPick: type => change(d => { set(type ? defaultAction(type) : null); }),
+    });
+    const field = el("div", { class: "field" }, [el("label", { text: labelText }), button]);
     if (help) field.append(el("div", { class: "help", text: help }));
     const box = el("div", { class: "step" }, [field]);
     if (current) box.append(actionFields(current, get, true));
@@ -1543,7 +1731,7 @@
         reset.checked = !!action.reset;
         reset.addEventListener("change", () => change(d => { const a = getAction(); if (reset.checked) a.reset = true; else delete a.reset; }));
         box.append(el("div", { class: "field" }, [el("div", {}, [el("label", { class: "check" }, [reset, el("span", { text: "Reset the stopwatch on this key" })])]),
-          el("div", { class: "help", text: "Without reset: press to start, again to pause. The ring goes round once a minute. Put a reset on the long press." })]));
+          el("div", { class: "help", text: "Press to start, again to pause. The ring goes round once a minute. Holding the key puts it back to zero without anything being set here, so tick this only to put a reset somewhere else, such as the double press." })]));
         break;
       }
       case "counter": {
@@ -1568,16 +1756,15 @@
         const steps = el("div", { class: "steps" });
         (action.steps || []).forEach((step, index) => {
           const head = el("div", { class: "step-head" });
-          const typeSelect = el("select");
-          // hold is a toggle with its own thread, so it is not offered as a step
-          for (const [value, label] of NESTED_TYPES) {
-            typeSelect.append(el("option", { value, text: label }));
-          }
-          typeSelect.value = step.type;
-          typeSelect.addEventListener("change", () => change(d => { getAction().steps[index] = defaultAction(typeSelect.value); }));
+          // The toggling and remembering types are not offered as steps: they
+          // run until pressed again, or have no key of their own inside a multi.
+          const typeButton = actionButton(el("button", {}), step.type, {
+            nested: true,
+            onPick: type => change(d => { getAction().steps[index] = defaultAction(type); }),
+          });
           const remove = el("button", { type: "button", class: "ghost small danger", text: "Remove" });
           remove.addEventListener("click", () => change(d => { getAction().steps.splice(index, 1); }));
-          head.append(el("span", { class: "muted", text: String(index + 1) }), typeSelect, remove);
+          head.append(el("span", { class: "muted", text: String(index + 1) }), typeButton, remove);
           steps.append(el("div", { class: "step" }, [head, actionFields(step, () => getAction().steps[index], true)]));
         });
         const add = el("button", { type: "button", class: "ghost small", text: "+ step" });

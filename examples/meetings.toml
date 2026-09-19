@@ -1,0 +1,123 @@
+# Deckplate example: meetings.
+#
+# Mute, camera, which output the sound goes to, and the windows you reach for
+# while a call is running. The mute and camera keys change their own picture,
+# so a glance at the deck says whether you are live.
+#
+# The mute key here mutes the machine's own output, which is the reliable
+# one: a meeting program's own mute needs its hotkey, which every one of them
+# spells differently, so those are on the second row for you to set.
+
+[deck]
+brightness = 75
+sleep_after_minutes = 30
+background = "#141c28"
+follow_focus = false
+
+[strip]
+tiles = ["clock", "date", "weather"]
+
+[weather]
+latitude = 51.5072
+longitude = -0.1276
+location_name = "London"
+units = "metric"
+
+[[pages]]
+name = "Meeting"
+
+[[pages.keys]]
+row = 0
+column = 0
+image = "theme:controls/mute"
+label = "Sound"
+label_active = "Muted"
+action = { type = "volume", mute = "toggle" }
+
+[[pages.keys]]
+row = 0
+column = 1
+image = "theme:controls/mic"
+image_active = "theme:controls/mic-off"
+label = "Mic"
+label_active = "Muted"
+action = { type = "toggle", on = { type = "hotkey", keys = "ctrl+shift+m" }, off = { type = "hotkey", keys = "ctrl+shift+m" } }
+
+[[pages.keys]]
+row = 0
+column = 2
+image = "theme:controls/camera"
+image_active = "theme:controls/camera-off"
+label = "Camera"
+label_active = "Off"
+action = { type = "toggle", on = { type = "hotkey", keys = "ctrl+shift+o" }, off = { type = "hotkey", keys = "ctrl+shift+o" } }
+
+[[pages.keys]]
+row = 0
+column = 3
+image = "theme:controls/headphones"
+label = "Headset"
+action = { type = "audio_output", device = "headphones" }
+
+[[pages.keys]]
+row = 0
+column = 4
+image = "theme:controls/cycle"
+label = "Next out"
+action = { type = "audio_output", cycle = true }
+
+# The windows a call needs: brought to the front, or started.
+[[pages.keys]]
+row = 1
+column = 0
+image = "theme:controls/window"
+label = "Browser"
+action = { type = "window", match = "firefox|chromium|chrome", command = "firefox" }
+
+[[pages.keys]]
+row = 1
+column = 1
+image = "theme:controls/window-minimise"
+label = "Tidy up"
+action = { type = "window", match = "firefox|chromium|chrome", operation = "minimise" }
+
+[[pages.keys]]
+row = 1
+column = 2
+label = "Notes"
+action = { type = "window", match = "xed|notepad", command = "xed" }
+
+# A stopwatch for how long the call has run, held down to zero it.
+[[pages.keys]]
+row = 1
+column = 4
+image = "theme:controls/stopwatch"
+label = "Length"
+action = { type = "stopwatch" }
+
+# Two things typed rather than said.
+[[pages.keys]]
+row = 2
+column = 0
+label = "Back in 5"
+action = { type = "text", text = "Back in five minutes.", enter = true }
+
+[[pages.keys]]
+row = 2
+column = 1
+label = "Can't hear"
+action = { type = "text", text = "I cannot hear you, you may be muted.", enter = true }
+
+[[pages.keys]]
+row = 2
+column = 2
+image = "theme:controls/plus"
+label = "Raise hand"
+action = { type = "hotkey", keys = "ctrl+shift+k" }
+
+[[pages.keys]]
+row = 2
+column = 4
+image = "theme:controls/window-close"
+label = "Leave"
+action = { type = "hotkey", keys = "ctrl+shift+h" }

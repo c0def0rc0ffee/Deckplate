@@ -1,5 +1,62 @@
 # Changelog
 
+## 1.0.15 (19/09/2026)
+
+- Three example configurations in `examples/`: a streaming desk, focus
+  sessions, and meetings. Each is complete, uses only the shipped theme
+  icons, and is drawn in the README as the deck shows it.
+- `tools/render_layout.py` draws a configuration as a picture of the deck,
+  for the documentation. It opens no device and needs no deck, the clock
+  and the weather come from fixed values so the pictures are reproducible,
+  and a key can be shown part way through a count or wearing its active
+  face.
+- A live key's ring is drawn under its label band rather than over it. On a
+  key with a picture the ring cut straight through the time in the band and
+  left it unreadable; the band is translucent, so the ring still shows
+  through with the order this way round.
+- Holding a stopwatch key puts it back to zero. A stopwatch with no long
+  press of its own is given that reset rather than having to be configured,
+  which is what the physical ones do. It costs the key its immediate press:
+  like any key with a second action, its press to start now fires when the
+  key comes up. A long press written by hand still wins.
+- The action for a key is chosen from a window of tiles rather than a list
+  of names. Each tile carries a drawing and a line saying what the action
+  does, the tiles are grouped, and a search box narrows them. The same
+  window picks a multi action's steps, a toggle's two halves and a timer's
+  done action, where it offers only the types that may sit inside another
+  action. There were twenty one names in that dropdown and nothing to say
+  what any of them did.
+
+## 1.0.14 (19/09/2026)
+
+- Seven more action types. `toggle` alternates between two actions;
+  `timer`, `stopwatch` and `counter` keep their state on the key and show it
+  there, the timer and stopwatch with a ring that empties or sweeps, the
+  timer running a `done` action once when it reaches zero; `volume` sets,
+  steps or mutes the sound; `audio_output` switches the default output by
+  name or to the next one; `window` brings another program's window to the
+  front, or minimises, maximises or closes it, launching the program when
+  there is no window. Linux drives the sound through pactl and windows
+  through xdotool; Windows uses pycaw and the AudioDeviceCmdlets module for
+  sound and user32 for windows, and falls back to the media keys for volume
+  changes and mute when pycaw is absent.
+- A key has another face: `image_active` and `label_active`, shown while
+  its toggle is on, its hold, boost or repeat runs, its timer or stopwatch
+  goes, the sound is muted by it, or its output is the one in use. On the
+  page they sit behind "Picture and label while active".
+- A second icon theme, "Controls": twenty nine pictures for the deck's own
+  actions and four animated ones, a running hourglass, a running stopwatch,
+  an emptying ring and a tally counting up. Themes may now hold animated
+  GIF icons, which play on the key like any animated picture, and the icon
+  tool draws both sets with `--set`.
+
+## 1.0.13 (19/09/2026)
+
+- Choosing "Launch a program" on a key left the page saying not saved until
+  a command was typed, because the parser refused an empty command while
+  every other type accepted its half filled in shape. An empty command now
+  loads, and the key does nothing until one is given.
+
 ## 1.0.12 (19/09/2026)
 
 - Theme icons that the icon tool wrote straight into an images folder before
@@ -10,10 +67,6 @@
   as the theme icon it is, and the page shows a key that still names one as a
   theme icon. The files stay where they are and keys that use them draw as
   before; theme icons are chosen from the gallery only.
-- Choosing "Launch a program" on a key left the page saying not saved until
-  a command was typed, because the parser refused an empty command while
-  every other type accepted its half filled in shape. An empty command now
-  loads, and the key does nothing until one is given.
 
 ## 1.0.11 (19/09/2026)
 

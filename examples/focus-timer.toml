@@ -1,0 +1,110 @@
+# Deckplate example: focus sessions.
+#
+# The keys that remember something, on one page: two timers, a stopwatch, a
+# counter for the tasks finished, and the brightness. Nothing here needs a
+# picture of your own or any other software installed.
+#
+# Each timer runs its own key: press to start, press again to pause, hold to
+# put it back to the beginning. The stopwatch is the same, except that
+# holding it always resets it, whatever is on its long press.
+
+[deck]
+brightness = 70
+sleep_after_minutes = 0
+background = "#141c28"
+long_press_ms = 400
+
+[strip]
+tiles = ["clock", "date", "weather"]
+
+[weather]
+latitude = 51.5072
+longitude = -0.1276
+location_name = "London"
+units = "metric"
+
+[[pages]]
+name = "Focus"
+
+# Twenty five minutes of work, then a bell. The done action is a program
+# here, because a sound is the one thing a timer should do by itself.
+[[pages.keys]]
+row = 0
+column = 0
+image = "theme:controls/hourglass-running"
+label = "Focus"
+action = { type = "timer", seconds = 1500, done = { type = "launch", command = "paplay /usr/share/sounds/freedesktop/stereo/complete.oga", command_windows = "powershell -c [console]::beep(880,400)" } }
+action_long = { type = "timer", reset = true }
+
+[[pages.keys]]
+row = 0
+column = 1
+image = "theme:controls/timer"
+label = "Break"
+action = { type = "timer", seconds = 300, done = { type = "launch", command = "paplay /usr/share/sounds/freedesktop/stereo/complete.oga", command_windows = "powershell -c [console]::beep(660,400)" } }
+action_long = { type = "timer", reset = true }
+
+[[pages.keys]]
+row = 0
+column = 2
+image = "theme:controls/stopwatch-running"
+label = "Elapsed"
+action = { type = "stopwatch" }
+
+[[pages.keys]]
+row = 0
+column = 4
+image = "theme:controls/bell"
+label = "Done"
+action = { type = "counter", step = 1 }
+action_long = { type = "counter", reset = true }
+action_double = { type = "counter", step = -1 }
+
+# A quiet desk while the timer runs, and back to normal afterwards.
+[[pages.keys]]
+row = 1
+column = 0
+image = "theme:controls/dim"
+label = "Dim"
+action = { type = "brightness", value = 30 }
+
+[[pages.keys]]
+row = 1
+column = 1
+image = "theme:controls/bright"
+label = "Bright"
+action = { type = "brightness", value = 90 }
+
+[[pages.keys]]
+row = 1
+column = 2
+image = "theme:controls/mute"
+label = "Sound"
+label_active = "Muted"
+action = { type = "volume", mute = "toggle" }
+
+[[pages.keys]]
+row = 1
+column = 4
+label = "Notes"
+action = { type = "launch", command = "xed", command_windows = "notepad.exe" }
+
+# A stopwatch is reset by holding its own key, and so is a counter: nothing
+# on another key can reach them. This one starts a fresh session instead,
+# putting the light back and typing a heading into whatever has focus.
+[[pages.keys]]
+row = 2
+column = 0
+image = "theme:controls/reset"
+label = "New session"
+action = { type = "multi", delay_ms = 120, steps = [
+  { type = "brightness", value = 70 },
+  { type = "text", text = "Session: ", enter = false },
+] }
+
+[[pages.keys]]
+row = 2
+column = 4
+image = "theme:controls/dim"
+label = "Sleep"
+action = { type = "sleep" }

@@ -1940,11 +1940,15 @@ def test_counter_and_stopwatch_show_their_values(setup):
     assert controller.states.count(("Second", 1, 2)) == 0
     assert controller.tile_image(1, 2).tobytes() == zero
     deck.reset()
-    controller.handle_event(KeyEvent(5, True))  # key 5 is row 1 column 3
+    # key 5 is row 1 column 3. A stopwatch key is given a reset on its long
+    # press, so it has a second action and its plain press fires on release.
+    controller.handle_event(KeyEvent(5, True))
+    controller.handle_event(KeyEvent(5, False))
     clock.advance(1.1)
     controller.tick()
     assert [c[1:] for c in deck.tiles()] == [(1, 3), (1, 3)]
     controller.handle_event(KeyEvent(5, True))  # pause
+    controller.handle_event(KeyEvent(5, False))
     clock.advance(5)
     deck.reset()
     controller.tick()
@@ -2023,11 +2027,70 @@ column = 3
 action = { type = "stopwatch" }
 """, path.parent, path))
     controller.switch_page("Second")
-    controller.handle_event(KeyEvent(5, True))  # key 5 is row 1 column 3
+    # key 5 is row 1 column 3; the given long press reset means the start
+    # lands on the release
+    controller.handle_event(KeyEvent(5, True))
+    controller.handle_event(KeyEvent(5, False))
     clock.advance(90)
     controller.tick()
     assert not controller.asleep
     controller.handle_event(KeyEvent(5, True))  # pause
+    controller.handle_event(KeyEvent(5, False))
     clock.advance(90)
     controller.tick()
     assert controller.asleep
+
+
+def test_holding_a_stopwatch_key_resets_it_without_being_configured(setup):
+    """<summary>
+    Pins a stopwatch key resetting on a long press that nothing in the
+    config asked for, and pins a long press written by hand winning over it.
+    </summary>
+    <remarks>
+    A stopwatch with no way back to zero is half a stopwatch, and holding it
+    is what the physical ones do, so the reset is given rather than
+    configured. The consequence is checked too: the key now has a second
+    action, so its plain press fires on the release, which is why the start
+    below needs a release before the clock is running.
+    </remarks>
+    """
+    controller, deck, clock, urls, path = setup
+    controller.reload(cfg.parse(TEXT + """
+[[pages.keys]]
+row = 1
+column = 3
+action = { type = "stopwatch" }
+[[pages.keys]]
+row = 1
+column = 2
+action = { type = "stopwatch" }
+action_long = { type = "url", url = "https://long.example.org" }
+""", path.parent, path))
+    controller.switch_page("Second")
+    # key 5 is row 1 column 3: press and release to start, since the given
+    # reset makes this a key with a second action
+    controller.handle_event(KeyEvent(5, True))
+    controller.handle_event(KeyEvent(5, False))
+    clock.advance(30)
+    controller.tick()
+    state = controller.states.peek(("Second", 1, 3))
+    assert state.running and state.elapsed(clock.mono) >= 30
+    # holding it past the threshold zeroes it, while it is still down
+    controller.handle_event(KeyEvent(5, True))
+    clock.advance(1)
+    controller.tick()
+    controller.handle_event(KeyEvent(5, False))
+    assert not state.running and state.elapsed(clock.mono) == 0
+    # a long press of its own is untouched: it opens the URL, it does not reset
+    controller.handle_event(KeyEvent(8, True))  # key 8 is row 1 column 2
+    controller.handle_event(KeyEvent(8, False))
+    clock.advance(20)
+    controller.tick()
+    other = controller.states.peek(("Second", 1, 2))
+    assert other.running
+    controller.handle_event(KeyEvent(8, True))
+    clock.advance(1)
+    controller.tick()
+    controller.handle_event(KeyEvent(8, False))
+    assert urls == ["https://long.example.org"]
+    assert other.elapsed(clock.mono) >= 20
