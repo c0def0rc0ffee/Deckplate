@@ -1,0 +1,256 @@
+# Deckplate example: a space sim cockpit.
+#
+# The Space Game theme on every key, laid out the way the ship is flown: the
+# systems along the top, the flying below them, and a second page for what is
+# done out of the seat. Every picture is a shipped theme icon, so this config
+# works with no pictures of your own.
+#
+# Copy it to ~/.config/deckplate/config.toml, or open it beside your own and
+# take the keys you want. The hotkeys are Star Citizen's defaults at the time
+# of writing, and games move theirs about: check yours in the game's controls
+# screen and change them here rather than trusting the list.
+
+[deck]
+brightness = 90
+sleep_after_minutes = 0
+background = "#0b1220"
+long_press_ms = 400
+
+[strip]
+tiles = ["clock", "date", "weather"]
+
+[weather]
+latitude = 51.5072
+longitude = -0.1276
+location_name = "London"
+units = "metric"
+
+[[pages]]
+name = "Flight"
+
+# The four systems, each one key that toggles and shows which way it is now.
+[[pages.keys]]
+row = 0
+column = 0
+image = "theme:space-game/power"
+label = "Power"
+label_active = "Power On"
+action = { type = "toggle", on = { type = "hotkey", keys = "u" }, off = { type = "hotkey", keys = "u" } }
+
+[[pages.keys]]
+row = 0
+column = 1
+image = "theme:space-game/engines"
+label = "Engines"
+label_active = "Engines On"
+action = { type = "toggle", on = { type = "hotkey", keys = "i" }, off = { type = "hotkey", keys = "i" } }
+
+[[pages.keys]]
+row = 0
+column = 2
+image = "theme:space-game/shields"
+label = "Shields"
+label_active = "Shields Up"
+action = { type = "toggle", on = { type = "hotkey", keys = "o" }, off = { type = "hotkey", keys = "o" } }
+
+[[pages.keys]]
+row = 0
+column = 3
+image = "theme:space-game/weapons"
+label = "Weapons"
+label_active = "Armed"
+action = { type = "toggle", on = { type = "hotkey", keys = "p" }, off = { type = "hotkey", keys = "p" } }
+
+[[pages.keys]]
+row = 0
+column = 4
+image = "theme:space-game/missiles"
+label = "Missiles"
+action = { type = "hotkey", keys = "g" }
+
+# Flying. Gear and lights say what state they are in; quantum is held down
+# until the jump takes, which is what the hold action is for.
+[[pages.keys]]
+row = 1
+column = 0
+image = "theme:space-game/landing-gear"
+image_active = "theme:space-game/landing-lock"
+label = "Gear"
+label_active = "Gear Down"
+action = { type = "toggle", on = { type = "hotkey", keys = "n" }, off = { type = "hotkey", keys = "n" } }
+
+[[pages.keys]]
+row = 1
+column = 1
+image = "theme:space-game/lights"
+label = "Lights"
+label_active = "Lights On"
+action = { type = "toggle", on = { type = "hotkey", keys = "l" }, off = { type = "hotkey", keys = "l" } }
+
+[[pages.keys]]
+row = 1
+column = 2
+image = "theme:space-game/cruise"
+label = "Cruise"
+action = { type = "hotkey", keys = "c" }
+
+[[pages.keys]]
+row = 1
+column = 3
+image = "theme:space-game/decoupled"
+label = "Decouple"
+label_active = "Free"
+action = { type = "toggle", on = { type = "hotkey", keys = "v" }, off = { type = "hotkey", keys = "v" } }
+
+# Press once to hold the jump key down, again to let go.
+[[pages.keys]]
+row = 1
+column = 4
+image = "theme:space-game/quantum"
+label = "Quantum"
+label_active = "Spooling"
+action = { type = "hold", keys = "b" }
+
+# Scanning, the map, and a timer for how long the trip has left to run.
+[[pages.keys]]
+row = 2
+column = 0
+image = "theme:space-game/scan"
+label = "Scan Mode"
+action = { type = "hotkey", keys = "tab" }
+
+[[pages.keys]]
+row = 2
+column = 1
+image = "theme:space-game/scan-loop"
+label = "Ping"
+action = { type = "hotkey", keys = "tab" }
+action_long = { type = "sequence", keys = ["tab", "tab"], delay_ms = 120 }
+
+[[pages.keys]]
+row = 2
+column = 2
+image = "theme:space-game/starmap"
+label = "Star Map"
+action = { type = "hotkey", keys = "f2" }
+
+[[pages.keys]]
+row = 2
+column = 3
+image = "theme:space-game/hangar"
+label = "Hangar"
+action = { type = "text", text = "Requesting landing", enter = true }
+
+[[pages.keys]]
+row = 2
+column = 4
+image = "theme:space-game/view-change"
+label = "Ship"
+action = { type = "page", page = "next" }
+action_long = { type = "brightness", delta = -20 }
+
+[[pages]]
+name = "Ship"
+
+[[pages.keys]]
+row = 0
+column = 0
+image = "theme:space-game/mobiglas"
+label = "Mobi"
+action = { type = "hotkey", keys = "f1" }
+
+[[pages.keys]]
+row = 0
+column = 1
+image = "theme:space-game/inventory"
+label = "Inventory"
+action = { type = "hotkey", keys = "i" }
+
+[[pages.keys]]
+row = 0
+column = 2
+image = "theme:space-game/cargo"
+label = "Cargo"
+action = { type = "hotkey", keys = "f1" }
+
+[[pages.keys]]
+row = 0
+column = 3
+image = "theme:space-game/mining"
+label = "Mining"
+action = { type = "hotkey", keys = "m" }
+
+[[pages.keys]]
+row = 0
+column = 4
+image = "theme:space-game/comms"
+label = "Comms"
+action = { type = "hotkey", keys = "f11" }
+
+[[pages.keys]]
+row = 1
+column = 0
+image = "theme:space-game/helmet"
+label = "Helmet"
+label_active = "Helmet On"
+action = { type = "toggle", on = { type = "hotkey", keys = "ctrl+h" }, off = { type = "hotkey", keys = "ctrl+h" } }
+
+[[pages.keys]]
+row = 1
+column = 1
+image = "theme:space-game/medical"
+label = "Heal"
+action = { type = "hotkey", keys = "c" }
+
+[[pages.keys]]
+row = 1
+column = 2
+image = "theme:space-game/exit"
+label = "Exit Seat"
+action = { type = "hotkey", keys = "y" }
+
+# How long this run has taken. Holding the key puts it back to zero.
+[[pages.keys]]
+row = 1
+column = 3
+image = "theme:space-game/landing-lock"
+label = "Run"
+action = { type = "stopwatch" }
+
+# Ships hauled this session: a press counts one, a double press takes one
+# back, and holding the key clears the tally.
+[[pages.keys]]
+row = 1
+column = 4
+label = "Runs"
+action = { type = "counter", step = 1 }
+action_long = { type = "counter", reset = true }
+action_double = { type = "counter", step = -1 }
+
+[[pages.keys]]
+row = 2
+column = 0
+image = "theme:controls/mic"
+image_active = "theme:controls/mic-off"
+label = "Mic"
+label_active = "Muted"
+action = { type = "toggle", on = { type = "hotkey", keys = "ctrl+shift+m" }, off = { type = "hotkey", keys = "ctrl+shift+m" } }
+
+[[pages.keys]]
+row = 2
+column = 1
+image = "theme:controls/volume-down"
+action = { type = "volume", delta = -5 }
+
+[[pages.keys]]
+row = 2
+column = 2
+image = "theme:controls/volume-up"
+action = { type = "volume", delta = 5 }
+
+[[pages.keys]]
+row = 2
+column = 4
+image = "theme:space-game/view-change"
+label = "Flight"
+action = { type = "page", page = "Flight" }

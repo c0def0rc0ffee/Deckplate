@@ -1,3 +1,5 @@
+![Deckplate](docs/images/banner.png)
+
 # Deckplate
 
 A small driver and controller for the SOOMFON Stream Controller, a 15 key LCD
@@ -12,6 +14,16 @@ pictures, labels and actions, the display strip shows a clock, the date and
 the weather, and a configuration page served by the daemon edits all of it
 live. See `REVIEW.md` for the full research and hardware findings and
 `docs/gui-review.md` for why the page is built the way it is.
+
+A deck running one of the shipped examples, `examples/space-sim.toml`, drawn
+key for key as the hardware shows it:
+
+![A deck running the space sim example](docs/images/space-sim.png)
+
+Every picture of a deck in this file is drawn from the configuration file
+beside it by `tools/render_layout.py`, which opens no device and needs no
+deck. The pictures of the configuration page are screenshots of the page
+itself. Nothing here is a mock up.
 
 ## What the deck looks like to the software
 
@@ -245,9 +257,21 @@ animated ones: a running hourglass, a running stopwatch, an emptying ring
 and a tally counting up. An animated icon is a GIF and plays on the key.
 `tools/make_icons.py` draws them all in code.
 
+Everything in both themes, with the reference each key would use. A blue dot
+in the corner marks an animated one, shown here as one frame of its loop:
+
+![Every icon in the two shipped themes](docs/images/themes.png)
+
+The sheet is drawn from the themes themselves by `tools/render_themes.py`, so
+an icon added to a theme appears in it when the tool is rerun:
+
+```bash
+.venv/bin/python tools/render_themes.py -o docs/images/themes.png
+```
+
 ### Example setups
 
-Three complete configurations are in `examples/`, each drawn below as the
+Five complete configurations are in `examples/`, each drawn below as the
 deck shows it. Copy one over `~/.config/deckplate/config.toml`, or open it
 beside your own and take the keys you want. They use the shipped theme
 icons only, so none of them needs a picture of yours.
@@ -270,6 +294,22 @@ output the sound goes to, the windows a call needs, a stopwatch for how
 long it has run, and two sentences typed rather than said.
 
 ![The meetings example on the deck](docs/images/meetings.png)
+
+`examples/space-sim.toml`: a cockpit. The ship's systems as toggles that
+show which way they are, the gear, the lights and a quantum key held down
+until the jump takes, and a second page for what is done out of the seat,
+with the run timed and the runs counted. Its first page is the picture at
+the top of this file; this is the second.
+
+![The space sim example's second page](docs/images/space-sim-ship.png)
+
+`examples/home.toml`: the keys that reach something over the network rather
+than pressing a key on this machine. Lights and a socket through a home
+automation box, a music player over its web API, the browser and the
+terminal, and a brew timer. It is the one to read for the `request` action
+and for keeping the token out of the config file.
+
+![The home example on the deck](docs/images/home.png)
 
 The pictures are drawn from the configuration files themselves by
 `tools/render_layout.py`, which opens no device and needs no deck:
@@ -373,6 +413,13 @@ your session; the comments in it say how to install it.
 
 ## The configuration page
 
+![The configuration page with a key selected](docs/images/configuration-page.png)
+
+The deck on the left is what the deck is showing at that moment, key for key,
+and the panel on the right edits whichever key is clicked. The two pictures
+here were taken against the in memory stand in deck rather than the hardware,
+which is why the header says so; the page is the same either way.
+
 With the daemon running, open the page in its own window:
 
 ```bash
@@ -403,9 +450,13 @@ The page shows the deck as it really is, with the tiles the panels are
 showing and a flash when a real key is pressed. Click a key to set its
 label, picture and action. The action is chosen from a window of tiles,
 each with a drawing and a line saying what it does, grouped and searchable,
-rather than from a list of names; click a strip panel to choose clock, date,
-weather or a picture. Keys for the hotkey, sequence and hold actions are
-captured rather than typed: click Capture and press them. Click a captured
+rather than from a list of names:
+
+![The window for choosing what a key does](docs/images/action-chooser.png)
+
+Click a strip panel to choose clock, date, weather or a picture. Keys for
+the hotkey, sequence and hold actions are captured rather than typed: click
+Capture and press them. Click a captured
 key to remove it. For keys the browser cannot see, such as media keys,
 "type it instead" opens a text box that takes the names listed above. Drag
 a key to another position to move it, or onto another key to swap them.
@@ -505,6 +556,8 @@ restart; everything else reloads live.
 | `examples/` | complete example configurations, drawn in the README |
 | `tools/make_icons.py` | draws the shipped icon themes, stills and animated |
 | `tools/render_layout.py` | draws a configuration as a picture of the deck, for the documentation |
+| `tools/render_themes.py` | draws every shipped theme icon as one sheet, for the documentation |
+| `tools/make_icon.py`, `tools/make_banner.py` | the application icon, and the banner at the top of this file |
 | `tests/` | pytest suite, no hardware needed |
 | `tools/probe.py` | the original milestone 1 probe, now a wrapper around `probe` |
 | `tools/build.py` | the PyInstaller build and platform zip, used by build-zip.sh on Linux and directly on Windows |

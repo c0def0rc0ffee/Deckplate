@@ -1,0 +1,157 @@
+# Deckplate example: the house and the desk.
+#
+# The keys that reach something over the network rather than pressing a key on
+# this machine: lights and a kettle socket through a home automation box, a
+# music player's web API, and the pages that get opened twenty times a day.
+# It is the example to read for the request action, where the address does the
+# work and the token never goes near the config file.
+#
+# Copy it to ~/.config/deckplate/config.toml, or open it beside your own and
+# take the keys you want. Every picture is a shipped theme icon.
+#
+# Before it does anything: change 192.0.2.10 to your own box, and write the
+# token into ~/.deckplate-tokens/home, a file outside the config folder that
+# holds the token and nothing else. Keep it readable by you alone:
+#
+#     mkdir -p ~/.deckplate-tokens
+#     printf '%s' 'your-long-lived-token' > ~/.deckplate-tokens/home
+#     chmod 600 ~/.deckplate-tokens/home
+
+[deck]
+brightness = 70
+sleep_after_minutes = 30
+background = "#101a24"
+
+[strip]
+tiles = ["clock", "date", "weather"]
+
+[weather]
+latitude = 51.5072
+longitude = -0.1276
+location_name = "London"
+units = "metric"
+
+[[pages]]
+name = "House"
+
+# One address, called twice: a toggle sends the same service either way and
+# the key remembers which way it is.
+[[pages.keys]]
+row = 0
+column = 0
+image = "theme:controls/toggle-off"
+image_active = "theme:controls/toggle-on"
+label = "Desk Lamp"
+label_active = "Lamp On"
+action = { type = "toggle", on = { type = "request", url = "http://192.0.2.10:8123/api/services/light/turn_on", method = "POST", body = '{"entity_id": "light.desk"}', token_file = "~/.deckplate-tokens/home" }, off = { type = "request", url = "http://192.0.2.10:8123/api/services/light/turn_off", method = "POST", body = '{"entity_id": "light.desk"}', token_file = "~/.deckplate-tokens/home" } }
+
+[[pages.keys]]
+row = 0
+column = 1
+image = "theme:controls/toggle-off"
+image_active = "theme:controls/toggle-on"
+label = "Lounge"
+label_active = "Lounge On"
+action = { type = "toggle", on = { type = "request", url = "http://192.0.2.10:8123/api/services/light/turn_on", method = "POST", body = '{"entity_id": "light.lounge"}', token_file = "~/.deckplate-tokens/home" }, off = { type = "request", url = "http://192.0.2.10:8123/api/services/light/turn_off", method = "POST", body = '{"entity_id": "light.lounge"}', token_file = "~/.deckplate-tokens/home" } }
+
+# Everything off, then the deck's own screens off, as one key.
+[[pages.keys]]
+row = 0
+column = 2
+image = "theme:controls/dim"
+label = "All Off"
+action = { type = "multi", delay_ms = 200, steps = [
+  { type = "request", url = "http://192.0.2.10:8123/api/services/light/turn_off", method = "POST", body = '{"entity_id": "all"}', token_file = "~/.deckplate-tokens/home" },
+  { type = "sleep" },
+] }
+
+# The kettle socket, with a timer beside it for how long the water has been on.
+[[pages.keys]]
+row = 0
+column = 3
+image = "theme:controls/plus"
+label = "Kettle"
+action = { type = "request", url = "http://192.0.2.10:8123/api/services/switch/toggle", method = "POST", body = '{"entity_id": "switch.kettle"}', token_file = "~/.deckplate-tokens/home" }
+
+[[pages.keys]]
+row = 0
+column = 4
+image = "theme:controls/hourglass-running"
+label = "Brew"
+action = { type = "timer", seconds = 180, done = { type = "launch", command = "paplay /usr/share/sounds/freedesktop/stereo/complete.oga", command_windows = "powershell -c [console]::beep(880,400)" } }
+action_long = { type = "timer", reset = true }
+
+# The music player, over its own web API rather than the media keys, so it
+# works whatever has focus.
+[[pages.keys]]
+row = 1
+column = 0
+image = "theme:controls/play"
+image_active = "theme:controls/pause"
+label = "Play"
+label_active = "Playing"
+action = { type = "toggle", on = { type = "request", url = "http://192.0.2.10:8123/api/services/media_player/media_play", method = "POST", body = '{"entity_id": "media_player.kitchen"}', token_file = "~/.deckplate-tokens/home" }, off = { type = "request", url = "http://192.0.2.10:8123/api/services/media_player/media_pause", method = "POST", body = '{"entity_id": "media_player.kitchen"}', token_file = "~/.deckplate-tokens/home" } }
+
+[[pages.keys]]
+row = 1
+column = 1
+image = "theme:controls/volume-down"
+action = { type = "volume", delta = -5 }
+
+[[pages.keys]]
+row = 1
+column = 2
+image = "theme:controls/volume-up"
+action = { type = "volume", delta = 5 }
+
+[[pages.keys]]
+row = 1
+column = 3
+image = "theme:controls/mute"
+label = "Sound"
+label_active = "Muted"
+action = { type = "volume", mute = "toggle" }
+
+[[pages.keys]]
+row = 1
+column = 4
+image = "theme:controls/cycle"
+label = "Output"
+action = { type = "audio_output", cycle = true }
+
+# The desk. A window key brings the program to the front, or starts it when
+# nothing matches.
+[[pages.keys]]
+row = 2
+column = 0
+image = "theme:controls/window"
+label = "Browser"
+action = { type = "window", match = "firefox", command = "firefox" }
+
+[[pages.keys]]
+row = 2
+column = 1
+image = "theme:controls/window"
+label = "Terminal"
+action = { type = "window", match = "gnome-terminal|xfce4-terminal", command = "x-terminal-emulator" }
+
+[[pages.keys]]
+row = 2
+column = 2
+label = "Weather"
+action = { type = "url", url = "https://www.bbc.co.uk/weather" }
+
+[[pages.keys]]
+row = 2
+column = 3
+image = "theme:controls/bell"
+label = "Doorbell"
+action = { type = "request", url = "http://192.0.2.10:8123/api/services/script/announce_door", method = "POST", token_file = "~/.deckplate-tokens/home" }
+
+[[pages.keys]]
+row = 2
+column = 4
+image = "theme:controls/dim"
+label = "Sleep"
+action = { type = "sleep" }
+action_long = { type = "brightness", value = 100 }
