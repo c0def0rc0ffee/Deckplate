@@ -23,9 +23,13 @@ from __future__ import annotations
 import http.client
 import sys
 import webbrowser
+from pathlib import Path
 
 WINDOW_TITLE = "Deckplate"
 WINDOW_SIZE = (1180, 780)
+# The window and taskbar icon: the same logo the desktop entry and the page use.
+# It sits in the page folder, which the built program carries beside this module.
+WINDOW_ICON = Path(__file__).with_name("web") / "logo.svg"
 
 
 def daemon_reachable(host: str, port: int) -> bool:
@@ -78,6 +82,10 @@ def open_window(url: str, log=print) -> int:
     broad Exception around ``start`` catches the other case: pywebview is
     present but the machine has no web engine behind it, which surfaces as
     assorted platform specific errors rather than one type worth naming.
+
+    The icon is only passed when the file is there, so a page folder missing
+    its logo costs the window its icon and nothing else. pywebview uses it on
+    Linux; on Windows the icon comes from the exe and this is ignored.
     </remarks>
     """
     try:
@@ -89,7 +97,7 @@ def open_window(url: str, log=print) -> int:
     try:
         webview.create_window(WINDOW_TITLE, url, width=WINDOW_SIZE[0], height=WINDOW_SIZE[1],
                               min_size=(900, 600))
-        webview.start()
+        webview.start(icon=str(WINDOW_ICON) if WINDOW_ICON.is_file() else None)
     except Exception as err:  # no web engine on this machine, for example
         log(f"could not open a window ({err}); opening in the browser instead")
         webbrowser.open(url)
