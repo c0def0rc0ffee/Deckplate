@@ -64,6 +64,50 @@ BUILD_DIR = ROOT / "build"
 PLATFORM = "windows" if sys.platform == "win32" else ("macos" if sys.platform == "darwin" else "linux")
 EXE = f"{NAME}.exe" if PLATFORM == "windows" else NAME
 
+# <summary>
+# Libraries, data folders and PyInstaller runtime hooks left out of the Linux
+# bundle so the configuration window runs on the host's GTK stack.
+# </summary>
+# <remarks>
+# pywebview draws the window with WebKitGTK, which cannot be bundled (it starts
+# helper processes from fixed system paths), so it always comes from the host.
+# PyInstaller's gi hooks nonetheless packed the build machine's GLib, GTK,
+# Pango, Cairo and everything under them. When the host's WebKit is newer than
+# those copies it cannot load: 1.0.16, built on Mint, failed on Ubuntu 26.04
+# with "undefined symbol: g_variant_builder_init_static" in libsecret, then a
+# libmount version error, and fell back to the browser every time.
+# The rule is that everything WebKit links against comes from the same place
+# as WebKit, the host. Python's own dependencies (libpython, libssl, libffi,
+# libz, libstdc++ and so on) stay bundled because only Python uses them.
+# Matched as name prefixes against PyInstaller's destination names, so
+# "libX" covers libX11, libXext and the rest of the X client libraries.
+# libcap is deliberately absent: hidapi ships its own libcap-<hash> beside
+# the program, which the prefix would catch. The data prefixes are applied to
+# the binaries as well, because the gio modules and the pixbuf loaders are
+# collected as binaries under those folders.
+# The runtime hooks point GI_TYPELIB_PATH, GIO_MODULE_DIR, the pixbuf loader
+# cache, GTK_PATH and XDG_DATA_DIRS into the bundle; with the bundled copies
+# gone they would point at nothing or at mismatched files, so they go too.
+# The host then needs the packages INSTALL.txt already names:
+# gir1.2-gtk-3.0 and gir1.2-webkit2-4.1.
+# </remarks>
+HOST_LIBS = (
+    "libglib-2.0", "libgobject-2.0", "libgio-2.0", "libgmodule-2.0", "libgthread-2.0",
+    "libgirepository", "libgtk-3", "libgdk-3", "libgdk_pixbuf", "libpango", "libcairo",
+    "libharfbuzz", "libatk", "libatspi", "libepoxy", "libfribidi", "libthai", "libdatrie",
+    "libfontconfig", "libfreetype", "libpixman", "libpng16", "libjpeg", "libtiff", "libwebp",
+    "libsharpyuv", "libLerc", "libjbig", "libdeflate", "libheif", "librsvg", "libxml2",
+    "libgraphite2", "libX", "libxcb", "libxkbcommon", "libwayland", "libmount", "libblkid",
+    "libselinux", "libpcre2", "libdbus", "libsystemd", "libgvfs", "libproxy", "libpxbackend",
+    "libsecret", "libwmf", "libduktape", "libcurl", "libgnutls", "libnettle", "libhogweed",
+    "libp11-kit", "libtasn1", "libidn2", "libunistring", "libpsl", "libnghttp2", "librtmp",
+    "libssh", "libldap", "liblber", "libsasl2", "libgssapi_krb5", "libkrb5", "libk5crypto",
+    "libcom_err", "libkeyutils", "libgcrypt", "libgpg-error", "libicu", "libbsd", "libmd",
+    "libglycin", "libseccomp",
+)
+HOST_DATA = ("gi_typelibs", "gio_modules", "lib/gdk-pixbuf", "lib/gtk-3.0", "share/", "etc/")
+HOST_RTHOOKS = ("pyi_rth_gi", "pyi_rth_gio", "pyi_rth_glib", "pyi_rth_gdkpixbuf", "pyi_rth_gtk")
+
 INSTALL_LINUX = """Deckplate {version} for Linux
 
 1. Put the program on your path, with a Deckplate icon on the desktop and in
@@ -231,6 +275,11 @@ a = Analysis(
     # The window only needs the stock theme; the desktop supplies the rest.
     hooksconfig={{"gi": {{"icons": ["Adwaita", "hicolor"], "themes": ["Default"], "languages": ["en_GB", "en"]}}}},
 )
+# The window must use the host's GTK stack, not a bundled copy: see HOST_LIBS
+# in build.py. Empty on Windows, where the window is WebView2.
+a.binaries = [b for b in a.binaries if not b[0].startswith({host_libs!r} + {host_data!r})]
+a.datas = [d for d in a.datas if not d[0].startswith({host_data!r})]
+a.scripts = [s for s in a.scripts if s[0] not in {host_rthooks!r}]
 pyz = PYZ(a.pure)
 exe = EXE(pyz, a.scripts, a.binaries, a.datas, name={name!r}, console=True, upx=False, strip=False, icon={icon!r})
 """
@@ -274,6 +323,9 @@ def run_pyinstaller(python: str, work: Path) -> Path:
         # the web folder does.
         themes=str(ROOT / "deckplate" / "themes"),
         config=str(ROOT / "deckplate" / "default-config.toml"),
+        host_libs=HOST_LIBS if PLATFORM == "linux" else (),
+        host_data=HOST_DATA if PLATFORM == "linux" else (),
+        host_rthooks=HOST_RTHOOKS if PLATFORM == "linux" else (),
         name=NAME,
         # The exe carries the icon the shortcut uses. Windows only: on Linux
         # the icon lives in deploy/deckplate.svg and PyInstaller ignores it.

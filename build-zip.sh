@@ -51,10 +51,19 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 command -v zip   >/dev/null || die "zip not found: sudo apt install zip"
 command -v rsync >/dev/null || die "rsync not found: sudo apt install rsync"
 
-# Prefer the project's own virtual environment when there is one, otherwise
-# whatever python3 is on the path. The tests need pytest, hidapi and Pillow:
-#   python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
-if [[ -x "$root/.venv/bin/python" ]]; then
+# Prefer the virtual environment outside the synced tree, where the core rules
+# keep venvs ($DECKPLATE_VENV, default ~/.venvs/deckplate), then the project's
+# own .venv, otherwise whatever python3 is on the path. The tests need pytest,
+# hidapi and Pillow, and the build needs PyInstaller:
+#   python3 -m venv --system-site-packages ~/.venvs/deckplate
+#   ~/.venvs/deckplate/bin/pip install -r requirements-dev.txt
+# --system-site-packages lets the build see the distribution's GTK bindings.
+# A .venv that came across in Sync from another machine can hold a python
+# symlink with none of the packages behind it, which is why it comes second.
+venv="${DECKPLATE_VENV:-$HOME/.venvs/deckplate}"
+if [[ -x "$venv/bin/python" ]]; then
+    python="$venv/bin/python"
+elif [[ -x "$root/.venv/bin/python" ]]; then
     python="$root/.venv/bin/python"
 elif command -v python3 >/dev/null; then
     python="$(command -v python3)"

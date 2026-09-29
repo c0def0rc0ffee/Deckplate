@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.17 (29/09/2026)
+
+- The configuration window opens on machines newer than the one the program
+  was built on. The Linux build used to carry the build machine's GLib, GTK
+  and everything under them while taking WebKit from the host, and on Ubuntu
+  26.04 WebKit could not load against those older copies, so the window fell
+  back to the browser every time. The bundle now leaves that whole stack to
+  the host, which needs gir1.2-gtk-3.0 and gir1.2-webkit2-4.1 as INSTALL.txt
+  says. The program went from 70 MB to 22.5 MB.
+- `build-zip.sh` prefers the virtual environment at `~/.venvs/deckplate`
+  (or `$DECKPLATE_VENV`), outside the synced tree, before the project's own
+  `.venv`.
+
 ## 1.0.15 (19/09/2026)
 
 - Three example configurations in `examples/`: a streaming desk, focus
