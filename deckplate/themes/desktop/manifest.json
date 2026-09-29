@@ -1,0 +1,134 @@
+{
+  "name": "Desktop",
+  "file_prefix": "",
+  "icons": [
+    {
+      "id": "terminal",
+      "label": "Terminal"
+    },
+    {
+      "id": "files",
+      "label": "Files"
+    },
+    {
+      "id": "home",
+      "label": "Home"
+    },
+    {
+      "id": "browser",
+      "label": "Browser"
+    },
+    {
+      "id": "text-editor",
+      "label": "Text Editor"
+    },
+    {
+      "id": "settings",
+      "label": "Settings"
+    },
+    {
+      "id": "system-monitor",
+      "label": "System Monitor"
+    },
+    {
+      "id": "calculator",
+      "label": "Calculator"
+    },
+    {
+      "id": "screenshot",
+      "label": "Screenshot"
+    },
+    {
+      "id": "lock",
+      "label": "Lock Screen"
+    },
+    {
+      "id": "log-out",
+      "label": "Log Out"
+    },
+    {
+      "id": "power-off",
+      "label": "Power Off"
+    },
+    {
+      "id": "restart",
+      "label": "Restart"
+    },
+    {
+      "id": "suspend",
+      "label": "Suspend"
+    },
+    {
+      "id": "workspace-left",
+      "label": "Workspace Left"
+    },
+    {
+      "id": "workspace-right",
+      "label": "Workspace Right"
+    },
+    {
+      "id": "show-desktop",
+      "label": "Show Desktop"
+    },
+    {
+      "id": "app-grid",
+      "label": "Applications"
+    },
+    {
+      "id": "search",
+      "label": "Search"
+    },
+    {
+      "id": "clipboard",
+      "label": "Clipboard"
+    },
+    {
+      "id": "mail",
+      "label": "Mail"
+    },
+    {
+      "id": "calendar",
+      "label": "Calendar"
+    },
+    {
+      "id": "music",
+      "label": "Music"
+    },
+    {
+      "id": "video",
+      "label": "Video"
+    },
+    {
+      "id": "image-viewer",
+      "label": "Images"
+    },
+    {
+      "id": "download",
+      "label": "Downloads"
+    },
+    {
+      "id": "trash",
+      "label": "Rubbish Bin"
+    },
+    {
+      "id": "wifi",
+      "label": "Wi-Fi"
+    },
+    {
+      "id": "bluetooth",
+      "label": "Bluetooth"
+    },
+    {
+      "id": "keyboard",
+      "label": "Keyboard"
+    },
+    {
+      "id": "printer",
+      "label": "Printer"
+    },
+    {
+      "id": "software",
+      "label": "Software"
+    }
+  ]
+}

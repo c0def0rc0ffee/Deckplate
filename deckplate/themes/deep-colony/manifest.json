@@ -1,0 +1,70 @@
+{
+  "name": "Deep Colony",
+  "file_prefix": "",
+  "icons": [
+    {
+      "id": "tracker",
+      "label": "Tracker"
+    },
+    {
+      "id": "rifle",
+      "label": "Rifle"
+    },
+    {
+      "id": "flamer",
+      "label": "Flamer"
+    },
+    {
+      "id": "sentry",
+      "label": "Sentry"
+    },
+    {
+      "id": "welder",
+      "label": "Weld Door"
+    },
+    {
+      "id": "flare",
+      "label": "Flare"
+    },
+    {
+      "id": "helmet",
+      "label": "Helmet"
+    },
+    {
+      "id": "ammo",
+      "label": "Ammo"
+    },
+    {
+      "id": "medkit",
+      "label": "Medkit"
+    },
+    {
+      "id": "grenade",
+      "label": "Grenade"
+    },
+    {
+      "id": "vitals",
+      "label": "Vitals"
+    },
+    {
+      "id": "claw-marks",
+      "label": "Claw Marks"
+    },
+    {
+      "id": "acid",
+      "label": "Acid"
+    },
+    {
+      "id": "hive",
+      "label": "Hive"
+    },
+    {
+      "id": "vent",
+      "label": "Vent"
+    },
+    {
+      "id": "tracker-ping",
+      "label": "Tracker Sweep"
+    }
+  ]
+}

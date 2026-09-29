@@ -128,3 +128,97 @@ def test_copy_ref_recognises_the_tools_old_file_names_only():
     quiet = [{"slug": "plain", "name": "Plain", "file_prefix": "", "icons": [{"id": "hangar", "label": "Hangar"}]}]
     assert themes.copy_ref("hangar.png", quiet) is None
     assert themes.copy_ref("sc-hangar.png", quiet) is None
+
+
+def test_every_shipped_theme_is_listed_with_real_files():
+    """<summary>
+    All twelve shipped themes are offered, each under its own name, and every
+    icon each one advertises has a real file behind it.
+    </summary>
+    <remarks>
+    A manifest that does not parse drops its theme from the picker without a
+    word, so a theme going missing here is the only warning there would be.
+    </remarks>
+    """
+    found = {t["slug"]: t for t in themes.list_themes()}
+    names = {"space-game": "Space Game", "controls": "Controls", "desktop": "Desktop",
+             "sherbet": "Sherbet", "lagoon": "Lagoon", "grimdark": "Grimdark",
+             "wayfarer": "Wayfarer", "field-command": "Field Command", "rift": "Rift",
+             "deep-colony": "Deep Colony", "neon-chrome": "Neon Chrome",
+             "amber-console": "Amber Console"}
+    for slug, name in names.items():
+        assert found[slug]["name"] == name
+        for icon in found[slug]["icons"]:
+            assert icon["label"]
+            assert themes.icon_path(slug, icon["id"]) is not None, (slug, icon["id"])
+
+
+def test_the_desktop_theme_has_the_standard_linux_functions():
+    """<summary>
+    The Desktop theme carries a picture for each everyday desktop function the
+    Linux example setup binds.
+    </summary>
+    """
+    ids = {icon["id"] for icon in {t["slug"]: t for t in themes.list_themes()}["desktop"]["icons"]}
+    assert {"terminal", "files", "home", "browser", "settings", "lock", "log-out", "power-off",
+            "restart", "suspend", "screenshot", "workspace-left", "workspace-right"} <= ids
+
+
+def test_the_gradient_themes_cover_controls_and_desktop():
+    """<summary>
+    Sherbet and Lagoon each hold every Controls and every Desktop icon under
+    the same id, animated ones included.
+    </summary>
+    <remarks>
+    The point of the two gradient themes is that a user can move a whole
+    setup across to one by changing the slug in each reference. An id missing
+    from either would leave that key blank after the switch.
+    </remarks>
+    """
+    found = {t["slug"]: {icon["id"] for icon in t["icons"]} for t in themes.list_themes()}
+    wanted = found["controls"] | found["desktop"]
+    assert wanted <= found["sherbet"]
+    assert wanted <= found["lagoon"]
+
+
+def test_no_theme_carries_a_real_game_name():
+    """<summary>
+    No theme's name, and no icon's id or label, uses the name of a game or of
+    anything trademarked inside one.
+    </summary>
+    <remarks>
+    The game flavoured themes are meant to sit beside certain games without
+    claiming to be theirs, which is what keeps them ours to ship. A label is
+    the easiest place for a real name to creep back in, one icon at a time,
+    so every theme is checked, not only the flavoured ones. The list is of
+    words that would only ever appear here by borrowing.
+    </remarks>
+    """
+    borrowed = ("warhammer", "astroneer", "tempest", "cyberpunk", "dawn of war", "command & conquer",
+                "command and conquer", "aliens", "xenomorph", "tiberium", "night city", "imperium",
+                "aquila", "bolter", "chainsword", "space marine", "netrunner", "braindance",
+                "quickhack", "eddies", "colonial marine", "weyland", "arasaka", "ion cannon")
+    for theme in themes.list_themes():
+        words = [theme["name"]] + [icon["id"] for icon in theme["icons"]] + [icon["label"] for icon in theme["icons"]]
+        for word in words:
+            assert not any(name in word.lower() for name in borrowed), (theme["slug"], word)
+
+
+def test_amber_console_pairs_every_still_with_its_lit_face():
+    """<summary>
+    Every still in Amber Console has an inverse video partner under the same
+    id with ``-lit`` on the end, and it covers the everyday icons as well as
+    its own console set.
+    </summary>
+    <remarks>
+    The lit face is what a toggle shows while it is on, so a still without
+    one leaves a key that cannot show its state in this theme. Animated icons
+    are the exception: they are GIFs and carry no partner.
+    </remarks>
+    """
+    theme = {t["slug"]: t for t in themes.list_themes()}["amber-console"]
+    ids = {icon["id"] for icon in theme["icons"]}
+    stills = {icon["id"] for icon in theme["icons"] if not icon["animated"] and not icon["id"].endswith("-lit")}
+    for icon in stills:
+        assert f"{icon}-lit" in ids, icon
+    assert {"mute", "mic-off", "terminal", "lock", "armed", "safe", "rounds", "sentry", "tracker"} <= stills

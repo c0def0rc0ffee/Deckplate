@@ -18,9 +18,9 @@
 -->
 <html lang="en">
 <!--
-  <summary>Character set, viewport, title and the one stylesheet.</summary>
+  <summary>Character set, viewport, title, the tab icon and the one stylesheet.</summary>
   <remarks>
-  Both files are served from /static by the daemon itself, never from a CDN:
+  All three are served from /static by the daemon itself, never from a CDN:
   the page has to work on a machine with no connection, which is most of the
   point of a deck that keeps running when the network does not.
   </remarks>
@@ -29,6 +29,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Deckplate</title>
+<link rel="icon" type="image/svg+xml" href="/static/logo.svg">
 <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
@@ -43,7 +44,7 @@
 -->
 <header class="top">
   <div class="brand">
-    <span class="logo" aria-hidden="true"></span>
+    <img class="logo" src="/static/logo.svg" alt="" width="34" height="34">
     <h1>Deckplate</h1>
   </div>
   <div class="status" id="status"><span class="dot"></span><span id="statusText">connecting</span></div>

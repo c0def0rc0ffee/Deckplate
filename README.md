@@ -249,18 +249,69 @@ use. The page has both behind "Picture and label while active".
   or `close`. Linux needs xdotool, and wmctrl to maximise; Wayland cannot do
   any of it. Windows needs nothing installed.
 
-Two icon themes ship with the app: "Space Game", the space sim glyphs, and
-"Controls", pictures for the actions above (volume, mute, headphones,
-speaker, windows, timer, stopwatch, counter, toggle on and off, camera and
-microphone on and off, play, pause, stop, record, reset, bell) plus four
-animated ones: a running hourglass, a running stopwatch, an emptying ring
-and a tally counting up. An animated icon is a GIF and plays on the key.
-`tools/make_icons.py` draws them all in code.
+Twelve icon themes ship with the app. The first five are general:
 
-Everything in both themes, with the reference each key would use. A blue dot
-in the corner marks an animated one, shown here as one frame of its loop:
+- "Space Game", the space sim glyphs.
+- "Controls", pictures for the actions above (volume, mute, headphones,
+  speaker, windows, timer, stopwatch, counter, toggle on and off, camera and
+  microphone on and off, play, pause, stop, record, reset, bell) plus four
+  animated ones: a running hourglass, a running stopwatch, an emptying ring
+  and a tally counting up. An animated icon is a GIF and plays on the key.
+- "Desktop", the everyday things a Linux desktop does: terminal, files,
+  home, browser, editor, settings, system monitor, calculator, screenshot,
+  lock, log out, power off, restart, suspend, the workspaces either side,
+  show desktop, the application menu, search, clipboard, mail, calendar,
+  music, video, images, downloads, the bin, wireless, Bluetooth, keyboard,
+  printer and software.
+- "Sherbet" and "Lagoon", every Controls and Desktop icon again, repainted
+  in bright corner to corner colour sweeps, warm and cool. They are made to
+  sit happily beside a gradient desktop icon theme. Each holds the same ids
+  as the two flat themes, so a whole setup moves across by changing
+  `theme:controls/` or `theme:desktop/` to `theme:sherbet/` or
+  `theme:lagoon/`.
 
-![Every icon in the two shipped themes](docs/images/themes.png)
+Six more are flavoured for kinds of game, each with a finish of its own
+as well as its colours. They borrow a mood and nothing else: no game's name,
+emblem, logo or creature design is used, and a test keeps real names out of
+every theme.
+
+- "Grimdark", gothic war in the far future: skulls, helms, relics, banners,
+  fire from orbit, in tarnished gold and crimson with an engraved edge.
+- "Wayfarer", friendly planet hopping: oxygen, tethers, rovers, habitats,
+  research and power, in suit white and orange with a soft outline.
+- "Field Command", a modern strategy war: harvester, refinery, power,
+  radar, barracks, tanks, air support and missiles, in sand and olive.
+- "Rift", alien crystal and bio tech: shards, rifts, obelisks, tendrils and
+  saucers, in violet with a red hot glow.
+- "Deep Colony", marines in the dark: a motion tracker (and one that
+  sweeps), rifles, flamers, sentries, flares, medkits, and whatever left the
+  claw marks, in green phosphor with scan lines.
+- "Neon Chrome", neon street tech: optics, chips, breaches, blades, rides
+  and creds, in hazard yellow with the signal splitting cyan and pink.
+
+And one more, for everything at once: "Amber Console", an old single
+colour terminal, amber on black, the kind a weapons console in an eighties
+film ran on. Every picture is pixel art drawn on the display's coarse grid
+with one pixel lines. It holds all the Controls and Desktop icons plus a
+console set: the words ARMED, SAFE, AUTO, MANUAL, SEARCH, ENGAGED, TEST and
+ONLINE as console options, a rounds counter, a pair of gauges, a warning
+(and one that flashes), sentry, tracker, ammo and target. Every still comes
+twice: `<id>` is the normal face and `<id>-lit` is the same picture in
+inverse video, a solid amber block with the picture cut out in black. Give a
+toggle the plain one as its `image` and the lit one as its `image_active`
+and it lights up when it is on.
+
+Grimdark, Field Command and Rift share ten strategy commands (attack, move,
+halt, guard, repair, sell, rally point, squad, upgrade, build) under the same
+ids, each drawn in its own theme's style.
+
+`tools/make_icons.py` draws them all in code, so every one of them is our
+own drawing and free to ship.
+
+Everything in the twelve themes, with the reference each key would use. A blue
+dot in the corner marks an animated one, shown here as one frame of its loop:
+
+![Every icon in the shipped themes](docs/images/themes.png)
 
 The sheet is drawn from the themes themselves by `tools/render_themes.py`, so
 an icon added to a theme appears in it when the tool is rerun:
@@ -271,7 +322,7 @@ an icon added to a theme appears in it when the tool is rerun:
 
 ### Example setups
 
-Five complete configurations are in `examples/`, each drawn below as the
+Six complete configurations are in `examples/`, each drawn below as the
 deck shows it. Copy one over `~/.config/deckplate/config.toml`, or open it
 beside your own and take the keys you want. They use the shipped theme
 icons only, so none of them needs a picture of yours.
@@ -310,6 +361,15 @@ terminal, and a brew timer. It is the one to read for the `request` action
 and for keeping the token out of the config file.
 
 ![The home example on the deck](docs/images/home.png)
+
+`examples/linux-desktop.toml`: the desktop itself. The terminal, the files,
+the browser, the editor, a screenshot, the workspaces either side, the
+menu, the settings and the bin, and a second page to lock, sleep, log out,
+restart and shut down, where everything but the lock waits for a long press.
+Written for Linux Mint with Cinnamon; the keys most likely to differ on
+another desktop say what to change.
+
+![The Linux desktop example on the deck](docs/images/linux-desktop.png)
 
 The pictures are drawn from the configuration files themselves by
 `tools/render_layout.py`, which opens no device and needs no deck:
