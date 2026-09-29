@@ -1,0 +1,94 @@
+{
+  "name": "Rift",
+  "file_prefix": "",
+  "icons": [
+    {
+      "id": "crystal",
+      "label": "Crystal"
+    },
+    {
+      "id": "growth",
+      "label": "Growth"
+    },
+    {
+      "id": "rift",
+      "label": "Rift"
+    },
+    {
+      "id": "obelisk",
+      "label": "Obelisk"
+    },
+    {
+      "id": "mind",
+      "label": "Mind"
+    },
+    {
+      "id": "tentacle",
+      "label": "Tentacle"
+    },
+    {
+      "id": "warp",
+      "label": "Warp"
+    },
+    {
+      "id": "mutate",
+      "label": "Mutate"
+    },
+    {
+      "id": "shield-dome",
+      "label": "Shield Dome"
+    },
+    {
+      "id": "saucer",
+      "label": "Beam"
+    },
+    {
+      "id": "seed-pod",
+      "label": "Seed Pod"
+    },
+    {
+      "id": "glyph",
+      "label": "Glyph"
+    },
+    {
+      "id": "attack",
+      "label": "Attack"
+    },
+    {
+      "id": "move",
+      "label": "Move"
+    },
+    {
+      "id": "halt",
+      "label": "Halt"
+    },
+    {
+      "id": "guard",
+      "label": "Guard"
+    },
+    {
+      "id": "repair",
+      "label": "Repair"
+    },
+    {
+      "id": "sell",
+      "label": "Sell"
+    },
+    {
+      "id": "rally",
+      "label": "Rally Point"
+    },
+    {
+      "id": "squad",
+      "label": "Squad"
+    },
+    {
+      "id": "upgrade",
+      "label": "Upgrade"
+    },
+    {
+      "id": "build",
+      "label": "Build"
+    }
+  ]
+}

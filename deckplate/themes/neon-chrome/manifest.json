@@ -1,0 +1,62 @@
+{
+  "name": "Neon Chrome",
+  "file_prefix": "",
+  "icons": [
+    {
+      "id": "optics",
+      "label": "Optics"
+    },
+    {
+      "id": "chip",
+      "label": "Chip"
+    },
+    {
+      "id": "breach",
+      "label": "Breach"
+    },
+    {
+      "id": "jack-in",
+      "label": "Jack In"
+    },
+    {
+      "id": "blade",
+      "label": "Blade"
+    },
+    {
+      "id": "ride",
+      "label": "Ride"
+    },
+    {
+      "id": "bike",
+      "label": "Bike"
+    },
+    {
+      "id": "creds",
+      "label": "Creds"
+    },
+    {
+      "id": "flatline",
+      "label": "Flatline"
+    },
+    {
+      "id": "data",
+      "label": "Data"
+    },
+    {
+      "id": "drone",
+      "label": "Drone"
+    },
+    {
+      "id": "signal",
+      "label": "Signal"
+    },
+    {
+      "id": "skull",
+      "label": "Skull"
+    },
+    {
+      "id": "sidearm",
+      "label": "Sidearm"
+    }
+  ]
+}

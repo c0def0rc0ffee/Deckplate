@@ -1,0 +1,638 @@
+{
+  "name": "Amber Console",
+  "file_prefix": "",
+  "icons": [
+    {
+      "id": "volume-up",
+      "label": "Volume Up"
+    },
+    {
+      "id": "volume-up-lit",
+      "label": "Volume Up Lit"
+    },
+    {
+      "id": "volume-down",
+      "label": "Volume Down"
+    },
+    {
+      "id": "volume-down-lit",
+      "label": "Volume Down Lit"
+    },
+    {
+      "id": "mute",
+      "label": "Mute"
+    },
+    {
+      "id": "mute-lit",
+      "label": "Mute Lit"
+    },
+    {
+      "id": "speaker",
+      "label": "Speaker"
+    },
+    {
+      "id": "speaker-lit",
+      "label": "Speaker Lit"
+    },
+    {
+      "id": "headphones",
+      "label": "Headphones"
+    },
+    {
+      "id": "headphones-lit",
+      "label": "Headphones Lit"
+    },
+    {
+      "id": "cycle",
+      "label": "Next Output"
+    },
+    {
+      "id": "cycle-lit",
+      "label": "Next Output Lit"
+    },
+    {
+      "id": "window",
+      "label": "Window"
+    },
+    {
+      "id": "window-lit",
+      "label": "Window Lit"
+    },
+    {
+      "id": "window-minimise",
+      "label": "Minimise"
+    },
+    {
+      "id": "window-minimise-lit",
+      "label": "Minimise Lit"
+    },
+    {
+      "id": "window-maximise",
+      "label": "Maximise"
+    },
+    {
+      "id": "window-maximise-lit",
+      "label": "Maximise Lit"
+    },
+    {
+      "id": "window-close",
+      "label": "Close Window"
+    },
+    {
+      "id": "window-close-lit",
+      "label": "Close Window Lit"
+    },
+    {
+      "id": "timer",
+      "label": "Timer"
+    },
+    {
+      "id": "timer-lit",
+      "label": "Timer Lit"
+    },
+    {
+      "id": "stopwatch",
+      "label": "Stopwatch"
+    },
+    {
+      "id": "stopwatch-lit",
+      "label": "Stopwatch Lit"
+    },
+    {
+      "id": "counter",
+      "label": "Counter"
+    },
+    {
+      "id": "counter-lit",
+      "label": "Counter Lit"
+    },
+    {
+      "id": "toggle-on",
+      "label": "Toggle On"
+    },
+    {
+      "id": "toggle-on-lit",
+      "label": "Toggle On Lit"
+    },
+    {
+      "id": "toggle-off",
+      "label": "Toggle Off"
+    },
+    {
+      "id": "toggle-off-lit",
+      "label": "Toggle Off Lit"
+    },
+    {
+      "id": "camera",
+      "label": "Camera"
+    },
+    {
+      "id": "camera-lit",
+      "label": "Camera Lit"
+    },
+    {
+      "id": "camera-off",
+      "label": "Camera Off"
+    },
+    {
+      "id": "camera-off-lit",
+      "label": "Camera Off Lit"
+    },
+    {
+      "id": "mic",
+      "label": "Microphone"
+    },
+    {
+      "id": "mic-lit",
+      "label": "Microphone Lit"
+    },
+    {
+      "id": "mic-off",
+      "label": "Microphone Off"
+    },
+    {
+      "id": "mic-off-lit",
+      "label": "Microphone Off Lit"
+    },
+    {
+      "id": "play",
+      "label": "Play"
+    },
+    {
+      "id": "play-lit",
+      "label": "Play Lit"
+    },
+    {
+      "id": "pause",
+      "label": "Pause"
+    },
+    {
+      "id": "pause-lit",
+      "label": "Pause Lit"
+    },
+    {
+      "id": "stop",
+      "label": "Stop"
+    },
+    {
+      "id": "stop-lit",
+      "label": "Stop Lit"
+    },
+    {
+      "id": "record",
+      "label": "Record"
+    },
+    {
+      "id": "record-lit",
+      "label": "Record Lit"
+    },
+    {
+      "id": "reset",
+      "label": "Reset"
+    },
+    {
+      "id": "reset-lit",
+      "label": "Reset Lit"
+    },
+    {
+      "id": "plus",
+      "label": "Plus"
+    },
+    {
+      "id": "plus-lit",
+      "label": "Plus Lit"
+    },
+    {
+      "id": "minus",
+      "label": "Minus"
+    },
+    {
+      "id": "minus-lit",
+      "label": "Minus Lit"
+    },
+    {
+      "id": "bell",
+      "label": "Bell"
+    },
+    {
+      "id": "bell-lit",
+      "label": "Bell Lit"
+    },
+    {
+      "id": "bright",
+      "label": "Bright"
+    },
+    {
+      "id": "bright-lit",
+      "label": "Bright Lit"
+    },
+    {
+      "id": "dim",
+      "label": "Dim"
+    },
+    {
+      "id": "dim-lit",
+      "label": "Dim Lit"
+    },
+    {
+      "id": "terminal",
+      "label": "Terminal"
+    },
+    {
+      "id": "terminal-lit",
+      "label": "Terminal Lit"
+    },
+    {
+      "id": "files",
+      "label": "Files"
+    },
+    {
+      "id": "files-lit",
+      "label": "Files Lit"
+    },
+    {
+      "id": "home",
+      "label": "Home"
+    },
+    {
+      "id": "home-lit",
+      "label": "Home Lit"
+    },
+    {
+      "id": "browser",
+      "label": "Browser"
+    },
+    {
+      "id": "browser-lit",
+      "label": "Browser Lit"
+    },
+    {
+      "id": "text-editor",
+      "label": "Text Editor"
+    },
+    {
+      "id": "text-editor-lit",
+      "label": "Text Editor Lit"
+    },
+    {
+      "id": "settings",
+      "label": "Settings"
+    },
+    {
+      "id": "settings-lit",
+      "label": "Settings Lit"
+    },
+    {
+      "id": "system-monitor",
+      "label": "System Monitor"
+    },
+    {
+      "id": "system-monitor-lit",
+      "label": "System Monitor Lit"
+    },
+    {
+      "id": "calculator",
+      "label": "Calculator"
+    },
+    {
+      "id": "calculator-lit",
+      "label": "Calculator Lit"
+    },
+    {
+      "id": "screenshot",
+      "label": "Screenshot"
+    },
+    {
+      "id": "screenshot-lit",
+      "label": "Screenshot Lit"
+    },
+    {
+      "id": "lock",
+      "label": "Lock Screen"
+    },
+    {
+      "id": "lock-lit",
+      "label": "Lock Screen Lit"
+    },
+    {
+      "id": "log-out",
+      "label": "Log Out"
+    },
+    {
+      "id": "log-out-lit",
+      "label": "Log Out Lit"
+    },
+    {
+      "id": "power-off",
+      "label": "Power Off"
+    },
+    {
+      "id": "power-off-lit",
+      "label": "Power Off Lit"
+    },
+    {
+      "id": "restart",
+      "label": "Restart"
+    },
+    {
+      "id": "restart-lit",
+      "label": "Restart Lit"
+    },
+    {
+      "id": "suspend",
+      "label": "Suspend"
+    },
+    {
+      "id": "suspend-lit",
+      "label": "Suspend Lit"
+    },
+    {
+      "id": "workspace-left",
+      "label": "Workspace Left"
+    },
+    {
+      "id": "workspace-left-lit",
+      "label": "Workspace Left Lit"
+    },
+    {
+      "id": "workspace-right",
+      "label": "Workspace Right"
+    },
+    {
+      "id": "workspace-right-lit",
+      "label": "Workspace Right Lit"
+    },
+    {
+      "id": "show-desktop",
+      "label": "Show Desktop"
+    },
+    {
+      "id": "show-desktop-lit",
+      "label": "Show Desktop Lit"
+    },
+    {
+      "id": "app-grid",
+      "label": "Applications"
+    },
+    {
+      "id": "app-grid-lit",
+      "label": "Applications Lit"
+    },
+    {
+      "id": "search",
+      "label": "Search"
+    },
+    {
+      "id": "search-lit",
+      "label": "Search Lit"
+    },
+    {
+      "id": "clipboard",
+      "label": "Clipboard"
+    },
+    {
+      "id": "clipboard-lit",
+      "label": "Clipboard Lit"
+    },
+    {
+      "id": "mail",
+      "label": "Mail"
+    },
+    {
+      "id": "mail-lit",
+      "label": "Mail Lit"
+    },
+    {
+      "id": "calendar",
+      "label": "Calendar"
+    },
+    {
+      "id": "calendar-lit",
+      "label": "Calendar Lit"
+    },
+    {
+      "id": "music",
+      "label": "Music"
+    },
+    {
+      "id": "music-lit",
+      "label": "Music Lit"
+    },
+    {
+      "id": "video",
+      "label": "Video"
+    },
+    {
+      "id": "video-lit",
+      "label": "Video Lit"
+    },
+    {
+      "id": "image-viewer",
+      "label": "Images"
+    },
+    {
+      "id": "image-viewer-lit",
+      "label": "Images Lit"
+    },
+    {
+      "id": "download",
+      "label": "Downloads"
+    },
+    {
+      "id": "download-lit",
+      "label": "Downloads Lit"
+    },
+    {
+      "id": "trash",
+      "label": "Rubbish Bin"
+    },
+    {
+      "id": "trash-lit",
+      "label": "Rubbish Bin Lit"
+    },
+    {
+      "id": "wifi",
+      "label": "Wi-Fi"
+    },
+    {
+      "id": "wifi-lit",
+      "label": "Wi-Fi Lit"
+    },
+    {
+      "id": "bluetooth",
+      "label": "Bluetooth"
+    },
+    {
+      "id": "bluetooth-lit",
+      "label": "Bluetooth Lit"
+    },
+    {
+      "id": "keyboard",
+      "label": "Keyboard"
+    },
+    {
+      "id": "keyboard-lit",
+      "label": "Keyboard Lit"
+    },
+    {
+      "id": "printer",
+      "label": "Printer"
+    },
+    {
+      "id": "printer-lit",
+      "label": "Printer Lit"
+    },
+    {
+      "id": "software",
+      "label": "Software"
+    },
+    {
+      "id": "software-lit",
+      "label": "Software Lit"
+    },
+    {
+      "id": "armed",
+      "label": "Armed"
+    },
+    {
+      "id": "armed-lit",
+      "label": "Armed Lit"
+    },
+    {
+      "id": "safe",
+      "label": "Safe"
+    },
+    {
+      "id": "safe-lit",
+      "label": "Safe Lit"
+    },
+    {
+      "id": "auto",
+      "label": "Auto"
+    },
+    {
+      "id": "auto-lit",
+      "label": "Auto Lit"
+    },
+    {
+      "id": "manual",
+      "label": "Manual"
+    },
+    {
+      "id": "manual-lit",
+      "label": "Manual Lit"
+    },
+    {
+      "id": "searching",
+      "label": "Searching"
+    },
+    {
+      "id": "searching-lit",
+      "label": "Searching Lit"
+    },
+    {
+      "id": "engaged",
+      "label": "Engaged"
+    },
+    {
+      "id": "engaged-lit",
+      "label": "Engaged Lit"
+    },
+    {
+      "id": "test-mode",
+      "label": "Test"
+    },
+    {
+      "id": "test-mode-lit",
+      "label": "Test Lit"
+    },
+    {
+      "id": "online",
+      "label": "Online"
+    },
+    {
+      "id": "online-lit",
+      "label": "Online Lit"
+    },
+    {
+      "id": "rounds",
+      "label": "Rounds"
+    },
+    {
+      "id": "rounds-lit",
+      "label": "Rounds Lit"
+    },
+    {
+      "id": "gauge",
+      "label": "Gauge"
+    },
+    {
+      "id": "gauge-lit",
+      "label": "Gauge Lit"
+    },
+    {
+      "id": "critical",
+      "label": "Critical"
+    },
+    {
+      "id": "critical-lit",
+      "label": "Critical Lit"
+    },
+    {
+      "id": "sentry",
+      "label": "Sentry"
+    },
+    {
+      "id": "sentry-lit",
+      "label": "Sentry Lit"
+    },
+    {
+      "id": "tracker",
+      "label": "Tracker"
+    },
+    {
+      "id": "tracker-lit",
+      "label": "Tracker Lit"
+    },
+    {
+      "id": "ammo",
+      "label": "Ammo"
+    },
+    {
+      "id": "ammo-lit",
+      "label": "Ammo Lit"
+    },
+    {
+      "id": "target",
+      "label": "Target"
+    },
+    {
+      "id": "target-lit",
+      "label": "Target Lit"
+    },
+    {
+      "id": "hourglass-running",
+      "label": "Hourglass Running"
+    },
+    {
+      "id": "stopwatch-running",
+      "label": "Stopwatch Running"
+    },
+    {
+      "id": "ring-running",
+      "label": "Ring Running"
+    },
+    {
+      "id": "counting",
+      "label": "Counting"
+    },
+    {
+      "id": "tracker-ping",
+      "label": "Tracker Sweep"
+    },
+    {
+      "id": "critical-flash",
+      "label": "Critical Flashing"
+    }
+  ]
+}

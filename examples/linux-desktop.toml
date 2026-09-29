@@ -1,0 +1,197 @@
+# Deckplate example: the Linux desktop.
+#
+# The everyday things a desktop does, one key each: the terminal, the files,
+# the browser, a screenshot, the workspaces, the settings, and a second page
+# for locking, sleeping, logging out and shutting down. Every picture comes
+# from the Desktop theme. For the gradient look, change "theme:desktop/" to
+# "theme:sherbet/" or "theme:lagoon/" throughout: both hold every icon used
+# here under the same name.
+#
+# Written for Linux Mint with Cinnamon. The programs and shortcuts are the
+# stock ones there, and most carry over to other desktops, but not all. The
+# ones most likely to need changing say so beside them. No shell is started
+# for a command, so anything that needs $HOME or a pipe goes through sh -c.
+#
+# The four keys that end the session only act on a long press, and restart and
+# power off go through the desktop's own confirmation dialog, so a stray tap
+# never shuts the machine down.
+
+[deck]
+brightness = 70
+sleep_after_minutes = 30
+background = "#101a24"
+long_press_ms = 800
+
+[strip]
+tiles = ["clock", "date", "weather"]
+
+[weather]
+latitude = 51.5072
+longitude = -0.1276
+location_name = "London"
+units = "metric"
+
+[[pages]]
+name = "Desktop"
+
+# Brings the terminal to the front, or starts one when none is open.
+[[pages.keys]]
+row = 0
+column = 0
+image = "theme:desktop/terminal"
+label = "Terminal"
+action = { type = "window", match = "terminal", command = "x-terminal-emulator" }
+
+[[pages.keys]]
+row = 0
+column = 1
+image = "theme:desktop/files"
+label = "Files"
+action = { type = "launch", command = "sh -c 'xdg-open \"$HOME\"'" }
+
+[[pages.keys]]
+row = 0
+column = 2
+image = "theme:desktop/browser"
+label = "Browser"
+action = { type = "window", match = "firefox|chromium|chrome", command = "x-www-browser" }
+
+# xed is Mint's editor. Elsewhere: gnome-text-editor, gedit or kate.
+[[pages.keys]]
+row = 0
+column = 3
+image = "theme:desktop/text-editor"
+label = "Editor"
+action = { type = "launch", command = "xed" }
+
+[[pages.keys]]
+row = 0
+column = 4
+image = "theme:desktop/calculator"
+label = "Calculator"
+action = { type = "launch", command = "gnome-calculator" }
+
+# The desktop's own screenshot tool, through the key it already listens for.
+[[pages.keys]]
+row = 1
+column = 0
+image = "theme:desktop/screenshot"
+label = "Screenshot"
+action = { type = "hotkey", keys = "print_screen" }
+
+# Super and D on Cinnamon, KDE and Windows. GNOME has no default for it.
+[[pages.keys]]
+row = 1
+column = 1
+image = "theme:desktop/show-desktop"
+label = "Desktop"
+action = { type = "hotkey", keys = "cmd+d" }
+
+# Ctrl, Alt and an arrow on Cinnamon. KDE wants Meta, Ctrl and an arrow.
+[[pages.keys]]
+row = 1
+column = 2
+image = "theme:desktop/workspace-left"
+label = "Left"
+action = { type = "hotkey", keys = "ctrl+alt+left" }
+
+[[pages.keys]]
+row = 1
+column = 3
+image = "theme:desktop/workspace-right"
+label = "Right"
+action = { type = "hotkey", keys = "ctrl+alt+right" }
+
+# Super on its own opens the menu on Cinnamon and KDE, and the overview on GNOME.
+[[pages.keys]]
+row = 1
+column = 4
+image = "theme:desktop/app-grid"
+label = "Menu"
+action = { type = "hotkey", keys = "cmd" }
+
+# cinnamon-settings is Mint's. Elsewhere: gnome-control-center or systemsettings.
+[[pages.keys]]
+row = 2
+column = 0
+image = "theme:desktop/settings"
+label = "Settings"
+action = { type = "launch", command = "cinnamon-settings" }
+
+[[pages.keys]]
+row = 2
+column = 1
+image = "theme:desktop/system-monitor"
+label = "Monitor"
+action = { type = "window", match = "system-monitor", command = "gnome-system-monitor" }
+
+[[pages.keys]]
+row = 2
+column = 2
+image = "theme:desktop/download"
+label = "Downloads"
+action = { type = "launch", command = "sh -c 'xdg-open \"$(xdg-user-dir DOWNLOAD)\"'" }
+
+[[pages.keys]]
+row = 2
+column = 3
+image = "theme:desktop/trash"
+label = "Bin"
+action = { type = "launch", command = "gio open trash:///" }
+
+[[pages.keys]]
+row = 2
+column = 4
+image = "theme:desktop/power-off"
+label = "Session"
+action = { type = "page", page = "Session" }
+
+[[pages]]
+name = "Session"
+
+# Locking is the one that acts on a tap: it loses nothing. loginctl finds the
+# session from the daemon itself, so this needs the daemon started from the
+# desktop session (autostart or the menu), not as a system service.
+[[pages.keys]]
+row = 0
+column = 0
+image = "theme:desktop/lock"
+label = "Lock"
+action = { type = "launch", command = "loginctl lock-session" }
+
+[[pages.keys]]
+row = 0
+column = 1
+image = "theme:desktop/suspend"
+label = "Hold: Sleep"
+action_long = { type = "launch", command = "systemctl suspend" }
+
+# The session commands are Cinnamon's. GNOME: gnome-session-quit with the
+# same options. KDE and others have their own; put that command here.
+[[pages.keys]]
+row = 0
+column = 2
+image = "theme:desktop/log-out"
+label = "Hold: Log Out"
+action_long = { type = "launch", command = "cinnamon-session-quit --logout" }
+
+[[pages.keys]]
+row = 0
+column = 3
+image = "theme:desktop/restart"
+label = "Hold: Restart"
+action_long = { type = "launch", command = "cinnamon-session-quit --reboot" }
+
+[[pages.keys]]
+row = 0
+column = 4
+image = "theme:desktop/power-off"
+label = "Hold: Off"
+action_long = { type = "launch", command = "cinnamon-session-quit --power-off" }
+
+[[pages.keys]]
+row = 2
+column = 4
+image = "theme:desktop/home"
+label = "Back"
+action = { type = "page", page = "Desktop" }

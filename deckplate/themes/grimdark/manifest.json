@@ -1,0 +1,94 @@
+{
+  "name": "Grimdark",
+  "file_prefix": "",
+  "icons": [
+    {
+      "id": "skull",
+      "label": "Skull"
+    },
+    {
+      "id": "helm",
+      "label": "Helm"
+    },
+    {
+      "id": "saw-blade",
+      "label": "Saw Blade"
+    },
+    {
+      "id": "sidearm",
+      "label": "Sidearm"
+    },
+    {
+      "id": "wax-seal",
+      "label": "Wax Seal"
+    },
+    {
+      "id": "cathedral",
+      "label": "Cathedral"
+    },
+    {
+      "id": "banner",
+      "label": "Banner"
+    },
+    {
+      "id": "psychic",
+      "label": "Psychic"
+    },
+    {
+      "id": "orbital-strike",
+      "label": "Orbital Strike"
+    },
+    {
+      "id": "drop-pod",
+      "label": "Drop Pod"
+    },
+    {
+      "id": "purge",
+      "label": "Purge"
+    },
+    {
+      "id": "scroll",
+      "label": "Scroll"
+    },
+    {
+      "id": "attack",
+      "label": "Attack"
+    },
+    {
+      "id": "move",
+      "label": "Move"
+    },
+    {
+      "id": "halt",
+      "label": "Halt"
+    },
+    {
+      "id": "guard",
+      "label": "Guard"
+    },
+    {
+      "id": "repair",
+      "label": "Repair"
+    },
+    {
+      "id": "sell",
+      "label": "Sell"
+    },
+    {
+      "id": "rally",
+      "label": "Rally Point"
+    },
+    {
+      "id": "squad",
+      "label": "Squad"
+    },
+    {
+      "id": "upgrade",
+      "label": "Upgrade"
+    },
+    {
+      "id": "build",
+      "label": "Build"
+    }
+  ]
+}

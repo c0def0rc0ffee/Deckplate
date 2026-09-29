@@ -1,5 +1,33 @@
 # Changelog
 
+## Unreleased
+
+- Three general icon themes. "Desktop" holds the everyday Linux desktop
+  functions: terminal, files, browser, settings, lock, log out, power off,
+  restart, suspend, the workspaces, screenshot and more, 32 in all.
+  "Sherbet" and "Lagoon" hold every Controls and Desktop icon again in warm
+  and cool colour sweeps, made to sit beside a bright gradient desktop icon
+  theme, under the same ids so a setup moves across by changing the slug.
+- `examples/linux-desktop.toml`, a desktop setup for Linux Mint with
+  Cinnamon, drawn in the README. The keys that end the session act on a long
+  press only.
+- Six game flavoured icon themes, each borrowing a mood and never a name
+  or a design: "Grimdark" (gothic far future war), "Wayfarer" (planet
+  hopping), "Field Command" (modern strategy war), "Rift" (alien crystal
+  tech), "Deep Colony" (marines in the dark, with an animated motion
+  tracker) and "Neon Chrome" (neon street tech). Each has its own finish:
+  an engraved edge, a sticker outline, a glow, scan lines or a colour split.
+  The three war themes share ten strategy commands under the same ids.
+- "Amber Console", an icon theme drawn as pixel art on an old amber on black
+  terminal: every Controls and Desktop icon plus a console set (armed,
+  safe, auto, manual, search, engaged, test, online, rounds, gauges, a
+  flashing warning, sentry, tracker, ammo, target). Every still also comes
+  as `<id>-lit`, its inverse video face, for a toggle's active picture.
+- A test keeps real game names out of every theme's name, ids and labels.
+- `tools/make_icons.py` takes `--set desktop`, `--set sherbet`,
+  `--set lagoon` and one set per game flavoured theme, and a style can now
+  carry finishing effects.
+
 ## 1.0.17 (29/09/2026)
 
 - The configuration window opens on machines newer than the one the program

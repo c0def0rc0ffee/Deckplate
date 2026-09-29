@@ -1,0 +1,94 @@
+{
+  "name": "Field Command",
+  "file_prefix": "",
+  "icons": [
+    {
+      "id": "harvester",
+      "label": "Harvester"
+    },
+    {
+      "id": "refinery",
+      "label": "Refinery"
+    },
+    {
+      "id": "power-plant",
+      "label": "Power Plant"
+    },
+    {
+      "id": "radar",
+      "label": "Radar"
+    },
+    {
+      "id": "barracks",
+      "label": "Barracks"
+    },
+    {
+      "id": "vehicle-bay",
+      "label": "Vehicle Bay"
+    },
+    {
+      "id": "tank",
+      "label": "Tank"
+    },
+    {
+      "id": "helicopter",
+      "label": "Air Support"
+    },
+    {
+      "id": "airstrike",
+      "label": "Airstrike"
+    },
+    {
+      "id": "missile",
+      "label": "Missile"
+    },
+    {
+      "id": "infantry",
+      "label": "Infantry"
+    },
+    {
+      "id": "fortify",
+      "label": "Fortify"
+    },
+    {
+      "id": "attack",
+      "label": "Attack"
+    },
+    {
+      "id": "move",
+      "label": "Move"
+    },
+    {
+      "id": "halt",
+      "label": "Halt"
+    },
+    {
+      "id": "guard",
+      "label": "Guard"
+    },
+    {
+      "id": "repair",
+      "label": "Repair"
+    },
+    {
+      "id": "sell",
+      "label": "Sell"
+    },
+    {
+      "id": "rally",
+      "label": "Rally Point"
+    },
+    {
+      "id": "squad",
+      "label": "Squad"
+    },
+    {
+      "id": "upgrade",
+      "label": "Upgrade"
+    },
+    {
+      "id": "build",
+      "label": "Build"
+    }
+  ]
+}

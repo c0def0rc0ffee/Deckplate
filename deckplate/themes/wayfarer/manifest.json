@@ -1,0 +1,62 @@
+{
+  "name": "Wayfarer",
+  "file_prefix": "",
+  "icons": [
+    {
+      "id": "planet",
+      "label": "Planet"
+    },
+    {
+      "id": "oxygen",
+      "label": "Oxygen"
+    },
+    {
+      "id": "tether",
+      "label": "Tether"
+    },
+    {
+      "id": "backpack",
+      "label": "Backpack"
+    },
+    {
+      "id": "terrain-tool",
+      "label": "Terrain Tool"
+    },
+    {
+      "id": "rover",
+      "label": "Rover"
+    },
+    {
+      "id": "shuttle",
+      "label": "Shuttle"
+    },
+    {
+      "id": "habitat",
+      "label": "Habitat"
+    },
+    {
+      "id": "research",
+      "label": "Research"
+    },
+    {
+      "id": "resource",
+      "label": "Resource"
+    },
+    {
+      "id": "battery",
+      "label": "Battery"
+    },
+    {
+      "id": "solar",
+      "label": "Solar"
+    },
+    {
+      "id": "wind",
+      "label": "Wind"
+    },
+    {
+      "id": "beacon",
+      "label": "Beacon"
+    }
+  ]
+}
