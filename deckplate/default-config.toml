@@ -86,7 +86,9 @@ tiles = ["clock", "date", "weather"]
 # with kinds pulse, spinner, wave, rainbow and scroll (the label scrolling).
 # An animated GIF given as the image plays by itself.
 # Action types:
-#   hotkey     keys = "ctrl+alt+t"            same names on both platforms
+#   hotkey     keys = "ctrl+alt+t"            same names on both platforms;
+#              ctrl, alt and shift are the left key, alt_r (or ralt, altgr),
+#              ctrl_r and shift_r the right one for games that tell them apart
 #   sequence   keys = ["ctrl+l", "h", "enter"], delay_ms = 100   several keys in a row
 #   chord      hold = "alt", keys = ["1", "2"], delay_min_ms = 50, delay_max_ms = 200
 #              keep one key down while tapping the others, a random pause before each tap

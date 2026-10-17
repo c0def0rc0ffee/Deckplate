@@ -32,6 +32,13 @@ from deckplate import hotkeys
     ("a", ("a",)),
     ("ctrl", ("ctrl",)),
     ("+", ("+",)),
+    ("alt_r+x", ("alt_r", "x")),
+    ("ralt+x", ("alt_r", "x")),
+    ("AltGr + F1", ("alt_r", "f1")),
+    ("lalt+x", ("alt_l", "x")),
+    ("rctrl+rshift+x", ("ctrl_r", "shift_r", "x")),
+    ("right_shift+x", ("shift_r", "x")),
+    ("alt_r", ("alt_r",)),
 ])
 def test_parse_combo(text, expected):
     """<summary>
@@ -45,12 +52,18 @@ def test_parse_combo(text, expected):
     The plus sign is the trap: it is both the separator and a real key, so
     ``ctrl+plus`` and ``ctrl++`` have to mean the same thing and a bare ``+`` has
     to survive on its own.
+
+    The sided modifiers are their own spelling and never fold into the bare
+    name: ``ralt+x`` must stay ``alt_r``, because a game that binds right alt
+    would otherwise be sent the left one and never see the press. The bare
+    ``alt`` stays ``alt`` for the same reason in reverse: it has always been the
+    left key and configs written against that must not move.
     </remarks>
     """
     assert hotkeys.parse_combo(text) == expected
 
 
-@pytest.mark.parametrize("text", ["", "ctrl+", "ctrl+banana", "t+ctrl"])
+@pytest.mark.parametrize("text", ["", "ctrl+", "ctrl+banana", "t+ctrl", "x+alt_r", "x+rshift", "alt_middle+x"])
 def test_parse_combo_rejects(text):
     """<summary>
     Empty, unfinished and impossible combinations raise rather than being guessed
@@ -82,6 +95,13 @@ def test_xdotool_args():
     assert hotkeys.xdotool_args(("cmd", "page_up"))[-1] == "super+Prior"
     assert hotkeys.xdotool_args(("media_volume_mute",))[-1] == "XF86AudioMute"
     assert hotkeys.xdotool_args(("shift", "f12"))[-1] == "shift+F12"
+    # The bare modifiers keep xdotool's own left hand spellings; the sided
+    # ones name the keysym, so right alt really is Alt_R and not alt.
+    assert hotkeys.xdotool_args(("alt", "x"))[-1] == "alt+x"
+    assert hotkeys.xdotool_args(("alt_r", "x"))[-1] == "Alt_R+x"
+    assert hotkeys.xdotool_args(("alt_l", "x"))[-1] == "Alt_L+x"
+    assert hotkeys.xdotool_args(("ctrl_r", "shift_r", "x"))[-1] == "Control_R+Shift_R+x"
+    assert hotkeys.xdotool_args(("ctrl_l", "shift_l", "x"))[-1] == "Control_L+Shift_L+x"
 
 
 def test_pynput_attribute():
@@ -98,6 +118,33 @@ def test_pynput_attribute():
     assert hotkeys.pynput_attribute("t") is None
     assert hotkeys.pynput_attribute("ctrl") == "ctrl"
     assert hotkeys.pynput_attribute("media_volume_up") == "media_volume_up"
+    # The sided names are pynput's own attribute names, and the bare alt stays
+    # pynput's bare alt, which is the left key.
+    for name in hotkeys.SIDED_MODIFIERS:
+        assert hotkeys.pynput_attribute(name) == name
+    assert hotkeys.pynput_attribute("alt") == "alt"
+
+
+def test_every_alias_resolves_to_a_known_key():
+    """<summary>
+    Every alias points at a single character or a name in NAMED_KEYS, and every
+    sided modifier has an xdotool keysym.
+    </summary>
+    <remarks>
+    The alias table is the forgiving layer and NAMED_KEYS the strict one. An
+    alias whose target is missing from NAMED_KEYS passes the parser and then
+    fails at the backend, on a key press, hours after the config was written.
+    A sided modifier with no xdotool entry would reach xdotool spelled
+    ``alt_r``, which X does not know. Both are the kind of slip that only
+    shows up on the one machine that uses the spelling.
+    </remarks>
+    """
+    for alias, target in hotkeys.ALIASES.items():
+        assert len(target) == 1 or target in hotkeys.NAMED_KEYS, alias
+    for name in hotkeys.SIDED_MODIFIERS:
+        assert name in hotkeys.NAMED_KEYS
+        assert name in hotkeys.MODIFIERS
+        assert name in hotkeys.XDOTOOL_NAMES
 
 
 class RecordingBackend:

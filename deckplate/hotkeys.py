@@ -31,10 +31,18 @@ import shutil
 import subprocess
 import time
 
-# The four names that may only appear before the main key. A combination
-# ending in one of these is rejected rather than sent, because a modifier on
-# its own end has no key to modify and reads as a typing slip.
-MODIFIERS = ("ctrl", "alt", "shift", "cmd")
+# The names that may only appear before the main key. A combination ending
+# in one of these is rejected rather than sent, because a modifier on its own
+# end has no key to modify and reads as a typing slip.
+#
+# The bare names ctrl, alt and shift are the left hand key, which is what both
+# backends have always sent for them, so no existing config changes meaning.
+# The _l and _r spellings are for programs that tell the two sides apart:
+# Star Citizen binds a good deal to right alt and treats it as a different
+# modifier from the left one. There is no cmd_r because pynput has no right
+# hand super key on every platform and X11 names it the same as the left.
+SIDED_MODIFIERS = ("ctrl_l", "ctrl_r", "alt_l", "alt_r", "shift_l", "shift_r")
+MODIFIERS = ("ctrl", "alt", "shift", "cmd") + SIDED_MODIFIERS
 
 # What people actually type, mapped to the one spelling the rest of the module
 # uses. This exists so a config file written by hand is forgiving: cmd, super,
@@ -44,6 +52,16 @@ MODIFIERS = ("ctrl", "alt", "shift", "cmd")
 ALIASES = {
     "control": "ctrl", "ctl": "ctrl",
     "option": "alt",
+    # Left and right hand modifiers, in the spellings people and games use.
+    # AltGr is the right alt on the keyboards this is written for, and Star
+    # Citizen's own bindings screen calls that key RAlt, so both land on alt_r.
+    "lalt": "alt_l", "left_alt": "alt_l", "leftalt": "alt_l",
+    "ralt": "alt_r", "right_alt": "alt_r", "rightalt": "alt_r",
+    "altgr": "alt_r", "alt_gr": "alt_r",
+    "lctrl": "ctrl_l", "left_ctrl": "ctrl_l", "leftctrl": "ctrl_l", "lcontrol": "ctrl_l",
+    "rctrl": "ctrl_r", "right_ctrl": "ctrl_r", "rightctrl": "ctrl_r", "rcontrol": "ctrl_r",
+    "lshift": "shift_l", "left_shift": "shift_l", "leftshift": "shift_l",
+    "rshift": "shift_r", "right_shift": "shift_r", "rightshift": "shift_r",
     "super": "cmd", "win": "cmd", "windows": "cmd", "meta": "cmd",
     "return": "enter",
     "escape": "esc",
@@ -67,7 +85,7 @@ ALIASES = {
 # it. These names are the pynput spellings, which is why the xdotool backend
 # needs a translation table and pynput does not.
 NAMED_KEYS = {
-    "ctrl", "alt", "shift", "cmd", "enter", "esc", "space", "tab", "backspace",
+    "ctrl", "alt", "shift", "cmd", *SIDED_MODIFIERS, "enter", "esc", "space", "tab", "backspace",
     "delete", "up", "down", "left", "right", "home", "end", "page_up",
     "page_down", "insert", "print_screen", "caps_lock", "media_volume_up",
     "media_volume_down", "media_volume_mute", "media_play_pause", "media_next",
@@ -82,6 +100,11 @@ NAMED_KEYS = {
 # bare + is the separator in xdotool's own syntax.
 XDOTOOL_NAMES = {
     "ctrl": "ctrl", "alt": "alt", "shift": "shift", "cmd": "super",
+    # xdotool's bare ctrl, alt and shift resolve to the left keysym, so the
+    # _l spellings name it outright and the _r ones pick the other side.
+    "ctrl_l": "Control_L", "ctrl_r": "Control_R",
+    "alt_l": "Alt_L", "alt_r": "Alt_R",
+    "shift_l": "Shift_L", "shift_r": "Shift_R",
     "enter": "Return", "esc": "Escape", "space": "space", "tab": "Tab",
     "backspace": "BackSpace", "delete": "Delete", "up": "Up", "down": "Down",
     "left": "Left", "right": "Right", "home": "Home", "end": "End",
@@ -222,7 +245,10 @@ def pynput_attribute(name: str) -> str | None:
     The house names were chosen to match pynput's attribute names exactly, so
     this is a pass through rather than a table. That is worth knowing before
     adding a key whose pynput spelling differs: this function would then need
-    a mapping, as the xdotool side already has.
+    a mapping, as the xdotool side already has. The sided modifiers are the
+    same story: pynput's Key has alt_l, alt_r, ctrl_l, ctrl_r, shift_l and
+    shift_r under exactly those names, and its bare alt, ctrl and shift are
+    the left hand keys, which is why the bare house names mean left too.
     </remarks>
     """
     if len(name) == 1:

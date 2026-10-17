@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Hotkeys can name the right hand modifier: `alt_r`, `ctrl_r` and `shift_r`,
+  with `ralt`, `altgr`, `rctrl` and `rshift` accepted as spellings, and
+  `alt_l`, `ctrl_l` and `shift_l` for the left one outright. The bare names
+  still mean the left key, as they always did. Star Citizen binds a good
+  deal to right alt and treats it as a different key. The configuration
+  page's Capture button records which side was pressed.
 - Three general icon themes. "Desktop" holds the everyday Linux desktop
   functions: terminal, files, browser, settings, lock, log out, power off,
   restart, suspend, the workspaces, screenshot and more, 32 in all.

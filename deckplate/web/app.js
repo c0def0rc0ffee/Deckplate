@@ -1842,7 +1842,7 @@
         textBox = keep;
       });
       field.append(el("div", { class: "typed" }, [textBox,
-        el("div", { class: "help", text: "Names: ctrl, alt, shift, cmd, enter, esc, tab, space, up, f1 to f24, media_volume_mute, media_play_pause and so on. Join a combination with +." })]));
+        el("div", { class: "help", text: "Names: ctrl, alt, shift, cmd, enter, esc, tab, space, up, f1 to f24, media_volume_mute, media_play_pause and so on. Join a combination with +. ctrl, alt and shift are the left hand key; write alt_r, ctrl_r or shift_r (or ralt, altgr, rctrl, rshift) for the right hand one." })]));
       typeIt.textContent = "hide";
       textBox.focus();
     });
@@ -2114,12 +2114,35 @@
     const was = capturing;
     capturing = null;
     pendingModifier = null;
+    heldModifiers.clear();
     was.button.textContent = "Capture";
     was.button.classList.remove("capturing");
     if (was.onStop) was.onStop();
   }
   const MODIFIER_NAMES = { Control: "ctrl", Alt: "alt", AltGraph: "alt", Shift: "shift", Meta: "cmd", OS: "cmd" };
   let pendingModifier = null;  // a modifier pressed on its own, captured when released
+  // The modifiers currently held, by their sided names, kept from keydown and
+  // keyup so a combination can say which alt it was. The event flags
+  // (ctrlKey, altKey) cannot tell left from right.
+  const heldModifiers = new Set();
+
+  /**
+   * <summary>The house name for a modifier key event, telling right from left.</summary>
+   * <param name="event">A keydown or keyup for a key in MODIFIER_KEYS.</param>
+   * <returns>"alt" for a left or unplaced alt, "alt_r" for the right one, and
+   * so on; cmd has no sides. Null for a key that is not a modifier.</returns>
+   * <remarks>The left key keeps the bare name because that is what the daemon
+   * has always sent for it, so a combination captured before this existed
+   * reads the same as one captured now. AltGraph is the right alt and is
+   * named so whatever location the browser reports for it.</remarks>
+   */
+  function modifierName(event) {
+    const base = MODIFIER_NAMES[event.key];
+    if (!base) return null;
+    if (base === "cmd") return base;
+    const right = event.key === "AltGraph" || event.location === KeyboardEvent.DOM_KEY_LOCATION_RIGHT;
+    return right ? base + "_r" : base;
+  }
 
   /** <summary>Hand one captured combination to the field, stopping unless a list is wanted.</summary> */
   function finishCapture(combo) {
@@ -2132,20 +2155,28 @@
   // chord's held key usually is one. It counts when released without any
   // other key having been pressed while it was down.
   document.addEventListener("keyup", event => {
-    if (!capturing || !pendingModifier) return;
-    if (MODIFIER_NAMES[event.key] === pendingModifier) {
+    if (!capturing) return;
+    const name = modifierName(event);
+    if (name) heldModifiers.delete(name);
+    if (!pendingModifier) return;
+    if (name === pendingModifier) {
       event.preventDefault();
       pendingModifier = null;
-      finishCapture(MODIFIER_NAMES[event.key]);
+      finishCapture(name);
     }
   }, true);
+  // Keys let go while the page was not in front never send a keyup here, so
+  // the held set would otherwise remember a modifier that is up.
+  window.addEventListener("blur", () => { heldModifiers.clear(); pendingModifier = null; });
 
   document.addEventListener("keydown", event => {
     if (!capturing) return;
     event.preventDefault();
     if (event.key === "Escape") { pendingModifier = null; stopCapture(); return; }
     if (MODIFIER_KEYS.has(event.key)) {
-      if (!event.repeat) pendingModifier = MODIFIER_NAMES[event.key] || null;
+      const name = modifierName(event);
+      if (name) heldModifiers.add(name);
+      if (!event.repeat) pendingModifier = name;
       return;
     }
     pendingModifier = null;
@@ -2159,10 +2190,19 @@
       else if (/^F\d{1,2}$/.test(event.code)) name = event.code.toLowerCase();
     }
     if (!name) return;
+    // The event flags say which modifiers are down but not which side, so
+    // each one is spelled from the held set when it was seen going down and
+    // from the flag otherwise, which is what happens when the modifier was
+    // already held before Capture was pressed.
     const parts = [];
-    if (event.ctrlKey) parts.push("ctrl");
-    if (event.altKey) parts.push("alt");
-    if (event.shiftKey) parts.push("shift");
+    const sided = (base, flag) => {
+      if (!flag) return;
+      const held = ["", "_l", "_r"].map(side => base + side).filter(n => heldModifiers.has(n));
+      parts.push(...(held.length ? held : [base]));
+    };
+    sided("ctrl", event.ctrlKey);
+    sided("alt", event.altKey || event.getModifierState("AltGraph"));
+    sided("shift", event.shiftKey);
     if (event.metaKey) parts.push("cmd");
     parts.push(name);
     finishCapture(parts.join("+"));
