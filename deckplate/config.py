@@ -67,7 +67,17 @@ HOLD_DEFAULTS = {"hold_min_ms": 3000, "hold_max_ms": 8000, "release_min_ms": 150
 # which is what a hotkey has always been.
 HOTKEY_MAX_HOLD_MS = 10_000
 # Boost: one key held down the whole time while a second cycles on and off.
+# on_ms and off_ms are the shortest each phase lasts; on_max_ms and
+# off_max_ms, when given, make each phase a random length up to them, so the
+# rhythm is not a metronome. Left out, they equal the minimums and the phase
+# is fixed, which is what every boost written before them means.
 BOOST_DEFAULTS = {"on_ms": 10_000, "off_ms": 12_000}
+# A boost may also build up first, holding its key alone for start_ms to
+# start_max_ms before the first on phase, and may tap a third key, between,
+# a random between_after_ms to between_after_max_ms into each off phase: a
+# scan ping while cruising, with the afterburner off.
+BOOST_START_DEFAULT_MS = 0
+BOOST_BETWEEN_AFTER_DEFAULT_MS = 1_000
 # Repeat: tap a key, wait, tap it again, until it is switched off.
 REPEAT_DEFAULT_EVERY_MS = 30_000
 # Text: the longest pause allowed between typed characters.
@@ -1245,6 +1255,17 @@ def _parse_action(table: Any, where: str, nested: bool = False) -> Action:
             params[name] = _int(table, name, where, default, 0, HOLD_MAX_MS)
         if params["on_ms"] == 0:
             raise ConfigError(f"{where}: on_ms must be above zero")
+        # The upper bounds default to the lower ones: a fixed rhythm unless asked.
+        params["start_ms"] = _int(table, "start_ms", where, BOOST_START_DEFAULT_MS, 0, HOLD_MAX_MS)
+        between = table.get("between", "")
+        if not isinstance(between, str):
+            raise ConfigError(f"{where}: 'between' must be text")
+        params["between"] = _combo(between, where)
+        params["between_after_ms"] = _int(table, "between_after_ms", where, BOOST_BETWEEN_AFTER_DEFAULT_MS, 0, HOLD_MAX_MS)
+        for phase in ("on", "off", "start", "between_after"):
+            params[f"{phase}_max_ms"] = _int(table, f"{phase}_max_ms", where, params[f"{phase}_ms"], 0, HOLD_MAX_MS)
+            if params[f"{phase}_max_ms"] < params[f"{phase}_ms"]:
+                raise ConfigError(f"{where}: {phase}_max_ms must not be below {phase}_ms")
     elif kind == "repeat":
         # Tap a key, wait every_ms, tap it again, until it is switched off.
         if nested:

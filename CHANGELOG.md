@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- A boost can build up first, holding its key alone for `start_ms` to
+  `start_max_ms` before the first boost, and can tap a third key once in
+  each off phase: `between = "tab"`, a random `between_after_ms` to
+  `between_after_max_ms` into the phase, held for a human moment. Both are
+  off unless set. A mining key can now cruise and ping between boosts.
+- A boost's on and off phases can each be a random length: `on_max_ms` and
+  `off_max_ms` set the top of the range, with `on_ms` and `off_ms` as the
+  bottom. Left out they equal the bottom, so every boost written before
+  this keeps its fixed rhythm. The configuration page shows the two as
+  range sliders. Boost and repeat are now described in the README and the
+  default config's notes, which had never listed them.
 - A Capture left listening on a sequence or chord field stops when another
   key is selected, the deck moves to another page, or the editor is
   rebuilt. It used to carry on, and the next key pressed went into

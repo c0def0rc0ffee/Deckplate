@@ -902,12 +902,20 @@ column = 1
 action = { type = "repeat", keys = "f" }
 """
     keys = cfg.parse(text, "/base").pages[0].keys
-    assert keys[(0, 0)].action.params == {"hold": "w", "keys": "shift", **cfg.BOOST_DEFAULTS}
+    fixed = {"on_max_ms": cfg.BOOST_DEFAULTS["on_ms"], "off_max_ms": cfg.BOOST_DEFAULTS["off_ms"],
+             "start_ms": 0, "start_max_ms": 0, "between": "",
+             "between_after_ms": cfg.BOOST_BETWEEN_AFTER_DEFAULT_MS, "between_after_max_ms": cfg.BOOST_BETWEEN_AFTER_DEFAULT_MS}
+    assert keys[(0, 0)].action.params == {"hold": "w", "keys": "shift", **cfg.BOOST_DEFAULTS, **fixed}
     assert keys[(0, 1)].action.params == {"keys": "f", "every_ms": cfg.REPEAT_DEFAULT_EVERY_MS}
 
 
 @pytest.mark.parametrize("action, message", [
     ("{ type = 'boost', hold = 'w', keys = 'shift', on_ms = 0 }", "on_ms must be above zero"),
+    ("{ type = 'boost', hold = 'w', keys = 'shift', on_ms = 10000, on_max_ms = 9000 }", "on_max_ms must not be below on_ms"),
+    ("{ type = 'boost', hold = 'w', keys = 'shift', off_ms = 11000, off_max_ms = 5000 }", "off_max_ms must not be below off_ms"),
+    ("{ type = 'boost', hold = 'w', keys = 'shift', start_ms = 5000, start_max_ms = 4000 }", "start_max_ms must not be below start_ms"),
+    ("{ type = 'boost', hold = 'w', keys = 'shift', between = 'banana' }", "unknown key"),
+    ("{ type = 'boost', hold = 'w', keys = 'shift', between = 'tab', between_after_ms = 3000, between_after_max_ms = 1000 }", "between_after_max_ms must not be below between_after_ms"),
     ("{ type = 'repeat', keys = 'f', every_ms = 0 }", "every_ms must be above zero"),
     ("{ type = 'boost', hold = 'banana', keys = 'shift' }", "unknown key"),
     ("{ type = 'multi', steps = [ { type = 'boost', hold = 'w', keys = 'shift' } ] }", "cannot be a step"),
@@ -1204,3 +1212,64 @@ def test_a_home_path_for_an_unknown_user_does_not_raise(tmp_path):
     """
     resolved = cfg._resolve("~no-such-user-here/pictures/a.png", tmp_path)
     assert resolved == tmp_path / "~no-such-user-here/pictures/a.png"
+
+
+def test_boost_ranges_parse_and_default_to_fixed():
+    """<summary>
+    on_max_ms and off_max_ms are kept when given and equal the minimums when
+    not, so an old boost is a fixed rhythm and a new one can be a range.
+    </summary>
+    <remarks>
+    The default is the compatibility promise: a config written when boost had
+    only two numbers must run exactly as it did. The parsed form always
+    carries all four so the runner never has to ask which kind it was given.
+    </remarks>
+    """
+    text = """
+[[pages]]
+name = "A"
+[[pages.keys]]
+row = 0
+column = 0
+action = { type = "boost", hold = "w", keys = "shift", on_ms = 10000, on_max_ms = 12000, off_ms = 11000, off_max_ms = 14000 }
+[[pages.keys]]
+row = 0
+column = 1
+action = { type = "boost", hold = "w", keys = "shift", on_ms = 8000, off_ms = 9000 }
+"""
+    keys = cfg.parse(text, "/base").pages[0].keys
+    ranged = keys[(0, 0)].action.params
+    assert (ranged["on_ms"], ranged["on_max_ms"], ranged["off_ms"], ranged["off_max_ms"]) == (10000, 12000, 11000, 14000)
+    fixed = keys[(0, 1)].action.params
+    assert (fixed["on_ms"], fixed["on_max_ms"], fixed["off_ms"], fixed["off_max_ms"]) == (8000, 8000, 9000, 9000)
+
+
+def test_boost_build_up_and_between_tap_parse():
+    """<summary>
+    A boost with a build up and a between tap keeps all four spans, and the
+    between combination is checked like any other key.
+    </summary>
+    <remarks>
+    The mining case this was written for: cruise with the afterburner
+    cycling, a few seconds of plain forward first, and a scan ping a random
+    way into each quiet spell. All of it has to arrive in the params in one
+    shape, maximums filled in, so the runner passes it straight through.
+    </remarks>
+    """
+    text = """
+[[pages]]
+name = "A"
+[[pages.keys]]
+row = 0
+column = 0
+action = { type = "boost", hold = "w", keys = "shift", start_ms = 5000, start_max_ms = 7000, between = "tab", between_after_ms = 1000, between_after_max_ms = 3000 }
+[[pages.keys]]
+row = 0
+column = 1
+action = { type = "boost", hold = "w", keys = "shift", start_ms = 5000, between = "tab" }
+"""
+    keys = cfg.parse(text, "/base").pages[0].keys
+    p = keys[(0, 0)].action.params
+    assert (p["start_ms"], p["start_max_ms"], p["between"], p["between_after_ms"], p["between_after_max_ms"]) == (5000, 7000, "tab", 1000, 3000)
+    q = keys[(0, 1)].action.params
+    assert (q["start_ms"], q["start_max_ms"], q["between_after_ms"], q["between_after_max_ms"]) == (5000, 5000, 1000, 1000)

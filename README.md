@@ -147,6 +147,14 @@ The config is documented by its own comments. In short:
   before each tap between `delay_min_ms` and `delay_max_ms`; the held key
   is never let go until the last tap, for example `hold = "alt"` with
   `keys = ["1", "2", "3"]`.
+  A `boost` keeps one key down (`hold = "w"`) while a second (`keys = "shift"`)
+  goes on for `on_ms` and off for `off_ms`, over and over, until the deck key
+  is pressed again; `on_max_ms` and `off_max_ms` make each phase a random
+  length between the two numbers, so a cruise that cycles the afterburner
+  does not tick like a clock. `start_ms` and `start_max_ms` hold the first
+  key alone before the first boost, and `between = "tab"` taps a third key
+  once in each off phase, `between_after_ms` to `between_after_max_ms` into
+  it, for a scan ping between boosts. A `repeat` taps a key every `every_ms`.
   A `hold` keeps a key pressed for games that want it held: press the deck
   key once to start and again to let go. Between `hold_min_ms` and
   `hold_max_ms` later it lets go for a random moment between `release_min_ms`

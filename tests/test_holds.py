@@ -21,7 +21,7 @@ the machine running the suite.
 import threading
 import time
 
-from deckplate.holds import HoldManager
+from deckplate.holds import HoldManager, BETWEEN_TAP_MS
 
 
 class FakeKeyboard:
@@ -315,3 +315,97 @@ def test_toggling_actions_have_their_own_keys():
     assert task_key("boost", {"hold": "w", "keys": "shift"}) == "boost:w+shift"
     assert task_key("repeat", {"keys": "f"}) == "repeat:f"
     assert task_key("hotkey", {"keys": "f"}) == ""
+
+
+def test_boost_draws_each_phase_from_its_range():
+    """<summary>
+    The on and off waits are drawn from the random source with the phase's
+    own bounds, and a boost with no maximums asks for a fixed time.
+    </summary>
+    <remarks>
+    What is pinned is the pair of bounds handed to the random source, not the
+    elapsed time, because timing a thread is flaky and the bounds are the
+    contract: on gets on_ms to on_max_ms, off gets off_ms to off_max_ms, in
+    that order. The fixed case asks for low equal to high, which is how a
+    boost written before the ranges stays a metronome.
+    </remarks>
+    """
+    keyboard = FakeKeyboard()
+    asked = []
+
+    def rng(low, high):
+        asked.append((low, high))
+        return low
+
+    manager = HoldManager(press=keyboard.press, release=keyboard.release,
+                          send=lambda combo: None, rng=rng, log=lambda t: None)
+    assert manager.toggle_boost("w", "shift", 20, 10, 40, 30) is True
+    assert wait_for(lambda: len(asked) >= 4)
+    assert manager.toggle_boost("w", "shift", 20, 10, 40, 30) is False
+    assert wait_for(lambda: ("release", "w") in keyboard.snapshot())
+    assert asked[:4] == [(20, 40), (10, 30), (20, 40), (10, 30)]
+
+    asked.clear()
+    assert manager.toggle_boost("w", "ctrl", 20, 10) is True
+    assert wait_for(lambda: len(asked) >= 2)
+    assert manager.toggle_boost("w", "ctrl", 20, 10) is False
+    assert wait_for(lambda: ("release", "ctrl") in keyboard.snapshot())
+    assert asked[:2] == [(20, 20), (10, 10)]
+
+
+def test_boost_builds_up_before_the_first_boost_and_taps_between():
+    """<summary>
+    With a start span the held key goes down and the boost waits out the
+    build up before its first press; with a between key, one tap lands in
+    each off phase, pressed and released, after its own random delay.
+    </summary>
+    <remarks>
+    The order of what the random source is asked for is the contract, as in
+    the range test: the build up span first, then on, then off, then the
+    tap's delay and its length. The keyboard trace pins the shape of a cycle:
+    forward down, the boost on and off, the tap between, with forward never
+    let go until stop. On stop everything comes up, the tap key included if
+    it was mid press.
+    </remarks>
+    """
+    keyboard = FakeKeyboard()
+    asked = []
+
+    def rng(low, high):
+        asked.append((low, high))
+        return low
+
+    manager = HoldManager(press=keyboard.press, release=keyboard.release,
+                          send=lambda combo: None, rng=rng, log=lambda t: None)
+    # The off phase has to be longer than the tap's delay plus the shortest
+    # tap, or the tap is rightly skipped and this test would be waiting for it.
+    assert manager.toggle_boost("w", "shift", 20, 300, start_ms=30, start_max_ms=50,
+                                between="tab", between_after_ms=10, between_after_max_ms=20) is True
+    assert wait_for(lambda: ("release", "tab") in keyboard.snapshot())
+    assert manager.toggle_boost("w", "shift", 20, 300, start_ms=30, start_max_ms=50,
+                                between="tab", between_after_ms=10, between_after_max_ms=20) is False
+    assert wait_for(lambda: ("release", "w") in keyboard.snapshot())
+    assert asked[:5] == [(30, 50), (20, 20), (300, 300), (10, 20), tuple(BETWEEN_TAP_MS)]
+    events = [e for e in keyboard.snapshot() if e[1] in ("w", "shift", "tab")]
+    assert events[:5] == [("press", "w"), ("press", "shift"), ("release", "shift"), ("press", "tab"), ("release", "tab")]
+    assert events[-1] == ("release", "w")
+
+
+def test_boost_skips_the_tap_when_the_off_phase_is_too_short():
+    """<summary>
+    An off phase shorter than the tap's delay plus its length gets no tap,
+    and the cycle carries on as a plain boost.
+    </summary>
+    <remarks>
+    Without this a tap asked for late in a short off phase would land in the
+    next on phase, on top of the boost key, which is not what anyone meant.
+    </remarks>
+    """
+    keyboard = FakeKeyboard()
+    manager = HoldManager(press=keyboard.press, release=keyboard.release,
+                          send=lambda combo: None, rng=lambda low, high: high, log=lambda t: None)
+    assert manager.toggle_boost("w", "shift", 20, 30, between="tab", between_after_ms=100) is True
+    assert wait_for(lambda: sum(1 for e in keyboard.snapshot() if e == ("release", "shift")) >= 3)
+    assert manager.toggle_boost("w", "shift", 20, 30, between="tab", between_after_ms=100) is False
+    assert wait_for(lambda: ("release", "w") in keyboard.snapshot())
+    assert ("press", "tab") not in keyboard.snapshot()

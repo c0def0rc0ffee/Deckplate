@@ -95,6 +95,14 @@ tiles = ["clock", "date", "weather"]
 #   hold       keys = "w"                      press once to hold the key down, again to let go;
 #              hold_min_ms / hold_max_ms and release_min_ms / release_max_ms make it
 #              let go for a random moment now and then, like a human would
+#   boost      hold = "w", keys = "shift", on_ms = 10000, off_ms = 12000
+#              keeps the first key down while the second goes on for on_ms and
+#              off for off_ms, until pressed again; on_max_ms and off_max_ms make
+#              each phase a random length between the two, like a human would;
+#              start_ms / start_max_ms hold the first key alone before the first
+#              boost, and between = "tab" taps a key once in each off phase,
+#              between_after_ms / between_after_max_ms into it
+#   repeat     keys = "f", every_ms = 30000   taps the key on a timer until pressed again
 #   text       text = "hello", enter = true   typed as written into whatever has focus;
 #              delay_ms puts a pause between characters for programs that drop fast typing
 #   launch     command = "..."                optional command_windows / command_linux
