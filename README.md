@@ -449,8 +449,9 @@ Hotkeys use the same names on both platforms (`ctrl+alt+t`, `shift+f5`,
 `media_volume_mute`). `ctrl`, `alt` and `shift` are the left hand key; for a
 game that tells the sides apart write `alt_r`, `ctrl_r` or `shift_r` (`ralt`,
 `altgr`, `rctrl` and `rshift` are accepted spellings), and `alt_l` and so on
-name the left one outright. They are sent with pynput, or xdotool on Linux when
-pynput is not available. Programs can have a `command_windows` or
+name the left one outright. On Linux they are sent through the X test
+extension, which is what a game under Wine sees as real keys; pynput and
+then xdotool are the fallbacks there, and pynput is the Windows route. Programs can have a `command_windows` or
 `command_linux` override beside the shared `command`, so one config file
 serves both machines.
 

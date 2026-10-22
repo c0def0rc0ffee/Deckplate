@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- A Capture left listening on a sequence or chord field stops when another
+  key is selected, the deck moves to another page, or the editor is
+  rebuilt. It used to carry on, and the next key pressed went into
+  whichever key was selected by then as a list, which turned a plain
+  hotkey into something the daemon refused to save.
+- On Linux, keys are sent through the X test extension directly rather
+  than through pynput. pynput sent every letter and digit as a synthetic
+  event that games and anything under Wine ignore, so `f1` reached Star
+  Citizen and `alt+h` never did: the alt arrived and the h did not. Every
+  key is now a real key event, typed text included. Right alt is sent as
+  the physical AltGr key on layouts where no key carries Alt_R. The
+  backend in use is named once in the log at the first key press.
 - Hotkeys can name the right hand modifier: `alt_r`, `ctrl_r` and `shift_r`,
   with `ralt`, `altgr`, `rctrl` and `rshift` accepted as spellings, and
   `alt_l`, `ctrl_l` and `shift_l` for the left one outright. The bare names

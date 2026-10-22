@@ -1825,6 +1825,13 @@
       }, opts.many);
       capturing.field = field;
       capturing.onStop = render;
+      // Where the capture was started. The setter looks its action up afresh
+      // on every key, by the selected key on the current page, so a capture
+      // still listening after either has changed would write into whichever
+      // key is selected by then. A chord capture left running on one key once
+      // turned a hotkey on another page into a list, which the daemon
+      // refused to save.
+      capturing.context = captureContext();
       render();
     });
     const clear = el("button", { type: "button", class: "ghost small", text: "Clear" });
@@ -2121,6 +2128,31 @@
   }
   const MODIFIER_NAMES = { Control: "ctrl", Alt: "alt", AltGraph: "alt", Shift: "shift", Meta: "cmd", OS: "cmd" };
   let pendingModifier = null;  // a modifier pressed on its own, captured when released
+
+  /**
+   * <summary>What a capture is writing into: the page shown and the key selected.</summary>
+   * <returns>A string that changes when either does.</returns>
+   */
+  function captureContext() {
+    return pageIndex() + ":" + (selected ? selected.row + "," + selected.column : "page");
+  }
+
+  /**
+   * <summary>True while the running capture still belongs to the field and the
+   * key it was started on.</summary>
+   * <remarks>
+   * Three things end a capture's claim: its field has been rebuilt out of the
+   * editor, another key has been selected, or the deck has moved to another
+   * page, which the editor follows. In every one of those the setter would
+   * now resolve to a different action, so the capture is stopped and the key
+   * press is left alone rather than captured into the wrong place.
+   * </remarks>
+   */
+  function captureStillValid() {
+    if (!capturing) return false;
+    if (capturing.field && !capturing.field.isConnected) return false;
+    return capturing.context === undefined || capturing.context === captureContext();
+  }
   // The modifiers currently held, by their sided names, kept from keydown and
   // keyup so a combination can say which alt it was. The event flags
   // (ctrlKey, altKey) cannot tell left from right.
@@ -2156,6 +2188,7 @@
   // other key having been pressed while it was down.
   document.addEventListener("keyup", event => {
     if (!capturing) return;
+    if (!captureStillValid()) { stopCapture(); return; }
     const name = modifierName(event);
     if (name) heldModifiers.delete(name);
     if (!pendingModifier) return;
@@ -2171,6 +2204,7 @@
 
   document.addEventListener("keydown", event => {
     if (!capturing) return;
+    if (!captureStillValid()) { stopCapture(); return; }
     event.preventDefault();
     if (event.key === "Escape") { pendingModifier = null; stopCapture(); return; }
     if (MODIFIER_KEYS.has(event.key)) {

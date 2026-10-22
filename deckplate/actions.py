@@ -261,6 +261,9 @@ class ActionRunner:
         self.open_url = open_url
         self.sleep = sleep
         self.holds = holds or HoldManager(log=log)
+        # The hotkey module says which backend it chose, once, at the first
+        # key. That line belongs in the same log as the failures below.
+        hotkeys.announce_to(log)
         self.press_keys = press_keys
         self.release_keys = release_keys
         self.rng = rng
