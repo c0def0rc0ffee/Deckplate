@@ -54,6 +54,13 @@ MAX_GIF_FRAMES = 150
 # the list because an APNG is usually named .png, and a still PNG simply
 # answers no.
 ANIMATED_SUFFIXES = (".gif", ".webp", ".apng", ".png")
+# What opening or decoding a picture file can raise that means "this file
+# cannot be drawn" and nothing worse. DecompressionBombError is Pillow's
+# refusal of a picture with too many pixels, and it derives from Exception
+# directly, so catching OSError and ValueError alone lets it through. One
+# oversized picture then stopped the daemon on every start. Every place that
+# opens a user's picture catches this tuple and draws the missing marker.
+PICTURE_ERRORS = (OSError, ValueError, Image.DecompressionBombError)
 
 
 @dataclass(frozen=True)
@@ -436,7 +443,7 @@ def is_animated_file(path: Path) -> bool:
     try:
         with Image.open(path) as picture:
             return bool(getattr(picture, "is_animated", False)) and getattr(picture, "n_frames", 1) > 1
-    except (OSError, ValueError):
+    except PICTURE_ERRORS:
         return False
 
 

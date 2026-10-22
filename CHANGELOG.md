@@ -8,6 +8,21 @@
   still mean the left key, as they always did. Star Citizen binds a good
   deal to right alt and treats it as a different key. The configuration
   page's Capture button records which side was pressed.
+- Only one daemon runs at a time. A second `deckplate run` for the same user
+  now says one is already running and exits, where it used to carry on and
+  drive the same deck. The desktop launcher could start a second one on a
+  double click, or on every click once the port had been changed.
+- A deck that is plugged in but will not open is waited for like a deck that
+  is absent. That is what a replug looks like for the moment before the udev
+  rule is applied, and it used to stop the daemon with a traceback.
+- A deck whose connection had to be reopened after a read error is
+  initialised and redrawn. It used to be left as it came back, which after a
+  quick replug meant dark until the next page change.
+- A picture too large for the picture library draws the missing marker like
+  any other unreadable file, where it used to stop the daemon on every start.
+- A config file that is not saved as UTF-8, and an image path starting `~name`
+  for a user this machine does not have, are reported or tolerated in the
+  ordinary way and no longer end in a traceback.
 - Three general icon themes. "Desktop" holds the everyday Linux desktop
   functions: terminal, files, browser, settings, lock, log out, power off,
   restart, suspend, the workspaces, screenshot and more, 32 in all.

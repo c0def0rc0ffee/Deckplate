@@ -1170,3 +1170,37 @@ def test_bad_new_actions_are_reported_at_load(action, message):
     text = f'[[pages]]\nname = "A"\n[[pages.keys]]\nrow = 0\ncolumn = 0\naction = {action}'
     with pytest.raises(cfg.ConfigError, match=message):
         cfg.parse(text, "/base")
+
+
+def test_a_file_that_is_not_utf8_is_a_config_error(tmp_path):
+    """<summary>
+    Pins a config saved in another encoding as a ConfigError with the path in
+    it, not a UnicodeDecodeError.
+    </summary>
+    <remarks>
+    The start path catches ConfigError and prints one line. A decode error is
+    a ValueError, so it went straight past that and the daemon ended in a
+    traceback. Notepad saving as ANSI with a degree sign or a pound sign in a
+    label is all it takes.
+    </remarks>
+    """
+    path = tmp_path / "config.toml"
+    path.write_bytes('[deck]\n# 20\xb0 and \xa35\n'.encode("latin-1"))
+    with pytest.raises(cfg.ConfigError, match="UTF-8"):
+        cfg.load(path)
+
+
+def test_a_home_path_for_an_unknown_user_does_not_raise(tmp_path):
+    """<summary>
+    Pins an image path beginning with a tilde and a user name this machine
+    does not have as an ordinary missing picture.
+    </summary>
+    <remarks>
+    Expanding such a path raises RuntimeError, which nothing on the start
+    path or in the page's save handler catches. A config copied from another
+    machine is how it arrives. The path is left unexpanded under the config
+    folder, where it is not found and the key draws the missing marker.
+    </remarks>
+    """
+    resolved = cfg._resolve("~no-such-user-here/pictures/a.png", tmp_path)
+    assert resolved == tmp_path / "~no-such-user-here/pictures/a.png"

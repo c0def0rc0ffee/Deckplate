@@ -570,6 +570,9 @@ def load(path: str | Path) -> Config:
         text = path.read_text(encoding="utf-8-sig")
     except OSError as err:
         raise ConfigError(f"cannot read {path}: {err}") from err
+    except UnicodeDecodeError as err:
+        # Not an OSError. Notepad saving as ANSI or UTF-16 is the usual cause.
+        raise ConfigError(f"{path} is not saved as UTF-8: {err}") from err
     return parse(text, path.parent, path)
 
 
@@ -1519,7 +1522,12 @@ def _resolve(value: str, base_dir: Path) -> Path:
         # A shipped theme icon. Keep the intended path even when the file is
         # absent so a stale reference draws the missing marker, not a guess.
         return themes.icon_path(*parsed, must_exist=False) or themes.THEMES_DIR / "unknown.png"
-    path = Path(value).expanduser()
+    try:
+        path = Path(value).expanduser()
+    except RuntimeError:
+        # ``~name`` for a user this machine does not have. Left unexpanded, it
+        # resolves under the config folder, is not found, and draws the marker.
+        path = Path(value)
     return path if path.is_absolute() else (base_dir / path)
 
 
