@@ -1128,7 +1128,8 @@
       case "sequence": return { type, keys: [], delay_ms: 100 };
       case "chord": return { type, hold: "", keys: [], delay_min_ms: 50, delay_max_ms: 200 };
       case "hold": return { type, keys: "", hold_min_ms: 3000, hold_max_ms: 8000, release_min_ms: 150, release_max_ms: 600 };
-      case "boost": return { type, hold: "", keys: "", on_ms: 10000, off_ms: 12000 };
+      case "boost": return { type, hold: "", keys: "", on_ms: 10000, on_max_ms: 10000, off_ms: 12000, off_max_ms: 12000,
+                             start_ms: 0, start_max_ms: 0, between: "", between_after_ms: 1000, between_after_max_ms: 1000 };
       case "repeat": return { type, keys: "", every_ms: 30000 };
       case "text": return { type, text: "", enter: false, delay_ms: 0 };
       case "launch": return { type, command: "" };
@@ -1514,14 +1515,28 @@
           set: list => { getAction().keys = list[0] || ""; },
           help: "Pressed and let go over and over while the first key stays down.",
         }));
-        box.append(millis("on_ms", "Boost on for", {
-          min: 500, max: 120000, step: 500, fallback: 10000,
-          help: "How long the boost key is held each time.",
+        // A boost saved before the ranges existed has no maximums; shown and
+        // stored as equal to the minimums, which is what the daemon takes
+        // them to be, so the sliders say what the key does.
+        const ranged = { ...action,
+          on_max_ms: action.on_max_ms ?? action.on_ms, off_max_ms: action.off_max_ms ?? action.off_ms,
+          start_ms: action.start_ms ?? 0, start_max_ms: action.start_max_ms ?? action.start_ms ?? 0,
+          between_after_ms: action.between_after_ms ?? 1000, between_after_max_ms: action.between_after_max_ms ?? action.between_after_ms ?? 1000 };
+        box.append(dualSlider("Build up first for", 0, 60000, 500, "start_ms", "start_max_ms", getAction, ranged,
+          "The held key alone, before the first boost. Zero boosts straight away."));
+        box.append(dualSlider("Boost on for", 500, 120000, 500, "on_ms", "on_max_ms", getAction, ranged,
+          "How long the boost key is held each time: a random time in this range, or a fixed one when both ends are equal."));
+        box.append(dualSlider("Then off for", 0, 120000, 500, "off_ms", "off_max_ms", getAction, ranged,
+          "How long before it boosts again, again anywhere in the range. The cycle repeats until you press the deck key again."));
+        box.append(keyField({
+          label: "Key tapped while off",
+          many: false,
+          get: () => (getAction().between ? [getAction().between] : []),
+          set: list => { getAction().between = list[0] || ""; },
+          help: "Optional. Tapped once in each off phase, for a scan ping between boosts. Leave empty for none.",
         }));
-        box.append(millis("off_ms", "Then off for", {
-          min: 0, max: 120000, step: 500, fallback: 12000,
-          help: "How long before it boosts again. The cycle repeats until you press the deck key again.",
-        }));
+        box.append(dualSlider("Tap it after", 0, 30000, 100, "between_after_ms", "between_after_max_ms", getAction, ranged,
+          "How far into the off phase the tap comes. It is skipped when the off phase is too short to fit it."));
         break;
       }
       case "repeat": {
@@ -1825,6 +1840,13 @@
       }, opts.many);
       capturing.field = field;
       capturing.onStop = render;
+      // Where the capture was started. The setter looks its action up afresh
+      // on every key, by the selected key on the current page, so a capture
+      // still listening after either has changed would write into whichever
+      // key is selected by then. A chord capture left running on one key once
+      // turned a hotkey on another page into a list, which the daemon
+      // refused to save.
+      capturing.context = captureContext();
       render();
     });
     const clear = el("button", { type: "button", class: "ghost small", text: "Clear" });
@@ -1842,7 +1864,7 @@
         textBox = keep;
       });
       field.append(el("div", { class: "typed" }, [textBox,
-        el("div", { class: "help", text: "Names: ctrl, alt, shift, cmd, enter, esc, tab, space, up, f1 to f24, media_volume_mute, media_play_pause and so on. Join a combination with +." })]));
+        el("div", { class: "help", text: "Names: ctrl, alt, shift, cmd, enter, esc, tab, space, up, f1 to f24, media_volume_mute, media_play_pause and so on. Join a combination with +. ctrl, alt and shift are the left hand key; write alt_r, ctrl_r or shift_r (or ralt, altgr, rctrl, rshift) for the right hand one." })]));
       typeIt.textContent = "hide";
       textBox.focus();
     });
@@ -2114,12 +2136,60 @@
     const was = capturing;
     capturing = null;
     pendingModifier = null;
+    heldModifiers.clear();
     was.button.textContent = "Capture";
     was.button.classList.remove("capturing");
     if (was.onStop) was.onStop();
   }
   const MODIFIER_NAMES = { Control: "ctrl", Alt: "alt", AltGraph: "alt", Shift: "shift", Meta: "cmd", OS: "cmd" };
   let pendingModifier = null;  // a modifier pressed on its own, captured when released
+
+  /**
+   * <summary>What a capture is writing into: the page shown and the key selected.</summary>
+   * <returns>A string that changes when either does.</returns>
+   */
+  function captureContext() {
+    return pageIndex() + ":" + (selected ? selected.row + "," + selected.column : "page");
+  }
+
+  /**
+   * <summary>True while the running capture still belongs to the field and the
+   * key it was started on.</summary>
+   * <remarks>
+   * Three things end a capture's claim: its field has been rebuilt out of the
+   * editor, another key has been selected, or the deck has moved to another
+   * page, which the editor follows. In every one of those the setter would
+   * now resolve to a different action, so the capture is stopped and the key
+   * press is left alone rather than captured into the wrong place.
+   * </remarks>
+   */
+  function captureStillValid() {
+    if (!capturing) return false;
+    if (capturing.field && !capturing.field.isConnected) return false;
+    return capturing.context === undefined || capturing.context === captureContext();
+  }
+  // The modifiers currently held, by their sided names, kept from keydown and
+  // keyup so a combination can say which alt it was. The event flags
+  // (ctrlKey, altKey) cannot tell left from right.
+  const heldModifiers = new Set();
+
+  /**
+   * <summary>The house name for a modifier key event, telling right from left.</summary>
+   * <param name="event">A keydown or keyup for a key in MODIFIER_KEYS.</param>
+   * <returns>"alt" for a left or unplaced alt, "alt_r" for the right one, and
+   * so on; cmd has no sides. Null for a key that is not a modifier.</returns>
+   * <remarks>The left key keeps the bare name because that is what the daemon
+   * has always sent for it, so a combination captured before this existed
+   * reads the same as one captured now. AltGraph is the right alt and is
+   * named so whatever location the browser reports for it.</remarks>
+   */
+  function modifierName(event) {
+    const base = MODIFIER_NAMES[event.key];
+    if (!base) return null;
+    if (base === "cmd") return base;
+    const right = event.key === "AltGraph" || event.location === KeyboardEvent.DOM_KEY_LOCATION_RIGHT;
+    return right ? base + "_r" : base;
+  }
 
   /** <summary>Hand one captured combination to the field, stopping unless a list is wanted.</summary> */
   function finishCapture(combo) {
@@ -2132,20 +2202,30 @@
   // chord's held key usually is one. It counts when released without any
   // other key having been pressed while it was down.
   document.addEventListener("keyup", event => {
-    if (!capturing || !pendingModifier) return;
-    if (MODIFIER_NAMES[event.key] === pendingModifier) {
+    if (!capturing) return;
+    if (!captureStillValid()) { stopCapture(); return; }
+    const name = modifierName(event);
+    if (name) heldModifiers.delete(name);
+    if (!pendingModifier) return;
+    if (name === pendingModifier) {
       event.preventDefault();
       pendingModifier = null;
-      finishCapture(MODIFIER_NAMES[event.key]);
+      finishCapture(name);
     }
   }, true);
+  // Keys let go while the page was not in front never send a keyup here, so
+  // the held set would otherwise remember a modifier that is up.
+  window.addEventListener("blur", () => { heldModifiers.clear(); pendingModifier = null; });
 
   document.addEventListener("keydown", event => {
     if (!capturing) return;
+    if (!captureStillValid()) { stopCapture(); return; }
     event.preventDefault();
     if (event.key === "Escape") { pendingModifier = null; stopCapture(); return; }
     if (MODIFIER_KEYS.has(event.key)) {
-      if (!event.repeat) pendingModifier = MODIFIER_NAMES[event.key] || null;
+      const name = modifierName(event);
+      if (name) heldModifiers.add(name);
+      if (!event.repeat) pendingModifier = name;
       return;
     }
     pendingModifier = null;
@@ -2159,10 +2239,19 @@
       else if (/^F\d{1,2}$/.test(event.code)) name = event.code.toLowerCase();
     }
     if (!name) return;
+    // The event flags say which modifiers are down but not which side, so
+    // each one is spelled from the held set when it was seen going down and
+    // from the flag otherwise, which is what happens when the modifier was
+    // already held before Capture was pressed.
     const parts = [];
-    if (event.ctrlKey) parts.push("ctrl");
-    if (event.altKey) parts.push("alt");
-    if (event.shiftKey) parts.push("shift");
+    const sided = (base, flag) => {
+      if (!flag) return;
+      const held = ["", "_l", "_r"].map(side => base + side).filter(n => heldModifiers.has(n));
+      parts.push(...(held.length ? held : [base]));
+    };
+    sided("ctrl", event.ctrlKey);
+    sided("alt", event.altKey || event.getModifierState("AltGraph"));
+    sided("shift", event.shiftKey);
     if (event.metaKey) parts.push("cmd");
     parts.push(name);
     finishCapture(parts.join("+"));

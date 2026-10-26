@@ -105,6 +105,9 @@ class FakeDeck:
 
     image_size = 95
     spec = FakeSpec()
+    # What the real Deck sets after reopening its handle. A test sets it by
+    # hand to stand in for a read error.
+    reopened = False
 
     def __init__(self):
         """
@@ -2094,3 +2097,39 @@ action_long = { type = "url", url = "https://long.example.org" }
     controller.handle_event(KeyEvent(8, False))
     assert urls == ["https://long.example.org"]
     assert other.elapsed(clock.mono) >= 20
+
+
+def test_a_reopened_deck_is_initialised_and_redrawn(setup):
+    """<summary>
+    Pins what the loop does when the deck reports that its handle was
+    reopened: initialise, blank and draw the whole page again, once.
+    </summary>
+    <remarks>
+    After a read error the device layer reopens and carries on. If the deck
+    restarted in between it is dark, while every remembered signature says
+    the page is already drawn, so without this nothing was ever sent again
+    and the deck stayed dark until a page change. The init must come before
+    the tiles, all eighteen panels must be drawn, and the flag must be
+    cleared so the next quiet read does not redraw again. A deck that was
+    asleep comes back awake, because a restarted deck is not asleep.
+    </remarks>
+    """
+    controller, deck, clock, *_ = setup
+    controller.start()
+    controller.sleep_deck()
+    deck.reset()
+    reads = []
+
+    def read_after_error(timeout_ms):
+        """<summary>The first read stands in for one that reopened; later reads are quiet.</summary>"""
+        if not reads:
+            deck.reopened = True
+        reads.append(timeout_ms)
+        return None
+
+    deck.read_event = read_after_error
+    controller.run(stop=lambda: len(reads) >= 2)
+    assert deck.reopened is False and controller.asleep is False
+    assert deck.calls.count(("init",)) == 1
+    assert deck.calls.index(("init",)) < deck.calls.index(deck.tiles()[0])
+    assert len({c[1:3] for c in deck.tiles()}) == 18

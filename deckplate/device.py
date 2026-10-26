@@ -303,6 +303,10 @@ class Deck:
         # The daemon never sets this. Only a deliberate test script may, and
         # only on a deck that can be spared: see the safety rule in README.md.
         self.allow_experimental = allow_experimental
+        # Set by read_event when it has had to reopen the device, and cleared
+        # by whoever acts on it. A reopened deck may have restarted and be
+        # showing nothing, so its owner has to initialise and redraw it.
+        self.reopened = False
 
     @classmethod
     def open(cls, vendor_id: int | None = None, product_id: int | None = None) -> "Deck":
@@ -319,7 +323,11 @@ class Deck:
         so and get an error rather than a silent stand in.
         </remarks>
         
-        <exception cref="DeviceNotFound">Nothing matching is plugged in.</exception>"""
+        <exception cref="DeviceNotFound">Nothing matching is plugged in, or
+        it is plugged in and could not be opened. The second is what a missing
+        udev rule looks like, and what a replug looks like for the moment
+        before the rule has been applied, so the run loop must be able to
+        wait and try again on it exactly as it does for an absent deck.</exception>"""
         try:
             candidates = enumerate_known()
         except ImportError:  # hidapi missing: only tolerable on a development machine
@@ -334,7 +342,12 @@ class Deck:
                 return cls(MemoryTransport(), FAKE_SPEC)
             raise DeviceNotFound("no known deck is plugged in")
         spec, path = candidates[0]
-        return cls(HidTransport(spec, path), spec)
+        try:
+            transport = HidTransport(spec, path)
+        except OSError as err:
+            raise DeviceNotFound(
+                f"{spec.name} ({spec.usb_id}) is plugged in but could not be opened: {err}") from err
+        return cls(transport, spec)
 
     @property
     def is_fake(self) -> bool:
@@ -488,13 +501,23 @@ class Deck:
         treated as a lost handle rather than a fatal fault: hidapi raised one
         transient error per session on Windows with the deck still enumerated,
         so this pauses, reopens and returns None to let the caller poll again.
+
+        A reopen sets <see cref="reopened"/>. The handle is good again but the
+        deck behind it may have restarted, in which case it has forgotten the
+        handshake and every picture. Nothing is sent from here: the owner
+        sees the flag, clears it, and initialises and redraws.
         </remarks>
-        """
+
+        <exception cref="DeviceNotFound">The deck was gone when the reopen
+        looked for it.</exception>
+        <exception cref="OSError">The deck was there and the reopen could not
+        open it.</exception>"""
         try:
             data = self.transport.read(protocol.REPORT_LENGTH, timeout_ms)
         except OSError:
             time.sleep(0.5)
             self.transport.reopen()
+            self.reopened = True
             return None
         if not data:
             return None

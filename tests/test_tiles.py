@@ -442,3 +442,23 @@ def test_live_tile_puts_the_value_big_and_the_label_in_the_band_with_a_ring():
     assert plain.tobytes() != full.tobytes()
     # the value is drawn, so the face is not the bare background
     assert plain.tobytes() != images.solid(images.BACKGROUND, 95).tobytes()
+
+
+def test_a_picture_too_large_to_decode_is_marked_like_a_missing_one(tmp_path, monkeypatch):
+    """<summary>
+    A picture over the picture library's pixel limit draws the missing marker
+    on a key and gives no wallpaper, and neither raises.
+    </summary>
+    <remarks>
+    Pillow refuses such a file with DecompressionBombError, which is not an
+    OSError or a ValueError, so it used to escape every picture loader and
+    stop the daemon, and stop it again on every start until the config was
+    edited. The limit is lowered for the test so a small file trips it.
+    </remarks>
+    """
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 50_000)
+    path = tmp_path / "huge.png"
+    images.solid((200, 30, 30), 400).save(path)
+    tile = tiles.key_tile(KeyConfig(0, 0, image=path), SIZE)
+    assert tile.getpixel((3, 3)) == (60, 20, 20)
+    assert tiles.wallpaper_slice(path, SIZE, (120, 120), 0, 0) is None

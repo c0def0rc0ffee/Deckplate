@@ -202,7 +202,7 @@ def key_frames(key: KeyConfig | None, size: int, active: bool = False,
     elif key.image is not None and animations.is_animated_file(key.image):
         try:
             frames, fps = animations.file_frames(key.image, size, background)
-        except (OSError, ValueError):
+        except animations.PICTURE_ERRORS:
             return None
         if key.label:
             frames = [with_label(frame, key.label) for frame in frames]
@@ -261,7 +261,7 @@ def strip_frames(tile: StripTile, size: int, visible: tuple[int, int] | None = N
     if tile.kind == "image" and tile.image is not None and animations.is_animated_file(tile.image):
         try:
             frames, fps = animations.file_frames(tile.image, inner if tile.fit else size, background)
-        except (OSError, ValueError):
+        except animations.PICTURE_ERRORS:
             return None
         if tile.fit:
             frames = [centred(frame, size, background) for frame in frames]
@@ -314,7 +314,7 @@ def picture_tile(path: Path, size: int, background: tuple[int, int, int] = image
     try:
         with Image.open(path) as source:
             picture = source.convert("RGBA")
-    except (OSError, ValueError):
+    except animations.PICTURE_ERRORS:
         return missing_tile(path, size)
     picture.thumbnail((size, size), Image.Resampling.LANCZOS)
     offset = ((size - picture.width) // 2, (size - picture.height) // 2)
@@ -951,7 +951,7 @@ def picture_box(path: Path, width: int, height: int,
     try:
         with Image.open(path) as source:
             picture = source.convert("RGBA")
-    except (OSError, ValueError):
+    except animations.PICTURE_ERRORS:
         return missing_tile(path, min(width, height))
     picture.thumbnail((width, height), Image.Resampling.LANCZOS)
     box.paste(picture, ((width - picture.width) // 2, (height - picture.height) // 2), picture)
@@ -1084,7 +1084,7 @@ def _wallpaper_canvas(path: str, mtime: float, size: int, pitch: tuple[int, int]
     try:
         with Image.open(path) as source:
             picture = source.convert("RGB")
-    except (OSError, ValueError):
+    except animations.PICTURE_ERRORS:
         return None
     scale = max(width / picture.width, height / picture.height)
     scaled = picture.resize((max(1, round(picture.width * scale)), max(1, round(picture.height * scale))),

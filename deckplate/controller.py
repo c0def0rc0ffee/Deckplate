@@ -512,6 +512,9 @@ class Controller:
                 if due is not None:
                     timeout = min(timeout, max(5, int(due * 1000)))
                 event = self.deck.read_event(timeout)
+                if self.deck.reopened:
+                    self.deck.reopened = False
+                    self._restore_after_reopen()
                 if event is not None:
                     self.handle_event(event)
                 self.tick()
@@ -519,6 +522,32 @@ class Controller:
             self.stop()
 
     # Rendering
+
+    def _restore_after_reopen(self) -> None:
+        """<summary>
+        Initialise and redraw a deck whose handle had to be reopened.
+        </summary>
+        <remarks>
+        A read error makes <see cref="deck.read_event"/> reopen the device and
+        carry on. If the deck restarted in between, it is dark and has lost
+        the handshake, while everything remembered here says the page is
+        already drawn, so nothing would be sent again and the deck would stay
+        dark until a page change. This puts it back.
+
+        The work is exactly a wake: the same proven initialise, brightness,
+        clear and redraw, with the remembered screen state thrown away first.
+        A deck that was asleep comes back awake, because a restarted deck is
+        not asleep and there is no telling the two cases apart from here.
+        Flashes are dropped because the panels they would be put back on have
+        just been redrawn.
+
+        On Windows the transient read error with the deck still healthy costs
+        one redraw of the page, which is the price of not being able to tell
+        it from a restart.
+        </remarks>"""
+        self.log("deck reopened after a read error: redrawing")
+        self._flashes.clear()
+        self.wake()
 
     def _blank_screen(self) -> None:
         """<summary>

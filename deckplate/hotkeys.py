@@ -4,11 +4,21 @@ Send a key combination, or type a piece of text, at whatever has focus.
 <remarks>
 Combinations are written the same way on both platforms, for example
 "ctrl+alt+t", "shift+f5" or "media_volume_mute". The names are normalised
-here and handed to a backend: pynput on Windows and on X11 Linux, with
-xdotool as the Linux fallback when pynput is not installed. Typing text goes
-through the same backends and is the one path that never parses anything:
-the characters are sent as written, so a plus sign in a piece of text is a
-plus sign and not a separator.
+here and handed to a backend: on Linux the X test extension driven directly
+through python-xlib, then pynput, then xdotool; on Windows pynput. Typing
+text goes through the same backends and is the one path that never parses
+anything: the characters are sent as written, so a plus sign in a piece of
+text is a plus sign and not a separator.
+
+The X test backend exists because of how pynput sends a letter on X11. A
+named key such as F1 or alt goes through the X test extension and looks to
+every program like a real key. A key given as a character, which is every
+letter and digit, is instead sent as a synthetic client event aimed at the
+focused window, and a game, or anything under Wine, ignores synthetic events
+entirely. So with pynput "f1" reached Star Citizen and "alt+h" never did:
+alt arrived, h did not. Sending every key through X test is what the game
+needs, and the fix was found on 17/10/2026 with xev, which marks the
+synthetic ones.
 
 There is no way to ask where a keystroke went. Everything here is fire and
 forget into whatever window has focus at that instant, so a key pressed while
@@ -29,12 +39,23 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
+import threading
 import time
+from typing import Callable
 
-# The four names that may only appear before the main key. A combination
-# ending in one of these is rejected rather than sent, because a modifier on
-# its own end has no key to modify and reads as a typing slip.
-MODIFIERS = ("ctrl", "alt", "shift", "cmd")
+# The names that may only appear before the main key. A combination ending
+# in one of these is rejected rather than sent, because a modifier on its own
+# end has no key to modify and reads as a typing slip.
+#
+# The bare names ctrl, alt and shift are the left hand key, which is what both
+# backends have always sent for them, so no existing config changes meaning.
+# The _l and _r spellings are for programs that tell the two sides apart:
+# Star Citizen binds a good deal to right alt and treats it as a different
+# modifier from the left one. There is no cmd_r because pynput has no right
+# hand super key on every platform and X11 names it the same as the left.
+SIDED_MODIFIERS = ("ctrl_l", "ctrl_r", "alt_l", "alt_r", "shift_l", "shift_r")
+MODIFIERS = ("ctrl", "alt", "shift", "cmd") + SIDED_MODIFIERS
 
 # What people actually type, mapped to the one spelling the rest of the module
 # uses. This exists so a config file written by hand is forgiving: cmd, super,
@@ -44,6 +65,16 @@ MODIFIERS = ("ctrl", "alt", "shift", "cmd")
 ALIASES = {
     "control": "ctrl", "ctl": "ctrl",
     "option": "alt",
+    # Left and right hand modifiers, in the spellings people and games use.
+    # AltGr is the right alt on the keyboards this is written for, and Star
+    # Citizen's own bindings screen calls that key RAlt, so both land on alt_r.
+    "lalt": "alt_l", "left_alt": "alt_l", "leftalt": "alt_l",
+    "ralt": "alt_r", "right_alt": "alt_r", "rightalt": "alt_r",
+    "altgr": "alt_r", "alt_gr": "alt_r",
+    "lctrl": "ctrl_l", "left_ctrl": "ctrl_l", "leftctrl": "ctrl_l", "lcontrol": "ctrl_l",
+    "rctrl": "ctrl_r", "right_ctrl": "ctrl_r", "rightctrl": "ctrl_r", "rcontrol": "ctrl_r",
+    "lshift": "shift_l", "left_shift": "shift_l", "leftshift": "shift_l",
+    "rshift": "shift_r", "right_shift": "shift_r", "rightshift": "shift_r",
     "super": "cmd", "win": "cmd", "windows": "cmd", "meta": "cmd",
     "return": "enter",
     "escape": "esc",
@@ -67,7 +98,7 @@ ALIASES = {
 # it. These names are the pynput spellings, which is why the xdotool backend
 # needs a translation table and pynput does not.
 NAMED_KEYS = {
-    "ctrl", "alt", "shift", "cmd", "enter", "esc", "space", "tab", "backspace",
+    "ctrl", "alt", "shift", "cmd", *SIDED_MODIFIERS, "enter", "esc", "space", "tab", "backspace",
     "delete", "up", "down", "left", "right", "home", "end", "page_up",
     "page_down", "insert", "print_screen", "caps_lock", "media_volume_up",
     "media_volume_down", "media_volume_mute", "media_play_pause", "media_next",
@@ -82,6 +113,11 @@ NAMED_KEYS = {
 # bare + is the separator in xdotool's own syntax.
 XDOTOOL_NAMES = {
     "ctrl": "ctrl", "alt": "alt", "shift": "shift", "cmd": "super",
+    # xdotool's bare ctrl, alt and shift resolve to the left keysym, so the
+    # _l spellings name it outright and the _r ones pick the other side.
+    "ctrl_l": "Control_L", "ctrl_r": "Control_R",
+    "alt_l": "Alt_L", "alt_r": "Alt_R",
+    "shift_l": "Shift_L", "shift_r": "Shift_R",
     "enter": "Return", "esc": "Escape", "space": "space", "tab": "Tab",
     "backspace": "BackSpace", "delete": "Delete", "up": "Up", "down": "Down",
     "left": "Left", "right": "Right", "home": "Home", "end": "End",
@@ -96,6 +132,61 @@ XDOTOOL_NAMES = {
     "+": "plus",
 }
 XDOTOOL_NAMES.update({f"f{n}": f"F{n}" for n in range(1, 25)})
+
+# House names translated into X keysym numbers for the X test backend. These
+# are the X11 constants themselves rather than lookups by name, because
+# python-xlib's name table does not carry the XF86 media keys unless asked
+# and the numbers have not changed in thirty years. A single character is not
+# listed: its keysym is its Latin-1 code, or the Unicode keysym above that.
+XTEST_KEYSYMS = {
+    "ctrl": 0xFFE3, "ctrl_l": 0xFFE3, "ctrl_r": 0xFFE4,
+    "alt": 0xFFE9, "alt_l": 0xFFE9, "alt_r": 0xFFEA,
+    "shift": 0xFFE1, "shift_l": 0xFFE1, "shift_r": 0xFFE2,
+    "cmd": 0xFFEB,
+    "enter": 0xFF0D, "esc": 0xFF1B, "space": 0x20, "tab": 0xFF09,
+    "backspace": 0xFF08, "delete": 0xFFFF,
+    "up": 0xFF52, "down": 0xFF54, "left": 0xFF51, "right": 0xFF53,
+    "home": 0xFF50, "end": 0xFF57, "page_up": 0xFF55, "page_down": 0xFF56,
+    "insert": 0xFF63, "print_screen": 0xFF61, "caps_lock": 0xFFE5,
+    "media_volume_up": 0x1008FF13, "media_volume_down": 0x1008FF11,
+    "media_volume_mute": 0x1008FF12, "media_play_pause": 0x1008FF14,
+    "media_next": 0x1008FF17, "media_previous": 0x1008FF16,
+    "+": 0x2B,
+}
+XTEST_KEYSYMS.update({f"f{n}": 0xFFBE + n - 1 for n in range(1, 25)})
+# Where a keysym has no key on the keymap, these are tried in turn. The one
+# that matters is right alt: on a UK or US layout under X the physical right
+# alt key carries ISO_Level3_Shift (AltGr) and nothing carries Alt_R, so
+# asking for Alt_R finds no key at all. The physical key is what the game
+# sees pressed either way, so sending its keycode is what a right alt bind
+# wants.
+XTEST_FALLBACK_KEYSYMS = {0xFFEA: (0xFE03, 0xFF7E)}  # Alt_R: ISO_Level3_Shift, Mode_switch
+SHIFT_KEYSYM = 0xFFE1
+
+
+def xtest_keysym(name: str) -> int:
+    """<summary>
+    The X keysym for one house key name or single character.
+    </summary>
+    <param name="name">A normalised name from <see cref="parse_combo"/>, or
+    one character of text.</param>
+    <returns>The keysym number.</returns>
+    <remarks>
+    A character maps the way X defines it: Latin-1 is its own keysym and
+    anything beyond is the Unicode code point with the high bit set that X
+    reserves for that. Whether the keymap has a key for the keysym is a
+    separate question answered at send time, so this never fails for a
+    character.
+    </remarks>
+    <exception cref="HotkeyError">A named key the table does not know, which
+    means a name was added to NAMED_KEYS without a keysym here.</exception>"""
+    if len(name) == 1:
+        point = ord(name)
+        return point if point < 0x100 else 0x01000000 | point
+    try:
+        return XTEST_KEYSYMS[name]
+    except KeyError:
+        raise HotkeyError(f"no X keysym known for '{name}'") from None
 
 
 class HotkeyError(ValueError):
@@ -222,7 +313,10 @@ def pynput_attribute(name: str) -> str | None:
     The house names were chosen to match pynput's attribute names exactly, so
     this is a pass through rather than a table. That is worth knowing before
     adding a key whose pynput spelling differs: this function would then need
-    a mapping, as the xdotool side already has.
+    a mapping, as the xdotool side already has. The sided modifiers are the
+    same story: pynput's Key has alt_l, alt_r, ctrl_l, ctrl_r, shift_l and
+    shift_r under exactly those names, and its bare alt, ctrl and shift are
+    the left hand keys, which is why the bare house names mean left too.
     </remarks>
     """
     if len(name) == 1:
@@ -368,6 +462,185 @@ class PynputBackend:
             self._controller.type(character)
 
 
+class XTestBackend:
+    """<summary>
+    Sends keys through the X test extension directly, the preferred backend
+    on Linux.
+    </summary>
+    <remarks>
+    Every key, a letter as much as a modifier, becomes a fake key event
+    inside the X server, so a program sees exactly what it sees from the
+    keyboard: no synthetic flag, modifier state kept by the server, and a
+    place in the raw input stream that Wine and games read. That is the one
+    thing pynput does not do for letters, and why this class exists.
+
+    One Display connection for the life of the daemon, guarded by a lock
+    because python-xlib is not thread safe and hold threads press at the same
+    time as key presses. The lock is held per key event, not per combination,
+    so two tasks can interleave their keys, which matches what pynput and
+    xdotool already allowed.
+
+    Works under X11 and under XWayland, where the events reach X programs
+    that have focus, which is where a Wine game lives. It cannot reach a
+    native Wayland window, the same limit as the other two backends.
+    </remarks>
+    """
+
+    def __init__(self, display=None, fake_input=None) -> None:
+        """<summary>
+        Connect to the X server and check the test extension is there.
+        </summary>
+        <param name="display">An open python-xlib Display, or None to open
+        the default one. Tests pass a fake with the three methods used here.</param>
+        <param name="fake_input">The function that fakes one key event,
+        with the signature of Xlib.ext.xtest.fake_input, or None for that
+        one. Tests pass a recorder.</param>
+        <remarks>
+        <see cref="default_backend"/> relies on this raising when there is no
+        display or no extension, so it must never be tolerant: a backend that
+        builds and then fails on every key would stop pynput and xdotool from
+        being tried.
+        </remarks>
+        <exception cref="ImportError">python-xlib is not installed.</exception>
+        <exception cref="HotkeyError">The server has no XTEST extension.</exception>
+        <exception cref="Exception">No display to connect to.</exception>"""
+        if display is None or fake_input is None:
+            from Xlib import display as xdisplay  # imported here so the module loads without it
+            from Xlib.ext import xtest
+            if display is None:
+                display = xdisplay.Display()
+            if fake_input is None:
+                fake_input = xtest.fake_input
+            if display.query_extension("XTEST") is None:
+                raise HotkeyError("the X server has no XTEST extension")
+        self._display = display
+        self._fake_input = fake_input
+        self._lock = threading.Lock()
+
+    def _keycode(self, name: str) -> tuple[int, bool]:
+        """<summary>
+        The keycode for a name, and whether shift has to be held to reach it.
+        </summary>
+        <param name="name">A normalised key name or a single character.</param>
+        <returns>The keycode and a flag that is true when the keysym sits on
+        the key's shifted level, as a capital letter or a symbol does.</returns>
+        <remarks>
+        A keysym with no key is tried through the fallbacks first, which is
+        how right alt finds the AltGr key. The shift flag is read from the
+        keymap rather than guessed from the character, so it is right for
+        whatever layout is loaded: an at sign needs shift on a UK keyboard and
+        not on some others.
+        </remarks>
+        <exception cref="HotkeyError">No key on this keymap produces the
+        keysym, even through the fallbacks.</exception>"""
+        keysym = xtest_keysym(name)
+        for candidate in (keysym, *XTEST_FALLBACK_KEYSYMS.get(keysym, ())):
+            keycode = self._display.keysym_to_keycode(candidate)
+            if keycode:
+                shifted = (self._display.keycode_to_keysym(keycode, 0) != candidate
+                           and self._display.keycode_to_keysym(keycode, 1) == candidate)
+                return keycode, shifted
+        raise HotkeyError(f"no key on this keyboard layout for '{name}'")
+
+    def _event(self, keycode: int, press: bool) -> None:
+        """<summary>Fake one key event and flush it to the server.</summary>
+        <param name="keycode">The keycode to press or release.</param>
+        <param name="press">True for a press, false for a release.</param>
+        <remarks>The sync is what makes the event leave now rather than sit
+        in python-xlib's buffer until the next round trip, and the lock keeps
+        two threads from interleaving inside that buffer.</remarks>"""
+        with self._lock:
+            self._fake_input(self._display, 2 if press else 3, keycode)  # X.KeyPress, X.KeyRelease
+            self._display.sync()
+
+    def _down(self, combo: tuple[str, ...]) -> list[int]:
+        """<summary>
+        Press every key in the combo and say what went down, in order.
+        </summary>
+        <param name="combo">Parsed key names, main key last.</param>
+        <returns>The keycodes pressed, shift included where a key needed it,
+        for the caller to release in reverse.</returns>
+        <remarks>Every keycode is resolved before anything is pressed, so a
+        name with no key raises with nothing held down.</remarks>"""
+        resolved = [self._keycode(name) for name in combo]
+        pressed: list[int] = []
+        shift = self._keycode("shift")[0]
+        try:
+            for keycode, shifted in resolved:
+                if shifted and shift not in pressed:
+                    self._event(shift, True)
+                    pressed.append(shift)
+                self._event(keycode, True)
+                pressed.append(keycode)
+        except Exception:
+            for keycode in reversed(pressed):
+                self._event(keycode, False)
+            raise
+        return pressed
+
+    def send(self, combo: tuple[str, ...]) -> None:
+        """<summary>
+        Tap the combination: everything down in order, everything up in
+        reverse.
+        </summary>
+        <param name="combo">Parsed key names, main key last.</param>
+        <remarks>
+        A failure while pressing is handled inside <see cref="_down"/>, which
+        releases whatever had gone down before raising, so a modifier cannot
+        be left stuck in the X server, where it would apply to every keystroke
+        on the machine until something else pressed it.
+        </remarks>"""
+        pressed = self._down(combo)
+        for keycode in reversed(pressed):
+            self._event(keycode, False)
+
+    def press(self, combo: tuple[str, ...]) -> None:
+        """<summary>Push every key in the combo down and leave it down.</summary>
+        <param name="combo">Parsed key names, pressed in the order given.</param>
+        <remarks>The caller owns the release, as with every backend. A
+        character that needs shift gets shift pressed before it, and
+        <see cref="release"/> lets that shift go again.</remarks>"""
+        self._down(combo)
+
+    def release(self, combo: tuple[str, ...]) -> None:
+        """<summary>Let go of every key in the combo, in reverse order.</summary>
+        <param name="combo">Parsed key names, released last one first.</param>
+        <remarks>Releasing a key that is already up is harmless in X, which is
+        what lets callers release defensively on the way out.</remarks>"""
+        resolved = [self._keycode(name) for name in combo]
+        shift = self._keycode("shift")[0]
+        for keycode, shifted in reversed(resolved):
+            self._event(keycode, False)
+            if shifted:
+                self._event(shift, False)
+
+    def type(self, text: str, delay_ms: int = 0) -> None:
+        """<summary>
+        Type a piece of text, one real key event per character.
+        </summary>
+        <param name="text">The text, sent exactly as written. A newline is
+        pressed as enter and a tab as tab.</param>
+        <param name="delay_ms">A pause between characters, or zero for a
+        short fixed one.</param>
+        <remarks>
+        Each character is tapped as the key that produces it on the current
+        layout, with shift held for the ones that need it, so the text arrives
+        in a game the same way the keys do. A character with no key on the
+        layout stops the text with an error rather than typing something
+        else in its place.
+
+        The pause is never nothing, because the X server will collapse a
+        press and release that arrive in the same instant for some clients.
+        </remarks>
+        <exception cref="HotkeyError">A character the layout cannot type.</exception>"""
+        pause = max(delay_ms, 10) / 1000
+        for index, character in enumerate(text):
+            if index:
+                time.sleep(pause)
+            name = {"\n": "enter", "\t": "tab"}.get(character, character)
+            self.send((name,))
+
+
 class XdotoolBackend:
     """<summary>
     The Linux fallback: one xdotool process per keystroke.
@@ -424,26 +697,78 @@ def default_backend():
     """<summary>
     Pick the best backend this machine can actually use.
     </summary>
-    <returns>A pynput backend where one can be built, otherwise an xdotool one.</returns>
+    <returns>On Linux an X test backend where one can be built, else a pynput
+    one, else an xdotool one. Elsewhere pynput.</returns>
     <remarks>
-    Probed in order of preference, not of platform: pynput is tried on Linux
-    too and usually wins there. The broad except is deliberate, because pynput
-    signals a missing display by raising something other than ImportError and
-    both cases mean the same thing here.
+    Probed in order of preference. X test comes first on Linux because it is
+    the only one of the three that a game sees letters from; see the module
+    notes. The broad excepts are deliberate, because a missing display is
+    signalled by something other than ImportError by both libraries and every
+    case means the same thing here: try the next one.
 
     Only the presence of xdotool on the path is checked, not that it can talk
     to a display. A Wayland session will therefore get an xdotool backend that
     builds and then fails on every keystroke.
+
+    The choice is announced through <see cref="announce_to"/>, because which
+    backend is in use is the first question when a key reaches the desktop
+    but not a game, and so is why the preferred one was passed over.
     </remarks>
     
-    <exception cref="HotkeyError">Neither is available, with a message naming
+    <exception cref="HotkeyError">None is available, with a message naming
     what to install.</exception>"""
+    if sys.platform.startswith("linux"):
+        try:
+            backend = XTestBackend()
+            _announce(f"hotkeys through {describe(backend)}")
+            return backend
+        except Exception as error:  # python-xlib missing, no display, or no extension
+            _announce(f"X test backend unavailable ({error}); trying pynput")
     try:
-        return PynputBackend()
+        backend = PynputBackend()
+        _announce(f"hotkeys through {describe(backend)}")
+        return backend
     except Exception:  # pynput missing, or no display to attach to
         if shutil.which("xdotool"):
-            return XdotoolBackend()
+            backend = XdotoolBackend()
+            _announce(f"hotkeys through {describe(backend)}")
+            return backend
         raise HotkeyError("no hotkey backend: pip install pynput, or on Linux install xdotool")
+
+
+def describe(backend) -> str:
+    """<summary>
+    The name of a backend as the log should give it.
+    </summary>
+    <param name="backend">Any backend object.</param>
+    <returns>A short phrase: the X test extension, pynput, xdotool, or the
+    class name for anything else, such as a test's recorder.</returns>
+    """
+    names = {XTestBackend: "the X test extension", PynputBackend: "pynput", XdotoolBackend: "xdotool"}
+    return names.get(type(backend), type(backend).__name__)
+
+
+# Where the backend choice is reported. Nothing by default, because this
+# module has no log of its own and importing it must print nothing; the
+# daemon hands its log in through announce_to so the line lands in run.log
+# with the rest, on the same clock.
+_announce: Callable[[str], None] = lambda text: None
+
+
+def announce_to(log: Callable[[str], None]) -> None:
+    """<summary>
+    Send the backend choice, when it is made, to this log callback.
+    </summary>
+    <param name="log">A function taking one line of text, such as the
+    daemon's say.</param>
+    <remarks>
+    The choice is made once, at the first key sent, so a callback registered
+    after that hears nothing. The action runner registers its log when it is
+    built, which is before any key can be pressed.
+    </remarks>
+    """
+    global _announce
+    _announce = log
 
 
 # The one backend shared by every call that does not bring its own. Built on

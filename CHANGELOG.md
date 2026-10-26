@@ -2,6 +2,50 @@
 
 ## Unreleased
 
+- A boost can build up first, holding its key alone for `start_ms` to
+  `start_max_ms` before the first boost, and can tap a third key once in
+  each off phase: `between = "tab"`, a random `between_after_ms` to
+  `between_after_max_ms` into the phase, held for a human moment. Both are
+  off unless set. A mining key can now cruise and ping between boosts.
+- A boost's on and off phases can each be a random length: `on_max_ms` and
+  `off_max_ms` set the top of the range, with `on_ms` and `off_ms` as the
+  bottom. Left out they equal the bottom, so every boost written before
+  this keeps its fixed rhythm. The configuration page shows the two as
+  range sliders. Boost and repeat are now described in the README and the
+  default config's notes, which had never listed them.
+- A Capture left listening on a sequence or chord field stops when another
+  key is selected, the deck moves to another page, or the editor is
+  rebuilt. It used to carry on, and the next key pressed went into
+  whichever key was selected by then as a list, which turned a plain
+  hotkey into something the daemon refused to save.
+- On Linux, keys are sent through the X test extension directly rather
+  than through pynput. pynput sent every letter and digit as a synthetic
+  event that games and anything under Wine ignore, so `f1` reached Star
+  Citizen and `alt+h` never did: the alt arrived and the h did not. Every
+  key is now a real key event, typed text included. Right alt is sent as
+  the physical AltGr key on layouts where no key carries Alt_R. The
+  backend in use is named once in the log at the first key press.
+- Hotkeys can name the right hand modifier: `alt_r`, `ctrl_r` and `shift_r`,
+  with `ralt`, `altgr`, `rctrl` and `rshift` accepted as spellings, and
+  `alt_l`, `ctrl_l` and `shift_l` for the left one outright. The bare names
+  still mean the left key, as they always did. Star Citizen binds a good
+  deal to right alt and treats it as a different key. The configuration
+  page's Capture button records which side was pressed.
+- Only one daemon runs at a time. A second `deckplate run` for the same user
+  now says one is already running and exits, where it used to carry on and
+  drive the same deck. The desktop launcher could start a second one on a
+  double click, or on every click once the port had been changed.
+- A deck that is plugged in but will not open is waited for like a deck that
+  is absent. That is what a replug looks like for the moment before the udev
+  rule is applied, and it used to stop the daemon with a traceback.
+- A deck whose connection had to be reopened after a read error is
+  initialised and redrawn. It used to be left as it came back, which after a
+  quick replug meant dark until the next page change.
+- A picture too large for the picture library draws the missing marker like
+  any other unreadable file, where it used to stop the daemon on every start.
+- A config file that is not saved as UTF-8, and an image path starting `~name`
+  for a user this machine does not have, are reported or tolerated in the
+  ordinary way and no longer end in a traceback.
 - Three general icon themes. "Desktop" holds the everyday Linux desktop
   functions: terminal, files, browser, settings, lock, log out, power off,
   restart, suspend, the workspaces, screenshot and more, 32 in all.

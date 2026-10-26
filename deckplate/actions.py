@@ -261,6 +261,9 @@ class ActionRunner:
         self.open_url = open_url
         self.sleep = sleep
         self.holds = holds or HoldManager(log=log)
+        # The hotkey module says which backend it chose, once, at the first
+        # key. That line belongs in the same log as the failures below.
+        hotkeys.announce_to(log)
         self.press_keys = press_keys
         self.release_keys = release_keys
         self.rng = rng
@@ -363,7 +366,12 @@ class ActionRunner:
             if not (params["hold"] or params["keys"]):
                 return
             self.holds.toggle_boost(params["hold"], params["keys"],
-                                    params["on_ms"], params["off_ms"])
+                                    params["on_ms"], params["off_ms"],
+                                    params["on_max_ms"], params["off_max_ms"],
+                                    start_ms=params["start_ms"], start_max_ms=params["start_max_ms"],
+                                    between=params["between"],
+                                    between_after_ms=params["between_after_ms"],
+                                    between_after_max_ms=params["between_after_max_ms"])
         elif action.type == "repeat":
             if not params["keys"]:
                 return

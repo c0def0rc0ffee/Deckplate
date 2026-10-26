@@ -603,12 +603,16 @@ def cmd_run(args: argparse.Namespace) -> int:
     </summary>
     <param name="args">Parsed arguments; ``config``, ``seconds`` for a bounded
     test run, and the two official software flags.</param>
-    <returns>0 on a clean stop or a finished timed run, 2 when the config
-    could not be read.</returns>
+    <returns>0 on a clean stop or a finished timed run, 1 when another
+    daemon is already running, 2 when the config could not be read.</returns>
     <remarks>
     The order matters and is not obvious. The config is read and validated
     before anything else, so a typo fails at once rather than after the deck
-    has been taken over. Conflicting software is settled next, while there is
+    has been taken over. The single instance lock is taken next, before
+    anything is stopped, served or opened: two daemons on one deck would
+    interleave their image transfers, a packet sequence nothing has proven,
+    and the port alone cannot stop that because the server may be switched
+    off or moved. Conflicting software is settled after that, while there is
     still a terminal to ask at. The API server is started third and, crucially,
     outside the deck loop: it must stay up across an unplug so the page can
     say what is wrong instead of going dead.
@@ -638,6 +642,18 @@ def cmd_run(args: argparse.Namespace) -> int:
         print(f"error in {path}: {err}", file=sys.stderr)
         return 2
     say(f"config {path}")
+
+    from . import instance
+
+    try:
+        # Held in a local for the life of the run: the lock goes when the
+        # file object does, and the system drops it if the process dies.
+        running = instance.claim()
+    except instance.AlreadyRunning as err:
+        print(f"error: {err}", file=sys.stderr)
+        return 1
+    if running is None:
+        say("could not take the single instance lock; carrying on without it")
 
     policy = config.deck.official_software
     if args.stop_official:

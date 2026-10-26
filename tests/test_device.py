@@ -367,3 +367,56 @@ def test_open_returns_a_fake_deck_only_when_the_code_flag_is_on(monkeypatch):
     assert fake.read_event(1) is None
     real = Deck(FakeTransport(), SOOMFON_XF_CN001)
     assert not real.is_fake
+
+
+def test_a_deck_that_will_not_open_is_reported_as_not_found(monkeypatch):
+    """<summary>
+    Pins an open failure on a deck that is plugged in as DeviceNotFound, not
+    as a bare OSError.
+    </summary>
+    <remarks>
+    The run loop waits and retries on DeviceNotFound and on nothing else at
+    the point where it opens the deck. A replug enumerates the deck a moment
+    before udev has applied the permission rule, and the open in that moment
+    fails. As an OSError that ended the daemon with a traceback, on exactly
+    the unplug and replug it is meant to ride out. The message must name the
+    cause, because on Linux this is nearly always the udev rule.
+
+    No hardware is involved: the enumeration is replaced and the transport
+    class is replaced with one that refuses to open.
+    </remarks>
+    """
+    from deckplate import device
+
+    def refuse(spec, path):
+        """<summary>Stand in for a hidapi open that is refused.</summary>"""
+        raise OSError("open failed")
+
+    monkeypatch.setattr(device, "enumerate_known", lambda: [(SOOMFON_XF_CN001, b"path")])
+    monkeypatch.setattr(device, "HidTransport", refuse)
+    with pytest.raises(device.DeviceNotFound, match="could not be opened"):
+        Deck.open()
+
+
+def test_a_reopen_is_flagged_for_the_owner(monkeypatch):
+    """<summary>
+    Pins the flag a reopen leaves behind, and that nothing is sent by the
+    reopen itself.
+    </summary>
+    <remarks>
+    A reopened handle may belong to a deck that has restarted and forgotten
+    its handshake and its pictures. The device layer cannot know what should
+    be on the screens, so it only raises the flag; the controller initialises
+    and redraws. A quiet read must leave the flag alone, or the page would be
+    redrawn on every poll.
+    </remarks>
+    """
+    monkeypatch.setattr("deckplate.device.time.sleep", lambda s: None)
+    transport = FakeTransport(fail_reads=1)
+    deck = Deck(transport, SOOMFON_XF_CN001)
+    assert deck.reopened is False
+    assert deck.read_event() is None
+    assert deck.reopened is True and transport.written == []
+    deck.reopened = False
+    assert deck.read_event() is None
+    assert deck.reopened is False

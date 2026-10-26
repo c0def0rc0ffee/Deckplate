@@ -164,17 +164,33 @@ class Hold(threading.Thread):
                     self.log(f"could not release {self.combo}: {err}")
 
 
+# How long a boost's between key is held for each tap, in milliseconds: a
+# human finger on a scan key, drawn at random inside this span every time.
+BETWEEN_TAP_MS = (80, 200)
+
+
 class Boost(threading.Thread):
     """<summary>
     Hold one key down while a second is pressed and let go, over and over.
     </summary>
     <remarks>
     Forward and then boosting: the hold combo stays down for the whole run, and
-    the boost combo is pressed for ``on_ms`` and released for ``off_ms`` until
-    it is stopped. Both keys are let go on the way out, whatever went wrong.
+    the boost combo is pressed for an on phase and released for an off phase
+    until it is stopped. Both keys are let go on the way out, whatever went
+    wrong.
 
-    Unlike <see cref="Hold"/> the timings here are fixed, not random: this one
-    is about a steady rhythm rather than looking like a person.
+    Each phase is a random length between its minimum and maximum, drawn like
+    a <see cref="Hold"/>'s timings. With the maximums equal to the minimums,
+    which is the default, the rhythm is fixed, and that was the only kind of
+    boost until 18/10/2026: a game that watches for a metronome gets a human
+    looking afterburner only when the ranges are opened up.
+
+    Two optional extras. A start span holds the first key alone before the
+    first on phase, for a ship that needs to be up to speed before the
+    afterburner is worth lighting. A between combination is tapped once in
+    each off phase, a random time into it, for a scan ping sent while
+    cruising: the tap itself lasts a random moment in BETWEEN_TAP_MS, and it
+    is skipped when the off phase is too short to fit it.
 
     Either combination may be empty. An empty boost leaves the thread simply
     holding the first key, waking every quarter second only so a stop is
@@ -188,8 +204,12 @@ class Boost(threading.Thread):
     """
 
     def __init__(self, hold_combo: str, boost_combo: str, on_ms: int, off_ms: int, *,
+                 on_max_ms: int | None = None, off_max_ms: int | None = None,
+                 start_ms: int = 0, start_max_ms: int | None = None,
+                 between: str = "", between_after_ms: int = 0, between_after_max_ms: int | None = None,
                  press: Callable[[str], None] = hotkeys.press,
                  release: Callable[[str], None] = hotkeys.release,
+                 rng: Callable[[float, float], float] = random.uniform,
                  log: Callable[[str], None] = print) -> None:
         """<summary>
         Set up a boost thread. Nothing is pressed until it is started.
@@ -198,13 +218,26 @@ class Boost(threading.Thread):
         empty for a plain tapper.</param>
         <param name="boost_combo">The combination tapped on and off. May be
         empty to hold only.</param>
-        <param name="on_ms">How long the boost key stays down each cycle.</param>
-        <param name="off_ms">How long it stays up between cycles.</param>
+        <param name="on_ms">The shortest time the boost key stays down each cycle.</param>
+        <param name="off_ms">The shortest time it stays up between cycles.</param>
+        <param name="on_max_ms">The longest on time, or None for a fixed on_ms.</param>
+        <param name="off_max_ms">The longest off time, or None for a fixed off_ms.</param>
+        <param name="start_ms">The shortest build up with the hold alone before
+        the first on phase. Zero, the default, boosts at once.</param>
+        <param name="start_max_ms">The longest build up, or None for a fixed one.</param>
+        <param name="between">A combination tapped once in each off phase, or
+        empty for none.</param>
+        <param name="between_after_ms">The shortest time into the off phase
+        before that tap.</param>
+        <param name="between_after_max_ms">The longest, or None for a fixed one.</param>
+        <param name="rng">The random source, taking a low and a high bound and
+        returning a value between them.</param>
         <param name="log">Where a backend failure is reported.</param>
         <remarks>
         A zero ``on_ms`` or ``off_ms`` is legal and gives a tight loop with no
         wait, which will flood the backend. The config layer is what keeps the
-        numbers sensible.
+        numbers sensible, and it also keeps each maximum at or above its
+        minimum, which the random source is given as they are.
         </remarks>
         """
         super().__init__(name=f"boost:{hold_combo}+{boost_combo}", daemon=True)
@@ -212,11 +245,20 @@ class Boost(threading.Thread):
         self.boost_combo = boost_combo
         self.on_ms = on_ms
         self.off_ms = off_ms
+        self.on_max_ms = on_ms if on_max_ms is None else on_max_ms
+        self.off_max_ms = off_ms if off_max_ms is None else off_max_ms
+        self.start_ms = start_ms
+        self.start_max_ms = start_ms if start_max_ms is None else start_max_ms
+        self.between = between
+        self.between_after_ms = between_after_ms
+        self.between_after_max_ms = between_after_ms if between_after_max_ms is None else between_after_max_ms
+        self.rng = rng
         self.press = press
         self.release = release
         self.log = log
         self._stop_event = threading.Event()
         self.cycles = 0
+        self.taps = 0
 
     def stop(self) -> None:
         """<summary>
@@ -248,10 +290,13 @@ class Boost(threading.Thread):
         """
         holding = False
         boosting = False
+        tapping = False
         try:
             if self.hold_combo:
                 self.press(self.hold_combo)
                 holding = True
+            if self.start_max_ms and self._stop_event.wait(self.rng(self.start_ms, self.start_max_ms) / 1000):
+                return
             while not self._stop_event.is_set():
                 if not self.boost_combo:
                     # Nothing to boost with: just keep the hold down.
@@ -260,17 +305,36 @@ class Boost(threading.Thread):
                     continue
                 self.press(self.boost_combo)
                 boosting = True
-                if self._stop_event.wait(self.on_ms / 1000):
+                if self._stop_event.wait(self.rng(self.on_ms, self.on_max_ms) / 1000):
                     break
                 self.release(self.boost_combo)
                 boosting = False
                 self.cycles += 1
-                if self._stop_event.wait(self.off_ms / 1000):
+                off = self.rng(self.off_ms, self.off_max_ms)
+                if self.between:
+                    # The tap sits a random way into the off phase, and the
+                    # rest of the phase follows it. Too short an off phase to
+                    # fit the tap means no tap this time round.
+                    after = self.rng(self.between_after_ms, self.between_after_max_ms)
+                    tap = self.rng(*BETWEEN_TAP_MS)
+                    if after + tap <= off:
+                        if self._stop_event.wait(after / 1000):
+                            break
+                        self.press(self.between)
+                        tapping = True
+                        stopped = self._stop_event.wait(tap / 1000)
+                        self.release(self.between)
+                        tapping = False
+                        self.taps += 1
+                        if stopped:
+                            break
+                        off -= after + tap
+                if self._stop_event.wait(off / 1000):
                     break
         except Exception as err:  # a lost display or backend: log and give up cleanly
             self.log(f"boost {self.hold_combo}+{self.boost_combo} stopped: {err}")
         finally:
-            for down, combo in ((boosting, self.boost_combo), (holding, self.hold_combo)):
+            for down, combo in ((tapping, self.between), (boosting, self.boost_combo), (holding, self.hold_combo)):
                 if down:
                     try:
                         self.release(combo)
@@ -522,14 +586,24 @@ class HoldManager:
                          rng=self.rng, log=self.log),
             f"holding {combo}", f"released {combo}")
 
-    def toggle_boost(self, hold_combo: str, boost_combo: str, on_ms: int, off_ms: int) -> bool:
+    def toggle_boost(self, hold_combo: str, boost_combo: str, on_ms: int, off_ms: int,
+                     on_max_ms: int | None = None, off_max_ms: int | None = None, *,
+                     start_ms: int = 0, start_max_ms: int | None = None,
+                     between: str = "", between_after_ms: int = 0, between_after_max_ms: int | None = None) -> bool:
         """<summary>
         Start forward and boosting, or stop it.
         </summary>
         <param name="hold_combo">Held for the whole run.</param>
         <param name="boost_combo">Tapped on and off against it.</param>
-        <param name="on_ms">How long the boost key stays down each cycle.</param>
-        <param name="off_ms">How long it stays up between cycles.</param>
+        <param name="on_ms">The shortest time the boost key stays down each cycle.</param>
+        <param name="off_ms">The shortest time it stays up between cycles.</param>
+        <param name="on_max_ms">The longest on time, or None for a fixed one.</param>
+        <param name="off_max_ms">The longest off time, or None for a fixed one.</param>
+        <param name="start_ms">Shortest build up before the first boost; zero for none.</param>
+        <param name="start_max_ms">Longest build up, or None for a fixed one.</param>
+        <param name="between">A combination tapped once in each off phase, or empty.</param>
+        <param name="between_after_ms">Shortest time into the off phase before the tap.</param>
+        <param name="between_after_max_ms">Longest, or None for a fixed one.</param>
         <returns>True when it is now running.</returns>
         <remarks>
         Filed under a key built from both combinations, so the same pair
@@ -543,7 +617,10 @@ class HoldManager:
         return self._toggle(
             key,
             lambda: Boost(hold_combo, boost_combo, on_ms, off_ms,
-                          press=self.press, release=self.release, log=self.log),
+                          on_max_ms=on_max_ms, off_max_ms=off_max_ms,
+                          start_ms=start_ms, start_max_ms=start_max_ms,
+                          between=between, between_after_ms=between_after_ms, between_after_max_ms=between_after_max_ms,
+                          press=self.press, release=self.release, rng=self.rng, log=self.log),
             f"holding {hold_combo} and boosting {boost_combo}",
             f"released {hold_combo} and {boost_combo}")
 
