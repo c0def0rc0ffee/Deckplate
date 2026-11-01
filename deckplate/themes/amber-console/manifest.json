@@ -651,6 +651,30 @@
       "label": "Launch Lit"
     },
     {
+      "id": "coffee",
+      "label": "Stay Awake"
+    },
+    {
+      "id": "coffee-lit",
+      "label": "Stay Awake Lit"
+    },
+    {
+      "id": "bell-off",
+      "label": "Do Not Disturb"
+    },
+    {
+      "id": "bell-off-lit",
+      "label": "Do Not Disturb Lit"
+    },
+    {
+      "id": "remote",
+      "label": "Media Centre"
+    },
+    {
+      "id": "remote-lit",
+      "label": "Media Centre Lit"
+    },
+    {
       "id": "armed",
       "label": "Armed"
     },

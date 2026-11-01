@@ -1146,6 +1146,10 @@
       case "brightness": return { type, delta: -10 };
       case "sleep": return { type };
       case "multi": return { type, delay_ms: 0, steps: [{ type: "hotkey", keys: "" }] };
+      case "stay_awake": return { type, inhibit: true, nudge: true, every_ms: 60000 };
+      case "dnd": return { type };
+      case "status": return { type, url: "https://", every_ms: 60000, insecure: false, expect: "", open: true };
+      case "kodi": return { type, do: "play_pause" };
     }
     return { type };
   }
@@ -1220,6 +1224,14 @@
       icon: '<path d="M20.5 14.8A9 9 0 019.2 3.5 9 9 0 1020.5 14.8z"/>' },
     multi: { label: "Several steps", help: "Do several of these, one after another.", nested: false,
       icon: '<path d="M4 7h16M4 12h16M4 17h10"/><circle cx="19" cy="17" r="1.6" fill="currentColor"/>' },
+    stay_awake: { label: "Stay awake", help: "Keeps the machine from going idle until pressed again.", nested: false,
+      icon: '<path d="M5 9h11v6a4 4 0 01-4 4H9a4 4 0 01-4-4V9z"/><path d="M16 11h2a2 2 0 010 4h-2M8 3v3M11 3v3M14 3v3"/>' },
+    dnd: { label: "Do not disturb", help: "Holds notifications back until pressed again.", nested: false,
+      icon: '<path d="M6 16V11a6 6 0 0110-4.5M18 11v5l2 2H4l2-2"/><path d="M10 21h4M3 3l18 18"/>' },
+    status: { label: "Watch a web address", help: "Lights the key while an address answers; the press opens it.", nested: false,
+      icon: '<circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/>' },
+    kodi: { label: "Media centre", help: "Sends play, pause, stop or a remote control key to Kodi.",
+      icon: '<rect x="7" y="2.5" width="10" height="19" rx="3"/><path d="M12 7v4M10 9h4M12 15h.01M10 18h4"/>' },
   };
 
   /** <summary>The chooser's sections, in the order they are shown.</summary>
@@ -1228,8 +1240,9 @@
    * enough failure to be worth saying out loud here.</remarks> */
   const ACTION_GROUPS = [
     { title: "Keys and text", types: ["hotkey", "sequence", "chord", "text", "hold", "boost", "repeat"] },
-    { title: "Programs and the web", types: ["launch", "url", "request"] },
+    { title: "Programs and the web", types: ["launch", "url", "request", "status", "kodi"] },
     { title: "Sound and windows", types: ["volume", "audio_output", "window"] },
+    { title: "The desktop", types: ["stay_awake", "dnd"] },
     { title: "Keys that remember", types: ["toggle", "timer", "stopwatch", "counter"] },
     { title: "The deck", types: ["page", "brightness", "sleep", "multi"] },
   ];
@@ -1618,6 +1631,75 @@
         const timeout = el("input", { type: "number", min: 1, max: 120, value: action.timeout_s || 10 });
         timeout.addEventListener("input", () => change(d => { getAction().timeout_s = parseInt(timeout.value, 10) || 10; }, { silent: true }));
         box.append(el("div", { class: "field" }, [el("label", { text: "Give up after (seconds)" }), timeout]));
+        break;
+      }
+      case "stay_awake": {
+        const tick = (name, label, help) => {
+          const input = el("input", { type: "checkbox", id: "awake_" + name });
+          input.checked = action[name] !== false;
+          input.addEventListener("change", () => change(d => { getAction()[name] = input.checked; }, { silent: true }));
+          return el("div", { class: "field" }, [el("label", { class: "check", for: "awake_" + name }, [input, el("span", { text: label })]),
+            el("div", { class: "help", text: help })]);
+        };
+        box.append(tick("inhibit", "Ask the desktop not to go idle",
+          "The screensaver inhibit, as a caffeine program takes. Works on X11 and Wayland."));
+        box.append(tick("nudge", "Nudge the pointer on a timer",
+          "Moves the pointer one pixel and back, for programs that watch for input. Reaches X programs only under Wayland."));
+        box.append(millis("every_ms", "Nudge every", {
+          min: 1000, max: 3600000, step: 1000, fallback: 60000,
+          help: "Press the deck key once to start, again to stop. The key shows its active face while it is on.",
+        }));
+        break;
+      }
+      case "dnd": {
+        box.append(el("div", { class: "help", text: "Press once to hold notifications back, again to let them through. The key shows its active face while it is on." }));
+        break;
+      }
+      case "status": {
+        const url = el("input", { type: "text", value: action.url || "", placeholder: "https://" });
+        url.addEventListener("input", () => change(d => { getAction().url = url.value.trim(); }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { text: "Address to watch" }), url,
+          el("div", { class: "help", text: "Asked on a timer. The key shows its active face while the address answers." })]));
+        box.append(millis("every_ms", "Ask every", { min: 5000, max: 3600000, step: 5000, fallback: 60000 }));
+        const expect = el("input", { type: "text", value: action.expect || "", placeholder: "Leave empty for any answer" });
+        expect.addEventListener("input", () => change(d => { getAction().expect = expect.value; }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { text: "Text the page must contain" }), expect]));
+        const tick = (name, label, fallback, help) => {
+          const input = el("input", { type: "checkbox", id: "status_" + name });
+          input.checked = name in action ? !!action[name] : fallback;
+          input.addEventListener("change", () => change(d => { getAction()[name] = input.checked; }, { silent: true }));
+          return el("div", { class: "field" }, [el("label", { class: "check", for: "status_" + name }, [input, el("span", { text: label })]),
+            el("div", { class: "help", text: help })]);
+        };
+        box.append(tick("insecure", "Accept a certificate that does not verify", false, "For a firewall or server with its own certificate."));
+        box.append(tick("open", "Open the address when pressed", true, "Untick for a key that only shows the state."));
+        break;
+      }
+      case "kodi": {
+        const mode = el("select", {}, [
+          el("option", { value: "do", text: "A remote control action" }),
+          el("option", { value: "method", text: "A raw JSON RPC method" }),
+        ]);
+        mode.value = action.method && !action.do ? "method" : "do";
+        const shorthand = ["play_pause", "stop", "next", "previous", "up", "down", "left", "right", "select",
+          "back", "home", "info", "context", "osd", "volume_up", "volume_down", "mute"];
+        const pick = el("select");
+        for (const name of shorthand) pick.append(el("option", { value: name, text: name.replace("_", " ") }));
+        pick.value = action.do || "play_pause";
+        pick.addEventListener("change", () => change(d => { const a = getAction(); a.do = pick.value; delete a.method; delete a.params; }, { silent: true }));
+        const method = el("input", { type: "text", value: action.method || "", placeholder: "Player.PlayPause" });
+        method.addEventListener("input", () => change(d => { const a = getAction(); a.method = method.value.trim(); delete a.do; }, { silent: true }));
+        const doField = el("div", { class: "field" }, [el("label", { text: "Do" }), pick]);
+        const methodField = el("div", { class: "field" }, [el("label", { text: "Method" }), method,
+          el("div", { class: "help", text: "Any method from Kodi's JSON RPC. Parameters are edited in the config file." })]);
+        const show = () => { doField.hidden = mode.value !== "do"; methodField.hidden = mode.value !== "method"; };
+        mode.addEventListener("change", () => { show(); change(d => {
+          const a = getAction();
+          if (mode.value === "do") { a.do = pick.value; delete a.method; delete a.params; } else { a.method = method.value.trim(); delete a.do; }
+        }, { silent: true }); });
+        show();
+        box.append(el("div", { class: "field" }, [el("label", { text: "Send" }), mode]), doField, methodField);
+        box.append(el("div", { class: "help", text: "Where Kodi is comes from the Kodi settings below the pages." }));
         break;
       }
       case "page": {
@@ -2410,6 +2492,8 @@
       el("h3", { text: "Deck" }),
       numberField("deck", "brightness", "Brightness at start", 0, 100),
       numberField("deck", "sleep_after_minutes", "Screens off after (minutes)", 0, 1440, "0 never sleeps. Any key wakes the deck."),
+      numberField("deck", "night_brightness", "Brightness after sunset", 0, 100,
+        "0 leaves the brightness alone. Otherwise the deck dims to this between sunset and sunrise at the weather coordinates."),
       selectField("deck", "official_software", "If the official app is running", [
         ["ask", "Ask in the terminal"], ["stop", "Stop it"], ["keep", "Leave it running"]]),
       colourField("Background for the whole deck",
@@ -2506,6 +2590,14 @@
     ]));
 
     // Server, read only
+    root.append(el("div", {}, [
+      el("h3", { text: "Media centre" }),
+      el("p", { class: "muted", text: "Where Kodi answers, for every key that sends it a remote control action." }),
+      textField("kodi", "url", "JSON RPC address"),
+      textField("kodi", "token_file", "Credentials file"),
+      el("div", { class: "help", text: "A file outside the config folder holding \"Basic\" and the base64 of user:password, as Kodi's web interface wants. Leave empty for none." }),
+    ]));
+
     root.append(el("div", {}, [
       el("h3", { text: "Local API" }),
       el("p", { class: "muted", html: "Listening on <span class='kbd'>" + doc.server.bind + ":" + doc.server.port + "</span>. Change <span class='kbd'>[server]</span> in the config file and restart the daemon to alter it." }),

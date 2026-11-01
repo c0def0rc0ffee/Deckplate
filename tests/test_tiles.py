@@ -462,3 +462,30 @@ def test_a_picture_too_large_to_decode_is_marked_like_a_missing_one(tmp_path, mo
     tile = tiles.key_tile(KeyConfig(0, 0, image=path), SIZE)
     assert tile.getpixel((3, 3)) == (60, 20, 20)
     assert tiles.wallpaper_slice(path, SIZE, (120, 120), 0, 0) is None
+
+
+def test_now_playing_and_system_tiles_render_and_sign():
+    """<summary>
+    The two newer strip kinds draw with and without a reading, and their
+    signatures follow the reading so the panel is resent only on a change.
+    </summary>
+    """
+    from deckplate.media import NowPlaying
+    from deckplate.system import SystemReading
+    assert differs_from_blank(tiles.playing_tile(None, SIZE))
+    assert differs_from_blank(tiles.playing_tile(NowPlaying("A very long track title indeed", "Someone", "Playing", "vlc"), SIZE))
+    assert differs_from_blank(tiles.playing_tile(NowPlaying("", "", "Paused", "vlc"), SIZE))
+    assert differs_from_blank(tiles.system_tile(None, SIZE))
+    assert differs_from_blank(tiles.system_tile(SystemReading(95, 40, 61), SIZE))
+    assert differs_from_blank(tiles.system_tile(SystemReading(None, None, None), SIZE))
+    now = datetime(2026, 9, 10, 14, 5, 10)
+    playing = StripTile("playing")
+    a = NowPlaying("One", "", "Playing", "p")
+    b = NowPlaying("Two", "", "Playing", "p")
+    assert tiles.strip_signature(playing, now, None, playing=a) == tiles.strip_signature(playing, now, None, playing=a)
+    assert tiles.strip_signature(playing, now, None, playing=a) != tiles.strip_signature(playing, now, None, playing=b)
+    system = StripTile("system")
+    assert tiles.strip_signature(system, now, None, system=SystemReading(1, 2, 3)) != \
+        tiles.strip_signature(system, now, None, system=SystemReading(1, 2, 4))
+    assert differs_from_blank(tiles.strip_tile(playing, now, None, 95, "", (78, 78), None, playing=a))
+    assert differs_from_blank(tiles.strip_tile(system, now, None, 95, "", (78, 78), None, system=SystemReading(1, 2, 3)))

@@ -189,6 +189,18 @@
     {
       "id": "launch",
       "label": "Launch"
+    },
+    {
+      "id": "coffee",
+      "label": "Stay Awake"
+    },
+    {
+      "id": "bell-off",
+      "label": "Do Not Disturb"
+    },
+    {
+      "id": "remote",
+      "label": "Media Centre"
     }
   ]
 }

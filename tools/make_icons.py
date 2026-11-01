@@ -1351,6 +1351,36 @@ def launch(pen: Pen) -> None:
     pen.polygon([(42, 66), (58, 66), (50, 88)], fill=WARM, width=None)
 
 
+def coffee(pen: Pen) -> None:
+    """<summary>A mug with its handle and steam rising: stay awake.</summary>"""
+    pen.rounded(16, 38, 66, 84, 8)
+    pen.line([(66, 48), (80, 48), (80, 68), (66, 68)])
+    pen.line([(28, 30), (28, 14)], STEEL, 6)
+    pen.line([(41, 30), (41, 18)], STEEL, 6)
+    pen.line([(54, 30), (54, 14)], STEEL, 6)
+    pen.line([(24, 72), (58, 72)], SIGNAL, 6)
+
+
+def bell_off(pen: Pen) -> None:
+    """<summary>A bell with a line struck through it: do not disturb.</summary>"""
+    pen.line([(22, 64), (22, 46)])
+    pen.arc(50, 46, 28, 180, 360)
+    pen.line([(78, 46), (78, 64), (88, 74), (12, 74), (22, 64)])
+    pen.line([(40, 84), (60, 84)], STEEL, 6)
+    pen.line([(16, 16), (84, 84)], RED)
+
+
+def remote(pen: Pen) -> None:
+    """<summary>A slim remote control with a pad and buttons: the media centre.</summary>"""
+    pen.rounded(32, 10, 68, 90, 8)
+    pen.circle(50, 36, 10, SIGNAL, 6)
+    pen.dot(50, 36, 3, SIGNAL)
+    for y in (58, 70):
+        pen.dot(42, y, 3.5, STEEL)
+        pen.dot(58, y, 3.5, STEEL)
+    pen.line([(42, 81), (58, 81)], STEEL, 5)
+
+
 # The game flavoured sets. Each one is meant to sit well beside a kind of
 # game, not to belong to any: gothic war in the far future, cheerful planet
 # hopping, a modern strategy war, alien crystal and bio tech, a horror corps
@@ -2342,6 +2372,7 @@ DESKTOP = {
     "server": server, "nas": nas, "firewall": firewall, "network": network, "router": router,
     "vpn": vpn, "cloud": cloud, "database": database, "movies": movies, "series": series,
     "games": games, "meeting": meeting, "sync": sync, "assistant": assistant, "launch": launch,
+    "coffee": coffee, "bell-off": bell_off, "remote": remote,
 }
 DESKTOP_LABELS = {
     "terminal": "Terminal", "files": "Files", "home": "Home", "browser": "Browser",
@@ -2358,6 +2389,7 @@ DESKTOP_LABELS = {
     "router": "Router", "vpn": "VPN", "cloud": "Cloud", "database": "Database",
     "movies": "Movies", "series": "Series",
     "games": "Games", "meeting": "Meeting", "sync": "Sync", "assistant": "Assistant", "launch": "Launch",
+    "coffee": "Stay Awake", "bell-off": "Do Not Disturb", "remote": "Media Centre",
 }
 
 

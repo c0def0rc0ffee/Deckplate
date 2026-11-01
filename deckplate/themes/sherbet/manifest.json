@@ -327,6 +327,18 @@
       "label": "Launch"
     },
     {
+      "id": "coffee",
+      "label": "Stay Awake"
+    },
+    {
+      "id": "bell-off",
+      "label": "Do Not Disturb"
+    },
+    {
+      "id": "remote",
+      "label": "Media Centre"
+    },
+    {
       "id": "hourglass-running",
       "label": "Hourglass Running"
     },

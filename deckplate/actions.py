@@ -38,11 +38,13 @@ from typing import Callable, Protocol
 import requests
 
 from . import audio as audio_module
+from . import awake
 from . import desktop as desktop_module
 from . import hotkeys
+from . import kodi as kodi_module
 from .audio import AudioError
-from .config import POSITIONAL_ACTIONS, Action
-from .holds import HoldManager
+from .config import POSITIONAL_ACTIONS, Action, KodiSettings
+from .holds import HoldManager, task_key
 
 
 class ActionContext(Protocol):
@@ -173,6 +175,26 @@ def default_request(method: str, url: str, headers: dict, body: str | None, time
     response.raise_for_status()
 
 
+def default_json_request(url: str, headers: dict, body: dict, timeout: float) -> dict:
+    """<summary>
+    Post one JSON body and decode the JSON that comes back.
+    </summary>
+    <param name="url">Where to send it.</param>
+    <param name="headers">The headers, Authorization included when there is one.</param>
+    <param name="body">The request as a dict, sent as JSON.</param>
+    <param name="timeout">Seconds to wait.</param>
+    <returns>The decoded reply.</returns>
+    <remarks>The Kodi door. Unlike <see cref="default_request"/> the answer
+    matters, because a player action needs the player id Kodi reports.</remarks>
+    <exception cref="requests.RequestException">The request failed or came
+    back with an error status.</exception>
+    <exception cref="ValueError">The reply is not JSON.</exception>"""
+    sent = {"Content-Type": "application/json", **headers}
+    response = requests.post(url, headers=sent, json=body, timeout=timeout)
+    response.raise_for_status()
+    return response.json()
+
+
 def platform_command(params: dict) -> str:
     """<summary>
     The command for this platform, falling back to the shared one.
@@ -227,6 +249,11 @@ class ActionRunner:
                  read_token: Callable[[str], str] = read_token,
                  audio=None,
                  desktop=None,
+                 kodi: KodiSettings | None = None,
+                 send_json: Callable[[str, dict, dict, float], dict] = default_json_request,
+                 screensaver=None,
+                 notifier=None,
+                 nudge: Callable[[], None] | None = None,
                  log: Callable[[str], None] = print) -> None:
         """<summary>
         Build a runner, taking its deck context and its way out to the machine.
@@ -236,6 +263,15 @@ class ActionRunner:
         controller's own so that a hold started on one page can be stopped from
         another; leaving it None makes a private one, which is right for a test
         and wrong for the daemon.</param>
+        <param name="kodi">Where Kodi is, from the config's [kodi] table, or
+        None for the defaults. Replaced by the controller on a reload.</param>
+        <param name="send_json">How a kodi action posts and reads JSON.</param>
+        <param name="screensaver">The screensaver inhibitor for Stay Awake,
+        or None for the desktop's own.</param>
+        <param name="notifier">The notification inhibitor for Do Not Disturb,
+        or None for the desktop's own.</param>
+        <param name="nudge">How Stay Awake moves the pointer, or None for the
+        X test nudge.</param>
         <param name="log">Where a failed action goes. Defaults to print because
         the daemon runs in the foreground under its unit.</param>
         <remarks>
@@ -272,6 +308,11 @@ class ActionRunner:
         self.read_token = read_token
         self._audio = audio
         self._desktop = desktop
+        self.kodi = kodi or KodiSettings()
+        self.send_json = send_json
+        self.screensaver = screensaver
+        self.notifier = notifier
+        self.nudge = nudge
         self.log = log
 
     @property
@@ -415,6 +456,18 @@ class ActionRunner:
             self._audio_output(params)
         elif action.type == "window":
             self._window(params)
+        elif action.type == "stay_awake":
+            self.holds.toggle_task(task_key("stay_awake", params), lambda: awake.stay_awake(
+                params, inhibitor=self.screensaver, nudge=self.nudge, log=self.log), "stay awake")
+        elif action.type == "dnd":
+            self.holds.toggle_task(task_key("dnd", params), lambda: awake.do_not_disturb(
+                params, inhibitor=self.notifier, log=self.log), "do not disturb")
+        elif action.type == "status":
+            # The watching is the controller's; the press just opens the page.
+            if params.get("open", True):
+                self.open_url(params["url"])
+        elif action.type == "kodi":
+            self._kodi(params)
         elif action.type in POSITIONAL_ACTIONS:
             raise ValueError(f"a {action.type} action acts on its key and must be run by the controller")
         else:
@@ -495,6 +548,32 @@ class ActionRunner:
             self.launch(command)
         else:
             self.log(f"window: nothing matches '{params['match']}' and no command to launch")
+
+    def _kodi(self, params: dict) -> None:
+        """<summary>
+        Send one request to Kodi, finding the active player first when the
+        action needs one.
+        </summary>
+        <param name="params">A kodi action's params: ``do``, or ``method``
+        with ``params``.</param>
+        <remarks>A player action with nothing playing is logged and dropped:
+        Kodi would answer with an error for a missing player id, and the log
+        line says why in plain words instead.</remarks>
+        <exception cref="ValueError">The action names nothing Kodi knows.</exception>
+        <exception cref="requests.RequestException">Kodi could not be reached.</exception>"""
+        method, body_params, needs_player = kodi_module.resolve(params)
+        headers = {}
+        if self.kodi.token_file:
+            headers["Authorization"] = self.read_token(self.kodi.token_file)
+        if needs_player:
+            reply = self.send_json(self.kodi.url, headers, kodi_module.payload("Player.GetActivePlayers"),
+                                   self.kodi.timeout_s)
+            player = kodi_module.first_player(reply)
+            if player is None:
+                self.log(f"kodi {params.get('do', method)}: nothing is playing")
+                return
+            body_params["playerid"] = player
+        self.send_json(self.kodi.url, headers, kodi_module.payload(method, body_params), self.kodi.timeout_s)
 
     def _chord(self, params: dict) -> None:
         """<summary>

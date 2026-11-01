@@ -113,9 +113,17 @@ The config is documented by its own comments. In short:
   actions, and `follow_focus` with `focus_poll_ms` turns on per application
   pages. Both are described below.
 - `[weather]` coordinates and units. `deckplate geocode "Town"` prints
-  the coordinates for a place name.
-- `[strip]` the three right hand panels: `clock`, `date`, `weather`, `blank`
-  or a picture path. The panels show less than the 95 pixel picture they
+  the coordinates for a place name. The same coordinates drive
+  `night_brightness` in `[deck]`: set it above 0 and the deck dims to that
+  level between sunset and sunrise, worked out locally, and comes back to
+  `brightness` in the morning.
+- `[kodi]` where Kodi's JSON RPC answers (`url`, normally port 8080 and
+  `/jsonrpc`) and an optional `token_file` holding `Basic` and the base64 of
+  `user:password`, for the `kodi` keys described below.
+- `[strip]` the three right hand panels: `clock`, `date`, `weather`,
+  `playing` (what the desktop's media player is playing, read over the
+  session bus), `system` (processor temperature, load and memory, read from
+  the kernel), `blank` or a picture path. The panels show less than the 95 pixel picture they
   are sent, so `visible_width` and `visible_height` say how much: clock,
   date and weather are drawn to fit that area, and a picture given as
   `{ image = "images/x.png", fit = true }` is shrunk to it instead of
@@ -229,13 +237,42 @@ it is the face and the key's own label moves into the band. The state is
 kept while the daemon runs and cleared when it stops. None of these can be
 a step of a multi action.
 
+### The desktop and the home lab
+
+- `stay_awake` keeps the machine from going idle until the key is pressed
+  again: `{ type = "stay_awake" }`. It asks the desktop's screensaver not to
+  run, as a caffeine program does, which works on X11 and Wayland, and
+  every `every_ms` (default a minute) nudges the pointer one pixel and back
+  through the X test extension, for programs that watch for input rather
+  than the idle timer. `inhibit = false` or `nudge = false` drops either
+  half. Under Wayland the nudge reaches X programs only.
+- `dnd` holds notifications back until pressed again: `{ type = "dnd" }`,
+  through the notification server's inhibit, which Plasma shows as its own
+  do not disturb.
+- `status` watches a web address and lights the key while it answers:
+  `{ type = "status", url = "https://unraid.local/" }`. Asked every
+  `every_ms` (default a minute) on a thread of its own; up means a status
+  below 400, or, with `expect = "text"`, that the text is in the page.
+  `insecure = true` accepts a certificate that does not verify, as a
+  firewall's own page has. The press opens the address unless
+  `open = false`. The key's active face is what shows the state, so give it
+  one.
+- `kodi` sends Kodi a remote control action over its JSON RPC:
+  `{ type = "kodi", do = "play_pause" }`, with `do` one of play_pause, stop,
+  next, previous, up, down, left, right, select, back, home, info, context,
+  osd, volume_up, volume_down and mute, or `method = "GUI.ShowNotification"`
+  with a `params` table for anything else. The player actions find the
+  active player first and do nothing, with a log line, when nothing is
+  playing. Where Kodi is comes from `[kodi]`.
+
 ### The other face of a key
 
 A key may carry `image_active` and `label_active`, shown in place of its
 picture and label while its thing is on: a toggle that is on, a hold, boost
-or repeat that is running, a timer or stopwatch that is going, a mute key
-while the sound is muted, an output key while its output is the one in
-use. The page has both behind "Picture and label while active".
+or repeat that is running, Stay Awake or Do Not Disturb while it is held, a
+status key while its address answers, a timer or stopwatch that is going, a
+mute key while the sound is muted, an output key while its output is the
+one in use. The page has both behind "Picture and label while active".
 
 ### Sound and windows
 
@@ -273,8 +310,10 @@ Twelve icon themes ship with the app. The first five are general:
   music, video, images, downloads, the bin, wireless, Bluetooth, keyboard,
   printer and software, then the home lab: server, network storage,
   firewall, network, router, VPN, cloud and database, with a film reel and
-  a television set for the movie and series libraries, and five launchers:
-  a game controller, a meeting, a file sync, an assistant and a rocket.
+  a television set for the movie and series libraries, five launchers:
+  a game controller, a meeting, a file sync, an assistant and a rocket, and
+  three for the desktop keys: a coffee mug for Stay Awake, a struck through
+  bell for Do Not Disturb and a remote control for the media centre.
 - "Sherbet" and "Lagoon", every Controls and Desktop icon again, repainted
   in bright corner to corner colour sweeps, warm and cool. They are made to
   sit happily beside a gradient desktop icon theme. Each holds the same ids

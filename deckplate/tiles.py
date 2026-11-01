@@ -29,6 +29,8 @@ from PIL import Image, ImageDraw, ImageEnhance
 
 from . import animations, images
 from .config import AnimationConfig, KeyConfig, StripTile
+from .media import NowPlaying
+from .system import SystemReading
 from .weather import Observation
 
 # The label strip along the bottom of a picture tile. RGBA, and the only
@@ -761,6 +763,78 @@ def weather_tile(observation: Observation | None, size: int, location_name: str 
     return tile
 
 
+def playing_tile(reading: NowPlaying | None, size: int,
+                 background: tuple[int, int, int] = images.BACKGROUND) -> Image.Image:
+    """<summary>
+    What the media player is playing: a play or pause mark, the title and the artist.
+    </summary>
+    <param name="reading">The player's state, or None when no player is open.</param>
+    <param name="size">The tile size in pixels, the visible window on a strip panel.</param>
+    <param name="background">RGB tuple behind everything.</param>
+    <returns>An upright tile, always.</returns>
+    <remarks>
+    The title gets the larger line and is shrunk to fit rather than wrapped,
+    because a panel is too small for two lines of title and a name cut short
+    reads better than one broken mid word. No player at all draws a quiet
+    "nothing playing", the same way the weather tile says it has none.
+    </remarks>
+    """
+    tile = images.solid(background, size)
+    draw = ImageDraw.Draw(tile)
+    if reading is None:
+        draw.text((size / 2, size * 0.42), "nothing", fill=MUTED, font=images.load_font(int(size * 0.18)), anchor="mm")
+        draw.text((size / 2, size * 0.62), "playing", fill=MUTED, font=images.load_font(int(size * 0.18)), anchor="mm")
+        return tile
+    cx, cy, r = size * 0.5, size * 0.24, size * 0.11
+    if reading.playing:
+        draw.polygon([(cx - r * 0.8, cy - r), (cx + r, cy), (cx - r * 0.8, cy + r)], fill=images.ACCENT)
+    else:
+        for dx in (-r * 0.7, r * 0.25):
+            draw.rectangle([cx + dx, cy - r, cx + dx + r * 0.45, cy + r], fill=MUTED)
+    title = reading.title or reading.player or "unknown"
+    font = images.load_font(_fit_font_size(title, size - 6, int(size * 0.2)))
+    draw.text((size / 2, size * 0.55), title, fill=images.FOREGROUND, font=font, anchor="mm")
+    if reading.artist:
+        font = images.load_font(_fit_font_size(reading.artist, size - 6, int(size * 0.15)))
+        draw.text((size / 2, size * 0.82), reading.artist, fill=MUTED, font=font, anchor="mm")
+    return tile
+
+
+def system_tile(reading: SystemReading | None, size: int,
+                background: tuple[int, int, int] = images.BACKGROUND) -> Image.Image:
+    """<summary>
+    The machine at a glance: temperature on top, then a processor bar and a memory bar.
+    </summary>
+    <param name="reading">The latest reading, or None before the first one.</param>
+    <param name="size">The tile size in pixels, the visible window on a strip panel.</param>
+    <param name="background">RGB tuple behind everything.</param>
+    <returns>An upright tile, always.</returns>
+    <remarks>
+    A value the machine could not give is drawn as a dash and an empty bar,
+    so a box with no temperature sensor still shows its load. The bars turn
+    red past 90 percent, which is the only colour rule here.
+    </remarks>
+    """
+    tile = images.solid(background, size)
+    draw = ImageDraw.Draw(tile)
+    temp = reading.temperature_c if reading is not None else None
+    draw.text((size / 2, size * 0.2), f"{temp}°C" if temp is not None else "--°C",
+              fill=images.FOREGROUND, font=images.load_font(int(size * 0.26)), anchor="mm")
+    small = images.load_font(int(size * 0.13))
+    rows = (("CPU", reading.cpu_percent if reading is not None else None, 0.46),
+            ("MEM", reading.memory_percent if reading is not None else None, 0.74))
+    left, right = size * 0.3, size * 0.94
+    for name, value, y in rows:
+        top, bottom = size * y, size * (y + 0.12)
+        draw.text((size * 0.04, (top + bottom) / 2), name, fill=MUTED, font=small, anchor="lm")
+        draw.rectangle([left, top, right, bottom], fill=RING_TRACK[:3])
+        if value is not None:
+            colour = ALERT if value >= 90 else images.ACCENT
+            draw.rectangle([left, top, left + (right - left) * value / 100, bottom], fill=colour)
+            draw.text((right, bottom + 1), f"{value}%", fill=MUTED, font=images.load_font(int(size * 0.1)), anchor="ra")
+    return tile
+
+
 def draw_icon(draw: ImageDraw.ImageDraw, icon: str, cx: float, cy: float, r: float) -> None:
     """<summary>
     Draw one weather glyph from a few flat shapes.
@@ -856,7 +930,8 @@ def _cloud(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, colour) ->
 
 def strip_tile(tile: StripTile, now: datetime, observation: Observation | None,
                size: int, location_name: str, visible: tuple[int, int] | None = None,
-               default_background: str | None = None) -> Image.Image:
+               default_background: str | None = None, playing: NowPlaying | None = None,
+               system: SystemReading | None = None) -> Image.Image:
     """<summary>
     The still picture for one strip panel, whatever kind of tile it is
     configured as.
@@ -870,6 +945,8 @@ def strip_tile(tile: StripTile, now: datetime, observation: Observation | None,
     <param name="visible">The window the panel actually shows, in pixels, or
     None to treat the whole square as visible.</param>
     <param name="default_background">The page or deck wide background colour.</param>
+    <param name="playing">The media player reading for a now playing panel, or None.</param>
+    <param name="system">The machine reading for a system panel, or None.</param>
     <returns>An upright tile of ``size`` square, always.</returns>
     <remarks>
     The panel shows only a central window of ``visible`` pixels out of the
@@ -894,6 +971,10 @@ def strip_tile(tile: StripTile, now: datetime, observation: Observation | None,
         return centred(date_tile(now, inner, bg), size, bg)
     if tile.kind == "weather":
         return centred(weather_tile(observation, inner, location_name, bg), size, bg)
+    if tile.kind == "playing":
+        return centred(playing_tile(playing, inner, bg), size, bg)
+    if tile.kind == "system":
+        return centred(system_tile(system, inner, bg), size, bg)
     if tile.kind == "image" and tile.image is not None:
         if tile.fit:
             return centred(picture_box(tile.image, width, height, bg), size, bg)
@@ -1201,7 +1282,8 @@ def grid_pattern(size: int, pitch_x: int, pitch_y: int) -> dict[tuple[int, int],
     return tiles
 
 
-def strip_signature(tile: StripTile, now: datetime, observation: Observation | None) -> tuple:
+def strip_signature(tile: StripTile, now: datetime, observation: Observation | None,
+                    playing: NowPlaying | None = None, system: SystemReading | None = None) -> tuple:
     """<summary>
     A value that changes whenever the panel's picture would change, and not
     otherwise.
@@ -1209,6 +1291,8 @@ def strip_signature(tile: StripTile, now: datetime, observation: Observation | N
     <param name="tile">The strip tile's config.</param>
     <param name="now">The moment the tile would be drawn at.</param>
     <param name="observation">The weather reading, or None.</param>
+    <param name="playing">The media player reading, or None.</param>
+    <param name="system">The machine reading, or None.</param>
     <returns>A hashable tuple to compare against the last one.</returns>
     <remarks>
     This is what stops the deck being sent the same picture several times a
@@ -1228,4 +1312,8 @@ def strip_signature(tile: StripTile, now: datetime, observation: Observation | N
         return ("date", now.strftime("%Y-%m-%d"), tile.background)
     if tile.kind == "weather":
         return ("weather", observation, tile.background)
+    if tile.kind == "playing":
+        return ("playing", playing, tile.background)
+    if tile.kind == "system":
+        return ("system", system, tile.background)
     return (tile.kind, str(tile.image), tile.fit, tile.animation, tile.background)

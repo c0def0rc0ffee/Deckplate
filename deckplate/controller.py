@@ -33,11 +33,14 @@ from dataclasses import replace
 from datetime import datetime
 from typing import Callable
 
-from . import animations, audio, focus, holds, images, layout, live, tiles
+from . import animations, audio, focus, holds, images, layout, live, sun, tiles
 from .actions import ActionRunner
 from .config import MARK_DEFAULT_FLASH_MS, POSITIONAL_ACTIONS, Action, Config, load
+from .media import MediaService
 from .presses import Actions, PressRouter
 from .protocol import KeyEvent
+from .status import StatusMonitor, Watch
+from .system import SystemService
 from .weather import WeatherService
 
 # How often the handshake goes out. The deck only needs to hear from the host
@@ -47,7 +50,9 @@ from .weather import WeatherService
 KEEPALIVE_SECONDS = 20
 # Actions that switch something on and off rather than firing once. A key
 # bound to one of these carries a border while its task is running.
-TOGGLING_ACTIONS = ("hold", "boost", "repeat")
+TOGGLING_ACTIONS = ("hold", "boost", "repeat", "stay_awake", "dnd")
+# How often the sun's position is checked for the night brightness.
+NIGHT_CHECK_SECONDS = 60.0
 # A key that is holding something down keeps a steady border. A repeat is not
 # holding anything, it fires now and then, so its border blinks instead and the
 # two read differently across the deck. Each key may set its own style, colour
@@ -357,7 +362,10 @@ class Controller:
                  monotonic: Callable[[], float] = time.monotonic,
                  log: Callable[[str], None] = print,
                  watch_config: bool = True,
-                 watcher: "focus.FocusWatcher | None" = None) -> None:
+                 watcher: "focus.FocusWatcher | None" = None,
+                 status: StatusMonitor | None = None,
+                 media: MediaService | None = None,
+                 system: SystemService | None = None) -> None:
         """<summary>
         Wire a deck to a config, without drawing anything yet.
         </summary>
@@ -377,6 +385,12 @@ class Controller:
         changes. Ignored when the config did not come from a file.</param>
         <param name="watcher">The focus watcher. Made here if not given, and
         not started unless the config asks to follow the focused window.</param>
+        <param name="status">The monitor behind status keys. Made here if not
+        given; it polls nothing until a status key is configured.</param>
+        <param name="media">The now playing reader for the strip. Made here if
+        not given; asked only while a panel shows it.</param>
+        <param name="system">The machine reader for the strip. Made here if
+        not given; read only while a panel shows it.</param>
         <remarks>
         Nothing is sent to the deck from here. That matters for the tests and
         for the configuration page, both of which build a controller before
@@ -388,8 +402,14 @@ class Controller:
         self.now = now
         self.monotonic = monotonic
         self.log = log
-        self.runner = runner or ActionRunner(self, log=log)
+        self.runner = runner or ActionRunner(self, log=log, kodi=config.kodi)
         self.weather = weather or WeatherService(config.weather, monotonic=monotonic, log=log)
+        self.status = status or StatusMonitor(monotonic=monotonic, log=log)
+        self.media = media or MediaService(monotonic=monotonic, log=log)
+        self.system = system or SystemService(monotonic=monotonic)
+        # Whether the night brightness is in force, None until first checked.
+        self._night: bool | None = None
+        self._last_night_check: float | None = None
         self.page_index = 0
         self.brightness = config.deck.brightness
         self.asleep = False
@@ -465,6 +485,8 @@ class Controller:
         self.deck.set_brightness(self.brightness)
         self._blank_screen()
         self.weather.refresh_if_due()
+        self._refresh_readings()
+        self._watch_status()
         self.render_all()
         self.log(f"showing page '{self.page.name}' with {len(self.page.keys)} keys")
         if self.config.deck.follow_focus:
@@ -788,6 +810,8 @@ class Controller:
                 _muted, default, outputs = self._audio_state()
                 chosen = audio.pick_output(outputs, action.params["device"])
                 active = active or (chosen is not None and chosen.id == default)
+            elif kind == "status":
+                active = active or bool(self.status.ok(action.params["url"]))
         return active, face
 
     def _face_signature(self, row: int, column: int, holding) -> tuple:
@@ -902,7 +926,7 @@ class Controller:
             return frames[0], frames, fps
         image = tiles.strip_tile(tile, now, observation, size,
                                  config.weather.location_name, visible,
-                                 default_bg)
+                                 default_bg, playing=self.media.reading, system=self.system.reading)
         return image, None, 0
 
     def _scaled_visible(self, visible, size: int):
@@ -978,7 +1002,7 @@ class Controller:
         observation = self.weather.observation
         sent = False
         for row, tile in enumerate(self.config.strip):
-            signature = tiles.strip_signature(tile, now, observation)
+            signature = tiles.strip_signature(tile, now, observation, self.media.reading, self.system.reading)
             if not force and signature == self._strip_signatures[row]:
                 continue
             image, frames, fps = self._draw_strip(row, self.deck.image_size, now, observation)
@@ -1511,6 +1535,8 @@ class Controller:
             self._follow_focus()
         if not self.asleep:
             self.weather.refresh_if_due()
+            self._refresh_readings()
+            self._night_brightness(now)
             self.render_strip()
             sent = self._end_flashes()
             if self.animator.tick():
@@ -1536,6 +1562,68 @@ class Controller:
         if self.watch_config and now - self.last_config_poll >= CONFIG_POLL_SECONDS:
             self.last_config_poll = now
             self._reload_if_changed()
+
+    def _refresh_readings(self) -> None:
+        """<summary>
+        Read the media players and the machine, but only while a strip panel
+        shows them.
+        </summary>
+        <remarks>Both readers decide for themselves whether they are due, so
+        this is cheap on every pass; the kind check is what keeps a deck with
+        no such panel from ever touching the bus or the kernel files.</remarks>
+        """
+        kinds = {tile.kind for tile in self.config.strip}
+        if "playing" in kinds:
+            self.media.refresh_if_due()
+        if "system" in kinds:
+            self.system.refresh_if_due()
+
+    def _watch_status(self) -> None:
+        """<summary>
+        Hand the status monitor every address a status key on any page names.
+        </summary>
+        <remarks>Every page, not only the one showing, so a key's state is
+        already known when its page comes up. Called at start and after a
+        reload, which is when the set can change.</remarks>
+        """
+        watches = []
+        for page in self.config.pages:
+            for key in page.keys.values():
+                for action in key.actions():
+                    if action is not None and action.type == "status":
+                        params = action.params
+                        watches.append(Watch(params["url"], params["every_ms"], params["insecure"], params["expect"]))
+        self.status.watch(watches)
+
+    def _night_brightness(self, now: float) -> None:
+        """<summary>
+        Dim the deck after sunset and brighten it after sunrise, when the
+        config asks for it.
+        </summary>
+        <param name="now">The monotonic time, for the once a minute check.</param>
+        <remarks>
+        The sun is worked out from the weather coordinates. The brightness
+        is only sent when day turns to night or back, so a level set by a
+        key in between stays until the next change, and a config with no
+        night brightness never reaches here at all.
+        </remarks>
+        """
+        level = self.config.deck.night_brightness
+        if not level:
+            self._night = None
+            return
+        if self._last_night_check is not None and now - self._last_night_check < NIGHT_CHECK_SECONDS:
+            return
+        self._last_night_check = now
+        night = sun.is_night(self.config.weather.latitude, self.config.weather.longitude, self.now())
+        if night == self._night:
+            return
+        self._night = night
+        target = level if night else self.config.deck.brightness
+        self.log(f"{'sunset' if night else 'sunrise'}: brightness {target}")
+        self.brightness = target
+        self.deck.set_brightness(target)
+        self.hub.publish({"type": "brightness", "value": target})
 
     # Per application pages
 
@@ -1720,6 +1808,7 @@ class Controller:
         self.runner.holds.stop_all()
         self.router.clear()
         self.watcher.stop()
+        self.status.stop()
 
     def reload(self, config: Config) -> None:
         """<summary>
@@ -1767,6 +1856,10 @@ class Controller:
             self.watcher.stop()
         self.brightness = config.deck.brightness
         self.deck.set_brightness(self.brightness)
+        self._night = None
+        self._last_night_check = None
+        self.runner.kodi = config.kodi
+        self._watch_status()
         self._strip_signatures = [None] * layout.ROWS
         self.animator.clear_all()
         self._flashes.clear()

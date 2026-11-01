@@ -47,10 +47,17 @@ APP_NAME = "deckplate"
 ROWS = 3
 KEY_COLUMNS = 5
 STRIP_ROWS = 3
-STRIP_TILE_KINDS = ("clock", "date", "weather", "blank")
+STRIP_TILE_KINDS = ("clock", "date", "weather", "playing", "system", "blank")
 ACTION_TYPES = ("hotkey", "sequence", "chord", "hold", "boost", "repeat",
                 "text", "launch", "url", "request", "page", "brightness", "sleep", "multi",
-                "toggle", "volume", "audio_output", "window", "timer", "stopwatch", "counter")
+                "toggle", "volume", "audio_output", "window", "timer", "stopwatch", "counter",
+                "stay_awake", "dnd", "status", "kodi")
+# The toggling desktop actions: like a hold they run until pressed again,
+# so they cannot be a step of another action either.
+DESKTOP_TOGGLES = ("stay_awake", "dnd")
+STATUS_EVERY_RANGE = (5_000, 3_600_000)
+NUDGE_EVERY_RANGE = (1_000, 3_600_000)
+KODI_URL_DEFAULT = "http://127.0.0.1:8080/jsonrpc"
 # Actions that act on the key they sit on rather than on the PC, and so need
 # to know their position: the controller runs these itself. None of them can
 # be a step of another action, because a step has no key of its own.
@@ -423,6 +430,9 @@ class DeckSettings:
     key_pitch_y it lets one picture be split over the keys so it reads as
     continuous through the gaps. Found with the calibrate-grid command.</param>
     <param name="key_pitch_y">The same down the columns.</param>
+    <param name="night_brightness">The backlight between sunset and sunrise
+    at the weather coordinates, or 0 to leave the brightness alone at
+    night.</param>
     <remarks>
     These apply to the whole deck and not to one page, so switching pages
     never changes any of them. An action may change the brightness at run
@@ -446,6 +456,7 @@ class DeckSettings:
     focus_poll_ms: int = FOCUS_POLL_DEFAULT_MS
     key_pitch_x: int | None = None
     key_pitch_y: int | None = None
+    night_brightness: int = 0
 
     @property
     def key_pitch(self) -> tuple[int, int] | None:
@@ -488,6 +499,28 @@ class WeatherSettings:
 
 
 LOOPBACK_ADDRESSES = ("127.0.0.1", "localhost", "::1")
+
+
+@dataclass(frozen=True)
+class KodiSettings:
+    """<summary>
+    Where Kodi's JSON RPC is, from [kodi], shared by every kodi key.
+    </summary>
+    <param name="url">The JSON RPC endpoint, normally ``/jsonrpc`` on port 8080
+    of the machine running Kodi.</param>
+    <param name="token_file">A file outside the config folder whose contents
+    go in the Authorization header, as for a request action; Kodi wants
+    ``Basic`` and the base64 of ``user:password``. None sends no header.</param>
+    <param name="timeout_s">How long to wait for Kodi to answer.</param>
+    <remarks>
+    One table for the player rather than an address on every key, so a player
+    that moves is edited once. The default points at this machine, which is
+    where Kodi is when nothing says otherwise.
+    </remarks>"""
+
+    url: str = KODI_URL_DEFAULT
+    token_file: str | None = None
+    timeout_s: float = 5.0
 
 
 @dataclass(frozen=True)
@@ -538,6 +571,7 @@ class Config:
     path: Path | None = None
     server: ServerSettings = ServerSettings()
     strip_visible: tuple[int, int] = STRIP_VISIBLE_DEFAULT
+    kodi: KodiSettings = KodiSettings()
 
     def page_named(self, name: str) -> Page | None:
         """<summary>
@@ -626,8 +660,9 @@ def parse(text: str, base_dir: str | Path, path: Path | None = None) -> Config:
                _int(strip_table, "visible_height", "[strip]", STRIP_VISIBLE_DEFAULT[1], 8, 200))
     pages = _parse_pages(data.get("pages"), base_dir)
     server = _parse_server(_table(data, "server", {}))
+    kodi = _parse_kodi(_table(data, "kodi", {}))
     return Config(deck=deck, weather=weather, strip=strip, pages=pages, base_dir=base_dir,
-                  path=path, server=server, strip_visible=visible)
+                  path=path, server=server, strip_visible=visible, kodi=kodi)
 
 
 # Parsing helpers. Every error names the place in the file it came from.
@@ -779,6 +814,7 @@ def _parse_deck(table: dict) -> DeckSettings:
         focus_poll_ms=_int(table, "focus_poll_ms", "[deck]", FOCUS_POLL_DEFAULT_MS, *FOCUS_POLL_RANGE),
         key_pitch_x=_int(table, "key_pitch_x", "[deck]", 0, *KEY_PITCH_RANGE) if "key_pitch_x" in table else None,
         key_pitch_y=_int(table, "key_pitch_y", "[deck]", 0, *KEY_PITCH_RANGE) if "key_pitch_y" in table else None,
+        night_brightness=_int(table, "night_brightness", "[deck]", 0, 0, 100),
     )
 
 
@@ -934,6 +970,26 @@ def _parse_server(table: dict) -> ServerSettings:
         enabled=enabled, bind=bind,
         port=_int(table, "port", "[server]", 8765, 0, 65535),
         token=token,
+    )
+
+
+def _parse_kodi(table: dict) -> KodiSettings:
+    """<summary>
+    Build the Kodi settings from the [kodi] table.
+    </summary>
+    <param name="table">The [kodi] table, or an empty dict when absent.</param>
+    <returns>Validated KodiSettings.</returns>
+    <remarks>Parsed whether or not any key talks to Kodi, so an absent table
+    must give working defaults.</remarks>
+    <exception cref="ConfigError">A value is of the wrong type or the
+    timeout is out of range.</exception>"""
+    url = _str(table, "url", "[kodi]", KODI_URL_DEFAULT) or KODI_URL_DEFAULT
+    if not url.startswith(("http://", "https://")):
+        raise ConfigError("[kodi]: 'url' must start with http:// or https://")
+    return KodiSettings(
+        url=url,
+        token_file=_str(table, "token_file", "[kodi]") or None,
+        timeout_s=_float(table, "timeout_s", "[kodi]", 5.0),
     )
 
 
@@ -1409,6 +1465,48 @@ def _parse_action(table: Any, where: str, nested: bool = False) -> Action:
             params["device"] = _regex(device, where, "device")
         else:
             raise ConfigError(f"{where}: audio_output action needs 'device' or cycle = true")
+    elif kind in DESKTOP_TOGGLES:
+        # Stay Awake and Do Not Disturb run until pressed again, like a hold.
+        if nested:
+            raise ConfigError(f"{where}: a {kind} action cannot be a step of another action")
+        if kind == "stay_awake":
+            for name in ("inhibit", "nudge"):
+                value = table.get(name, True)
+                if not isinstance(value, bool):
+                    raise ConfigError(f"{where}: '{name}' must be true or false")
+                params[name] = value
+            params["every_ms"] = _int(table, "every_ms", where, awake_default_ms(), *NUDGE_EVERY_RANGE)
+    elif kind == "status":
+        # Lights the key while the address answers; the press opens it.
+        if nested:
+            raise ConfigError(f"{where}: a status action cannot be a step of another action")
+        params["url"] = _str(table, "url", where, required=True)
+        params["every_ms"] = _int(table, "every_ms", where, STATUS_EVERY_RANGE[0] * 12, *STATUS_EVERY_RANGE)
+        for name, default in (("insecure", False), ("open", True)):
+            value = table.get(name, default)
+            if not isinstance(value, bool):
+                raise ConfigError(f"{where}: '{name}' must be true or false")
+            params[name] = value
+        expect = table.get("expect", "")
+        if not isinstance(expect, str):
+            raise ConfigError(f"{where}: 'expect' must be text")
+        params["expect"] = expect
+    elif kind == "kodi":
+        # Either a shorthand word or a raw method; the address is in [kodi].
+        do = _str(table, "do", where)
+        if do:
+            from . import kodi as kodi_module
+            if do not in kodi_module.SHORTHAND:
+                raise ConfigError(f"{where}: unknown kodi action '{do}', expected one of {', '.join(kodi_module.SHORTHAND)}")
+            params["do"] = do
+        method = _str(table, "method", where)
+        if method:
+            params["method"] = method
+        raw_params = table.get("params")
+        if raw_params is not None:
+            if not isinstance(raw_params, dict):
+                raise ConfigError(f"{where}: 'params' must be a table")
+            params["params"] = dict(raw_params)
     elif kind == "window":
         params["match"] = _regex(_str(table, "match", where, required=True) or "", where, "match")
         operation = _str(table, "operation", where, "focus") or "focus"
@@ -1419,6 +1517,16 @@ def _parse_action(table: Any, where: str, nested: bool = False) -> Action:
         if command:
             params["command"] = command
     return Action(type=kind, params=params)
+
+
+def awake_default_ms() -> int:
+    """<summary>The default nudge interval of a stay_awake action, from the awake module.</summary>
+    <returns>Milliseconds.</returns>
+    <remarks>Read through a function so this module does not import the
+    desktop code at load, which would drag the session bus into every
+    config parse.</remarks>"""
+    from . import awake
+    return awake.NUDGE_DEFAULT_MS
 
 
 def _regex(value: str, where: str, key: str) -> str:
@@ -1704,6 +1812,12 @@ def document_from_config(config: Config) -> dict:
             "focus_poll_ms": config.deck.focus_poll_ms,
             "key_pitch_x": config.deck.key_pitch_x,
             "key_pitch_y": config.deck.key_pitch_y,
+            "night_brightness": config.deck.night_brightness,
+        },
+        "kodi": {
+            "url": config.kodi.url,
+            "token_file": config.kodi.token_file,
+            "timeout_s": config.kodi.timeout_s,
         },
         "server": {
             "enabled": config.server.enabled,
@@ -1863,7 +1977,7 @@ def to_toml(document: dict) -> str:
     lines = ["# Deckplate configuration, written by the configuration page.",
              "# Positions are row and column from the top left. See README.md for the fields.",
              ""]
-    for section in ("deck", "server", "weather"):
+    for section in ("deck", "server", "weather", "kodi"):
         table = document.get(section)
         if isinstance(table, dict) and table:
             lines.append(f"[{section}]")

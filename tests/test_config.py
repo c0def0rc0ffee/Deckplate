@@ -1273,3 +1273,88 @@ action = { type = "boost", hold = "w", keys = "shift", start_ms = 5000, between 
     assert (p["start_ms"], p["start_max_ms"], p["between"], p["between_after_ms"], p["between_after_max_ms"]) == (5000, 7000, "tab", 1000, 3000)
     q = keys[(0, 1)].action.params
     assert (q["start_ms"], q["start_max_ms"], q["between_after_ms"], q["between_after_max_ms"]) == (5000, 5000, 1000, 1000)
+
+
+def test_desktop_toggles_status_and_kodi_actions_parse_with_defaults():
+    """<summary>
+    The four newer action types read their fields and default the rest, and
+    the [kodi] table and night brightness come through with the config.
+    </summary>
+    """
+    config = cfg.parse(MINIMAL + """
+[deck]
+night_brightness = 25
+
+[kodi]
+url = "http://player.test:8080/jsonrpc"
+token_file = "~/.deckplate-tokens/kodi"
+
+[[pages.keys]]
+row = 0
+column = 0
+action = { type = "stay_awake" }
+
+[[pages.keys]]
+row = 0
+column = 1
+action = { type = "stay_awake", inhibit = false, every_ms = 5000 }
+
+[[pages.keys]]
+row = 0
+column = 2
+action = { type = "dnd" }
+
+[[pages.keys]]
+row = 0
+column = 3
+action = { type = "status", url = "https://box.test/", insecure = true, expect = "ok", open = false }
+
+[[pages.keys]]
+row = 0
+column = 4
+action = { type = "kodi", do = "play_pause" }
+
+[[pages.keys]]
+row = 1
+column = 0
+action = { type = "kodi", method = "GUI.ShowNotification", params = { title = "a", message = "b" } }
+""", "/base")
+    keys = config.pages[0].keys
+    assert keys[(0, 0)].action.params == {"inhibit": True, "nudge": True, "every_ms": 60000}
+    assert keys[(0, 1)].action.params == {"inhibit": False, "nudge": True, "every_ms": 5000}
+    assert keys[(0, 2)].action.params == {}
+    assert keys[(0, 3)].action.params == {"url": "https://box.test/", "every_ms": 60000, "insecure": True,
+                                          "open": False, "expect": "ok"}
+    assert keys[(0, 4)].action.params == {"do": "play_pause"}
+    assert keys[(1, 0)].action.params == {"method": "GUI.ShowNotification", "params": {"title": "a", "message": "b"}}
+    assert config.deck.night_brightness == 25
+    assert config.kodi.url == "http://player.test:8080/jsonrpc" and config.kodi.token_file == "~/.deckplate-tokens/kodi"
+    document = cfg.document_from_config(config)
+    again = cfg.parse(cfg.to_toml(document), "/base")
+    assert again == config
+
+
+@pytest.mark.parametrize("text, message", [
+    ('action = { type = "status" }', "'url'"),
+    ('action = { type = "status", url = "https://a.test/", every_ms = 10 }', "every_ms"),
+    ('action = { type = "stay_awake", nudge = "yes" }', "'nudge' must be true or false"),
+    ('action = { type = "kodi", do = "dance" }', "unknown kodi action"),
+    ('action = { type = "kodi", params = 3 }', "'params' must be a table"),
+    ('action = { type = "multi", steps = [{ type = "dnd" }] }', "cannot be a step"),
+    ('action = { type = "toggle", on = { type = "status", url = "https://a.test/" } }', "cannot be a step"),
+])
+def test_bad_desktop_status_and_kodi_actions_are_reported(text, message):
+    """<summary>Each fault in the newer action types is named at load.</summary>"""
+    with pytest.raises(cfg.ConfigError, match=message):
+        cfg.parse(MINIMAL + f"\n[[pages.keys]]\nrow = 0\ncolumn = 0\n{text}\n", "/base")
+
+
+def test_the_playing_and_system_strip_kinds_parse_and_round_trip():
+    """<summary>The two newer strip kinds are accepted bare and with a background.</summary>"""
+    config = cfg.parse(MINIMAL + '\n[strip]\ntiles = ["playing", { kind = "system", background = "#102030" }, "clock"]\n', "/base")
+    assert [tile.kind for tile in config.strip] == ["playing", "system", "clock"]
+    assert config.strip[1].background == "#102030"
+    again = cfg.parse(cfg.to_toml(cfg.document_from_config(config)), "/base")
+    assert again.strip == config.strip
+    with pytest.raises(cfg.ConfigError, match="[kodi]"):
+        cfg.parse(MINIMAL + '\n[kodi]\nurl = "player.test"\n', "/base")

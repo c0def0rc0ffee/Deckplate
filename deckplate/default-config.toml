@@ -75,7 +75,8 @@ refresh_minutes = 10
 # Check yours with:  deckplate calibrate-strip
 visible_width = 78
 visible_height = 78
-# Top to bottom: clock, date, weather, blank, a picture path,
+# Top to bottom: clock, date, weather, playing (the media player's track),
+# system (processor temperature, load and memory), blank, a picture path,
 # { image = "images/logo.png", fit = true }, or an animation such as
 # { animation = { kind = "wave", colour = "#5c9bde", speed = 1.0 } }
 tiles = ["clock", "date", "weather"]
@@ -122,6 +123,16 @@ tiles = ["clock", "date", "weather"]
 #   counter    step = 1 (negative counts down);  reset = true resets
 #   A key may carry image_active and label_active, shown while its toggle is on,
 #   its hold or repeat runs, its timer counts, or the sound is muted by it.
+#   stay_awake keeps the machine awake until pressed again: the screensaver inhibit
+#              plus a pointer nudge every every_ms; inhibit = false / nudge = false drop one
+#   dnd        holds notifications back until pressed again
+#   status     url = "https://box/"  lights the key's active face while the address
+#              answers, asked every every_ms; expect = "text", insecure = true and
+#              open = false are optional, and the press opens the address
+#   kodi       do = "play_pause" | "stop" | "next" | "previous" | "up" | "down" | "left" |
+#              "right" | "select" | "back" | "home" | "info" | "context" | "osd" |
+#              "volume_up" | "volume_down" | "mute", or method = "..." with params = { };
+#              where Kodi is comes from the [kodi] table
 #   page       page = "Name" | "next" | "previous"
 #   brightness value = 50  or  delta = -10
 #   sleep      turns the screens off until a key is pressed

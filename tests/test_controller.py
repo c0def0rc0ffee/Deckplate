@@ -1022,7 +1022,7 @@ def test_hardware_strip_render_keeps_the_visible_window_unchanged(setup):
     seen = []
     original = tiles_module.strip_tile
 
-    def record(tile, now, observation, size, location, visible=None, default_background=None):
+    def record(tile, now, observation, size, location, visible=None, default_background=None, **readings):
         """
         <summary>
         Note the size and visibility asked for, then pass the call on to the real renderer.
@@ -1037,7 +1037,7 @@ def test_hardware_strip_render_keeps_the_visible_window_unchanged(setup):
         <returns>The real renderer's result.</returns>
         """
         seen.append((size, visible))
-        return original(tile, now, observation, size, location, visible, default_background)
+        return original(tile, now, observation, size, location, visible, default_background, **readings)
 
     tiles_module.strip_tile = record
     try:
@@ -2133,3 +2133,73 @@ def test_a_reopened_deck_is_initialised_and_redrawn(setup):
     assert deck.calls.count(("init",)) == 1
     assert deck.calls.index(("init",)) < deck.calls.index(deck.tiles()[0])
     assert len({c[1:3] for c in deck.tiles()}) == 18
+
+
+def test_status_keys_are_watched_and_light_when_their_address_answers(setup):
+    """<summary>
+    A status key's address is handed to the monitor at reload, the key draws
+    its active face once the monitor says it is up, and pressing it opens
+    the address.
+    </summary>
+    """
+    from deckplate.status import StatusMonitor, Watch
+    controller, deck, clock, urls, path = setup
+    answers = {}
+    monitor = StatusMonitor(prober=lambda w: answers[w.url], monotonic=lambda: clock.mono, log=lambda t: None,
+                            threaded=False)
+    controller.status = monitor
+    status_config = cfg.parse(TEXT + """
+[[pages.keys]]
+row = 0
+column = 1
+label = "Box"
+label_active = "Box up"
+action = { type = "status", url = "http://box.test/", every_ms = 5000 }
+""", path.parent, path)
+    controller.reload(status_config)
+    controller.switch_page("Second")
+    assert monitor.ok("http://box.test/") is None
+    active, _face = controller._key_face(controller.page.keys[(0, 1)], (0, 1), set(), controller.page)
+    assert active is False
+    answers["http://box.test/"] = True
+    monitor.poll_once()
+    active, _face = controller._key_face(controller.page.keys[(0, 1)], (0, 1), set(), controller.page)
+    assert active is True
+    controller.handle_event(KeyEvent(10, True))
+    assert urls == ["http://box.test/"]
+    controller.reload(cfg.parse(TEXT, path.parent, path))
+    assert monitor.ok("http://box.test/") is None
+
+
+def test_night_brightness_dims_after_sunset_and_restores_at_sunrise(setup, monkeypatch):
+    """<summary>
+    With a night brightness set the deck dims when the sun goes down and
+    comes back to the configured level when it rises, checked once a minute
+    and sent only on the change.
+    </summary>
+    """
+    from deckplate import controller as controller_module
+    controller, deck, clock, urls, path = setup
+    night = {"on": False}
+    monkeypatch.setattr(controller_module.sun, "is_night", lambda lat, lon, now: night["on"])
+    text = TEXT.replace("brightness = 70", "brightness = 70\nnight_brightness = 20")
+    text = text.replace("sleep_after_minutes = 1", "sleep_after_minutes = 0")  # the check only runs awake
+    controller.reload(cfg.parse(text, path.parent, path))
+    controller.start()
+    deck.reset()
+    controller.tick()
+    assert controller.brightness == 70
+    night["on"] = True
+    controller.tick()  # within the minute: not checked again
+    assert controller.brightness != 20
+    clock.advance(61)
+    controller.tick()
+    assert controller.brightness == 20
+    assert ("brightness", 20) in deck.calls
+    clock.advance(61)
+    controller.tick()
+    assert controller.brightness == 20  # no change, nothing resent
+    night["on"] = False
+    clock.advance(61)
+    controller.tick()
+    assert controller.brightness == controller.config.deck.brightness
