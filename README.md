@@ -120,7 +120,10 @@ The config is documented by its own comments. In short:
   `brightness` in the morning.
 - `[kodi]` where Kodi's JSON RPC answers (`url`, normally port 8080 and
   `/jsonrpc`) and an optional `token_file` holding `Basic` and the base64 of
-  `user:password`, for the `kodi` keys described below.
+  `user:password`, for the `kodi` keys described below. The configuration
+  page writes that file for you from a username and password, under
+  `~/.deckplate-tokens` with owner only permissions, and stores only its
+  path; the password never goes in the config.
 - `[strip]` the three right hand panels: `clock`, `date`, `weather`,
   `playing` (what the desktop's media player is playing, read over the
   session bus), `system` (processor temperature, load and memory, read from

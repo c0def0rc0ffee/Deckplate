@@ -6,6 +6,11 @@
   second Kodi in another room; the `[kodi]` credentials are never sent to
   a key's own address. New `pause` and `play` shorthands, which leave the
   player paused or playing rather than toggling it.
+- The configuration page takes a username and password for Kodi, on a key
+  or in the Kodi settings, and has the daemon write them as a `Basic`
+  credentials file under `~/.deckplate-tokens` with owner only permissions,
+  storing only the file's path. New `POST /api/credentials` behind it, which
+  refuses a relative path or one inside the config folder.
 - A `weather` key: the conditions glyph, temperature and wind speed drawn
   on the key, redrawn as the reading changes, and a weather site opened on
   the press, a map at the coordinates unless the key names a `url`. The

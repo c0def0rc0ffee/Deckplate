@@ -1074,3 +1074,55 @@ def test_theme_icon_copies_in_the_images_folder_are_not_listed_as_uploads(api):
     assert [d["name"] for d in listing["details"]] == ["mine.png"]
     assert listing["theme_copies"] == {"sc-hangar.png": "theme:space-game/hangar"}
     assert request(srv, "GET", "/api/images/sc-hangar.png")[0] == 200
+
+
+def test_credentials_are_written_as_a_basic_file_readable_by_the_owner_alone(api, tmp_path):
+    """<summary>
+    The credentials endpoint writes "Basic" and the base64 of user:password
+    to the named file, making the folder, with owner only permissions on
+    both, and answers with the path and nothing else.
+    </summary>
+    """
+    import base64
+    import stat
+    srv, _ = api
+    # Beside the config folder, not inside it: inside is refused by design.
+    target = tmp_path.parent / (tmp_path.name + "-tokens") / "kodi-other"
+    status, _ctype, raw = request(srv, "POST", "/api/credentials",
+                                  body={"path": str(target), "username": "kodi", "password": "s3cret"})
+    assert status == 200
+    assert json.loads(raw) == {"ok": True, "path": str(target)}
+    expected = "Basic " + base64.b64encode(b"kodi:s3cret").decode("ascii") + "\n"
+    assert target.read_text() == expected
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
+    assert stat.S_IMODE(target.parent.stat().st_mode) == 0o700
+    status, _ctype, raw = request(srv, "POST", "/api/credentials",
+                                  body={"path": str(target), "username": "kodi", "password": "newer"})
+    assert status == 200 and target.read_text().startswith("Basic ") and target.read_text() != expected
+
+
+@pytest.mark.parametrize("body, message", [
+    ({"username": "a", "password": "b"}, "'path'"),
+    ({"path": "tokens/kodi", "username": "a", "password": "b"}, "absolute"),
+    ({"path": "/tmp/x", "username": "", "password": "b"}, "'username'"),
+    ({"path": "/tmp/x", "username": "a"}, "'password'"),
+])
+def test_credentials_with_a_missing_field_or_a_relative_path_are_refused(api, body, message):
+    """<summary>Each fault is a 400 with the field named, and nothing is written.</summary>"""
+    srv, _ = api
+    status, _ctype, raw = request(srv, "POST", "/api/credentials", body=body)
+    assert status == 400 and message in json.loads(raw)["error"]
+
+
+def test_credentials_inside_the_config_folder_are_refused(api, tmp_path):
+    """<summary>
+    The config folder is edited in plain text and backed up, so a credentials
+    file beside the config is refused by name.
+    </summary>
+    """
+    srv, _ = api
+    beside = tmp_path / "kodi-token"
+    status, _ctype, raw = request(srv, "POST", "/api/credentials",
+                                  body={"path": str(beside), "username": "a", "password": "b"})
+    assert status == 400 and "outside the config folder" in json.loads(raw)["error"]
+    assert not beside.exists()

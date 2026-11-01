@@ -1738,6 +1738,10 @@
         box.append(el("div", { class: "field" }, [el("label", { text: "Another player" }), url,
           el("div", { class: "help", text: "Leave empty for the Kodi in the settings below the pages. Give an address and this key talks to that player instead, with only the credentials file beside it." })]));
         box.append(el("div", { class: "field" }, [el("label", { text: "Its credentials file" }), tokenFile]));
+        box.append(credentialsFields(() => tokenFile.value.trim(), () => kodiTokenPath(url.value.trim()), path => {
+          tokenFile.value = path;
+          change(d => { getAction().token_file = path; }, { silent: true });
+        }));
         break;
       }
       case "page": {
@@ -2407,6 +2411,53 @@
    * <param name="labelText">The field's label.</param>
    * <returns>The field element.</returns>
    */
+  /**
+   * <summary>
+   * Username and password boxes that write a credentials file through the
+   * daemon, so a Kodi key or the Kodi settings can carry the file's path and
+   * never the password.
+   * </summary>
+   * <param name="currentPath">Gives the credentials file path held now, or "".</param>
+   * <param name="defaultPath">Gives the path to write when none is held.</param>
+   * <param name="onWritten">Called with the path once the file exists, to store it.</param>
+   * <returns>The field element.</returns>
+   * <remarks>
+   * The password is sent once, to the daemon on this machine, which writes
+   * "Basic" and the base64 of user:password with owner only permissions. It is
+   * never put in the document, and the box is emptied once the file is written.
+   * </remarks>
+   */
+  function credentialsFields(currentPath, defaultPath, onWritten) {
+    const user = el("input", { type: "text", autocomplete: "off", placeholder: "username" });
+    const pass = el("input", { type: "password", autocomplete: "new-password", placeholder: "password" });
+    const write = el("button", { type: "button", class: "ghost small", text: "Write credentials file" });
+    const note = el("span", { class: "muted", text: "" });
+    write.addEventListener("click", async () => {
+      const path = currentPath() || defaultPath();
+      note.textContent = "writing";
+      try {
+        const reply = await apiPost("/api/credentials", { path, username: user.value, password: pass.value });
+        pass.value = "";
+        onWritten(reply.path);
+        note.textContent = "written to " + reply.path;
+      } catch (err) {
+        note.textContent = "not written: " + err.message;
+      }
+    });
+    return el("div", { class: "field" }, [el("label", { text: "Username and password" }),
+      el("div", { class: "inline" }, [user, pass, write]), note,
+      el("div", { class: "help", text: "Written once, by the daemon on this machine, to the credentials file above with owner only permissions. The password is never kept in the config." })]);
+  }
+  /**
+   * <summary>The default credentials file for a Kodi address: one per player, under the tokens folder.</summary>
+   * <param name="url">The player's JSON RPC address, or "" for the Kodi in the settings.</param>
+   * <returns>A path under ~/.deckplate-tokens.</returns>
+   */
+  function kodiTokenPath(url) {
+    let host = "";
+    try { host = new URL(url).hostname; } catch (err) { host = ""; }
+    return "~/.deckplate-tokens/kodi" + (host ? "-" + host.replace(/[^A-Za-z0-9.]/g, "_") : "");
+  }
   const textField = (section, name, labelText) => {
     const input = el("input", { type: "text", value: doc[section][name] || "" });
     input.addEventListener("input", () => change(d => { d[section][name] = input.value; }, { silent: true }));
@@ -2638,12 +2689,17 @@
     ]));
 
     // Server, read only
+    const kodiTokenField = textField("kodi", "token_file", "Credentials file");
     root.append(el("div", {}, [
       el("h3", { text: "Media centre" }),
       el("p", { class: "muted", text: "Where Kodi answers, for every key that sends it a remote control action." }),
       textField("kodi", "url", "JSON RPC address"),
-      textField("kodi", "token_file", "Credentials file"),
-      el("div", { class: "help", text: "A file outside the config folder holding \"Basic\" and the base64 of user:password, as Kodi's web interface wants. Leave empty for none." }),
+      kodiTokenField,
+      el("div", { class: "help", text: "A file outside the config folder holding \"Basic\" and the base64 of user:password, as Kodi's web interface wants. Leave empty for none, or write one from a username and password below." }),
+      credentialsFields(() => (doc.kodi.token_file || "").trim(), () => kodiTokenPath(doc.kodi.url || ""), path => {
+        kodiTokenField.querySelector("input").value = path;
+        change(d => { d.kodi.token_file = path; }, { silent: true });
+      }),
     ]));
 
     root.append(el("div", {}, [
