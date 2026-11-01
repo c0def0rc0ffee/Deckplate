@@ -6,9 +6,10 @@
   until pressed again, through the desktop's screensaver inhibit and a
   pointer nudge through the X test extension, either half optional. `dnd`
   holds notifications back through the notification server's inhibit.
-  `status` watches a web address on a thread of its own and lights the
-  key's active face while it answers, with `expect`, `insecure` and `open`
-  to tune it; the press opens the address. `kodi` sends Kodi a remote
+  `status` watches a web address on a thread of its own and shows the
+  answer as a lamp in the key's top right corner, green, red or grey, or
+  swaps the key's whole face when it has an active picture or label, with
+  `expect`, `insecure` and `open` to tune it; the press opens the address. `kodi` sends Kodi a remote
   control action or any JSON RPC method, with the player's address and
   credentials file in a new `[kodi]` table. All four are on the
   configuration page.

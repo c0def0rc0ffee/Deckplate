@@ -586,6 +586,38 @@ def with_mark(tile: Image.Image, colour: tuple[int, int, int]) -> Image.Image:
     return _draw_mark(tile.copy(), colour)
 
 
+# The status dot in a key's top right corner: up, down and not yet asked.
+DOT_UP = (76, 175, 125)
+DOT_DOWN = (232, 96, 96)
+DOT_UNKNOWN = (120, 130, 140)
+DOT_RADIUS = 0.085
+DOT_INSET = 0.13
+
+
+def with_dot(tile: Image.Image, colour: tuple[int, int, int]) -> Image.Image:
+    """<summary>
+    A copy of a tile with a small round lamp in its top right corner.
+    </summary>
+    <param name="tile">The tile. It is not modified.</param>
+    <param name="colour">The lamp's RGB colour, one of the DOT constants.</param>
+    <returns>A new tile the same size.</returns>
+    <remarks>
+    How a status key shows whether its address answers without giving up
+    its picture: a lamp the size of a fingertip, with a dark rim so it reads
+    on a light picture as well as on the navy. Drawn last, over everything,
+    so a label band or a ring never covers it.
+    </remarks>
+    """
+    out = tile.copy()
+    draw = ImageDraw.Draw(out)
+    size = out.width
+    r = max(3, round(size * DOT_RADIUS))
+    cx, cy = size - round(size * DOT_INSET), round(size * DOT_INSET)
+    draw.ellipse([cx - r - 2, cy - r - 2, cx + r + 2, cy + r + 2], fill=(16, 22, 32))
+    draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=colour)
+    return out
+
+
 def with_ring(tile: Image.Image, fraction: float, colour: tuple[int, int, int]) -> Image.Image:
     """<summary>
     Draw a progress ring round the edge of a tile, clockwise from the top.

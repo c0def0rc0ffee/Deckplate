@@ -489,3 +489,18 @@ def test_now_playing_and_system_tiles_render_and_sign():
         tiles.strip_signature(system, now, None, system=SystemReading(1, 2, 4))
     assert differs_from_blank(tiles.strip_tile(playing, now, None, 95, "", (78, 78), None, playing=a))
     assert differs_from_blank(tiles.strip_tile(system, now, None, 95, "", (78, 78), None, system=SystemReading(1, 2, 3)))
+
+
+def test_the_status_lamp_sits_in_the_top_right_corner():
+    """<summary>
+    The lamp is drawn over the tile in the colour given, in the top right,
+    and the tile handed in is left alone.
+    </summary>
+    """
+    base = tiles.key_tile(None, SIZE)
+    lit = tiles.with_dot(base, tiles.DOT_UP)
+    cx, cy = SIZE - round(SIZE * tiles.DOT_INSET), round(SIZE * tiles.DOT_INSET)
+    assert lit.getpixel((cx, cy)) == tiles.DOT_UP
+    assert base.getpixel((cx, cy)) != tiles.DOT_UP
+    assert lit.getpixel((SIZE // 2, SIZE // 2)) == base.getpixel((SIZE // 2, SIZE // 2))
+    assert tiles.with_dot(base, tiles.DOT_DOWN).getpixel((cx, cy)) == tiles.DOT_DOWN

@@ -2167,8 +2167,48 @@ action = { type = "status", url = "http://box.test/", every_ms = 5000 }
     assert active is True
     controller.handle_event(KeyEvent(10, True))
     assert urls == ["http://box.test/"]
+    # With an active label the key swaps its face and wears no lamp.
+    assert controller._key_dot(controller.page.keys[(0, 1)]) is None
     controller.reload(cfg.parse(TEXT, path.parent, path))
     assert monitor.ok("http://box.test/") is None
+
+
+def test_a_status_key_without_an_active_face_wears_the_lamp(setup):
+    """<summary>
+    A status key with no active picture or label shows a grey lamp before
+    the first answer, green once up and red once down, drawn in the key's
+    top right corner, and the lamp is part of what decides a redraw.
+    </summary>
+    """
+    from deckplate import tiles as tiles_module
+    from deckplate.status import StatusMonitor
+    controller, deck, clock, urls, path = setup
+    answers = {"http://box.test/": True}
+    monitor = StatusMonitor(prober=lambda w: answers[w.url], monotonic=lambda: clock.mono, log=lambda t: None,
+                            threaded=False)
+    controller.status = monitor
+    controller.reload(cfg.parse(TEXT + """
+[[pages.keys]]
+row = 0
+column = 1
+label = "Box"
+action = { type = "status", url = "http://box.test/" }
+""", path.parent, path))
+    controller.switch_page("Second")
+    key = controller.page.keys[(0, 1)]
+    assert controller._key_dot(key) == tiles_module.DOT_UNKNOWN
+    monitor.poll_once()
+    assert controller._key_dot(key) == tiles_module.DOT_UP
+    size = controller.deck.image_size
+    image, frames, _fps = controller._draw_key(0, 1, size, set())
+    cx, cy = size - round(size * tiles_module.DOT_INSET), round(size * tiles_module.DOT_INSET)
+    assert image.getpixel((cx, cy)) == tiles_module.DOT_UP and frames is None
+    before = controller._face_signature(0, 1, set())
+    answers["http://box.test/"] = False
+    clock.advance(61)
+    monitor.poll_once()
+    assert controller._key_dot(key) == tiles_module.DOT_DOWN
+    assert controller._face_signature(0, 1, set()) != before
 
 
 def test_night_brightness_dims_after_sunset_and_restores_at_sunrise(setup, monkeypatch):

@@ -255,8 +255,11 @@ a step of a multi action.
   below 400, or, with `expect = "text"`, that the text is in the page.
   `insecure = true` accepts a certificate that does not verify, as a
   firewall's own page has. The press opens the address unless
-  `open = false`. The key's active face is what shows the state, so give it
-  one.
+  `open = false`. The key shows the state as a small lamp in its top right
+  corner, green while the address answers, red while it does not and grey
+  before the first answer. Give the key an `image_active` or
+  `label_active` instead and it swaps its whole face while the address
+  answers, with no lamp.
 - `kodi` sends Kodi a remote control action over its JSON RPC:
   `{ type = "kodi", do = "play_pause" }`, with `do` one of play_pause, stop,
   next, previous, up, down, left, right, select, back, home, info, context,

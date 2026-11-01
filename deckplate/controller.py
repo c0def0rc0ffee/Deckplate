@@ -821,7 +821,7 @@ class Controller:
         <param name="row">Row from 0 at the top.</param>
         <param name="column">Column from 0 at the left.</param>
         <param name="holding">The task keys running now.</param>
-        <returns>(border colour, active, face).</returns>
+        <returns>(border colour, active, face, status dot colour).</returns>
         <remarks>Compared with the last one drawn to decide whether the key
         needs sending again. A face changes once a second at most, since its
         text is whole seconds and its ring is rounded to the pixel.</remarks>
@@ -831,7 +831,32 @@ class Controller:
         active, face = self._key_face(key, (row, column), holding, self.page)
         if face is not None and face.ring is not None:
             face = replace(face, ring=round(face.ring * 100) / 100)
-        return mark, active, face
+        return mark, active, face, self._key_dot(key)
+
+    def _key_dot(self, key) -> tuple[int, int, int] | None:
+        """<summary>
+        The colour of the status lamp for this key, or None for no lamp.
+        </summary>
+        <param name="key">The key to judge, or None for an empty position.</param>
+        <returns>Green while the address answers, red while it does not, grey
+        before the first answer; None for a key with no status action, or
+        one that swaps its picture instead.</returns>
+        <remarks>
+        A status key that carries an active picture or label has chosen to
+        show its state by swapping the whole face, so it gets no lamp on
+        top: one indicator per key. The first status action among the three
+        gestures is the one shown.
+        </remarks>
+        """
+        if key is None or key.image_active or key.label_active:
+            return None
+        for action in key.actions():
+            if action is not None and action.type == "status":
+                up = self.status.ok(action.params["url"])
+                if up is None:
+                    return tiles.DOT_UNKNOWN
+                return tiles.DOT_UP if up else tiles.DOT_DOWN
+        return None
 
     def _draw_key(self, row: int, column: int, size: int, holding, page=None, config=None) -> tuple:
         """<summary>
@@ -856,6 +881,30 @@ class Controller:
         page = self.page if page is None else page
         config = self.config if config is None else config
         key = page.keys.get((row, column))
+        image, frames, fps = self._draw_key_face(key, row, column, size, holding, page, config)
+        dot = self._key_dot(key)
+        if dot is not None:
+            image = tiles.with_dot(image, dot)
+            if frames is not None:
+                frames = [tiles.with_dot(frame, dot) for frame in frames]
+        return image, frames, fps
+
+    def _draw_key_face(self, key, row: int, column: int, size: int, holding, page, config) -> tuple:
+        """<summary>
+        Draw a key's face before the status lamp goes on: picture, label,
+        border, live text and ring.
+        </summary>
+        <param name="key">The key's config, or None for an empty position.</param>
+        <param name="row">Row from 0 at the top.</param>
+        <param name="column">Column from 0 at the left.</param>
+        <param name="size">Pixel size to draw at.</param>
+        <param name="holding">Hold combos currently down.</param>
+        <param name="page">The page the key is on.</param>
+        <param name="config">The config to read the background from.</param>
+        <returns>(image, frames, fps), as <see cref="_draw_key"/> returns.</returns>
+        <remarks>Split from <see cref="_draw_key"/> only so the lamp can be
+        laid over every return path, still and animated alike.</remarks>
+        """
         mark = self._key_mark(key, holding)
         active, face = self._key_face(key, (row, column), holding, page)
         if active and key is not None and (key.image_active or key.label_active):
