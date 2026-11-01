@@ -134,10 +134,11 @@ tiles = ["clock", "date", "weather"]
 #              the press opens url, or a map site at the coordinates when none is given
 #   system     draws the processor temperature, load and memory on the key; the press
 #              launches command, or the first desktop system monitor found
-#   kodi       do = "play_pause" | "stop" | "next" | "previous" | "up" | "down" | "left" |
-#              "right" | "select" | "back" | "home" | "info" | "context" | "osd" |
-#              "volume_up" | "volume_down" | "mute", or method = "..." with params = { };
-#              where Kodi is comes from the [kodi] table
+#   kodi       do = "play_pause" | "pause" | "play" | "stop" | "next" | "previous" | "up" |
+#              "down" | "left" | "right" | "select" | "back" | "home" | "info" | "context" |
+#              "osd" | "volume_up" | "volume_down" | "mute", or method = "..." with
+#              params = { }; where Kodi is comes from the [kodi] table unless the key
+#              gives its own url (and token_file) for a second player
 #   page       page = "Name" | "next" | "previous"
 #   brightness value = 50  or  delta = -10
 #   sleep      turns the screens off until a key is pressed

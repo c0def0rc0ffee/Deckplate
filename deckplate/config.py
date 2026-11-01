@@ -1526,7 +1526,16 @@ def _parse_action(table: Any, where: str, nested: bool = False) -> Action:
             raise ConfigError(f"{where}: 'command' must be text")
         params["command"] = command.strip()
     elif kind == "kodi":
-        # Either a shorthand word or a raw method; the address is in [kodi].
+        # Either a shorthand word or a raw method; the address is in [kodi]
+        # unless the key names its own, for a second player elsewhere.
+        url = _str(table, "url", where)
+        if url:
+            if not url.startswith(("http://", "https://")):
+                raise ConfigError(f"{where}: 'url' must start with http:// or https://")
+            params["url"] = url
+        token_file = _str(table, "token_file", where)
+        if token_file:
+            params["token_file"] = token_file
         do = _str(table, "do", where)
         if do:
             from . import kodi as kodi_module

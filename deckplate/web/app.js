@@ -1707,7 +1707,7 @@
           el("option", { value: "method", text: "A raw JSON RPC method" }),
         ]);
         mode.value = action.method && !action.do ? "method" : "do";
-        const shorthand = ["play_pause", "stop", "next", "previous", "up", "down", "left", "right", "select",
+        const shorthand = ["play_pause", "pause", "play", "stop", "next", "previous", "up", "down", "left", "right", "select",
           "back", "home", "info", "context", "osd", "volume_up", "volume_down", "mute"];
         const pick = el("select");
         for (const name of shorthand) pick.append(el("option", { value: name, text: name.replace("_", " ") }));
@@ -1724,8 +1724,20 @@
           if (mode.value === "do") { a.do = pick.value; delete a.method; delete a.params; } else { a.method = method.value.trim(); delete a.do; }
         }, { silent: true }); });
         show();
+        const url = el("input", { type: "text", value: action.url || "", placeholder: "http://player:8080/jsonrpc" });
+        url.addEventListener("input", () => change(d => {
+          const a = getAction();
+          if (url.value.trim()) a.url = url.value.trim(); else delete a.url;
+        }, { silent: true }));
+        const tokenFile = el("input", { type: "text", value: action.token_file || "", placeholder: "~/.deckplate-tokens/kodi-other" });
+        tokenFile.addEventListener("input", () => change(d => {
+          const a = getAction();
+          if (tokenFile.value.trim()) a.token_file = tokenFile.value.trim(); else delete a.token_file;
+        }, { silent: true }));
         box.append(el("div", { class: "field" }, [el("label", { text: "Send" }), mode]), doField, methodField);
-        box.append(el("div", { class: "help", text: "Where Kodi is comes from the Kodi settings below the pages." }));
+        box.append(el("div", { class: "field" }, [el("label", { text: "Another player" }), url,
+          el("div", { class: "help", text: "Leave empty for the Kodi in the settings below the pages. Give an address and this key talks to that player instead, with only the credentials file beside it." })]));
+        box.append(el("div", { class: "field" }, [el("label", { text: "Its credentials file" }), tokenFile]));
         break;
       }
       case "page": {

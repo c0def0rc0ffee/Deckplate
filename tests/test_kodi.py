@@ -27,6 +27,8 @@ class Context:
 def test_shorthand_resolves_and_raw_methods_pass_through():
     """<summary>Every shorthand maps to a method, and a raw method keeps its params.</summary>"""
     assert kodi.resolve({"do": "play_pause"}) == ("Player.PlayPause", {}, True)
+    assert kodi.resolve({"do": "pause"}) == ("Player.PlayPause", {"play": False}, True)
+    assert kodi.resolve({"do": "play"}) == ("Player.PlayPause", {"play": True}, True)
     assert kodi.resolve({"do": "up"}) == ("Input.Up", {}, False)
     assert kodi.resolve({"method": "GUI.ShowNotification", "params": {"title": "a", "message": "b"}}) == \
         ("GUI.ShowNotification", {"title": "a", "message": "b"}, False)
@@ -87,3 +89,20 @@ def test_a_bad_shorthand_fails_the_action_without_raising():
     runner, sent, lines = make_runner([])
     assert runner.run(Action("kodi", {"do": "nope"})) is False
     assert sent == [] and any("failed" in line for line in lines)
+
+
+def test_a_key_with_its_own_address_talks_to_that_player_without_the_shared_credentials():
+    """<summary>
+    A kodi key naming a url sends both requests there, and the [kodi]
+    token stays home; a token_file on the key is the one that goes.
+    </summary>
+    """
+    runner, sent, _lines = make_runner([{"result": [{"playerid": 1, "type": "video"}]}, {"result": "OK"}],
+                                       token="~/.deckplate-tokens/kodi")
+    assert runner.run(Action("kodi", {"do": "pause", "url": "http://other.test/jsonrpc"}))
+    assert [item[0] for item in sent] == ["http://other.test/jsonrpc"] * 2
+    assert sent[0][1] == {} and sent[1][1] == {}
+    assert sent[1][2]["params"] == {"play": False, "playerid": 1}
+    runner, sent, _lines = make_runner([{"result": "OK"}], token="~/.deckplate-tokens/kodi")
+    assert runner.run(Action("kodi", {"do": "home", "url": "http://other.test/jsonrpc", "token_file": "~/.deckplate-tokens/other"}))
+    assert sent[0][0] == "http://other.test/jsonrpc" and sent[0][1] == {"Authorization": "Basic abc"}

@@ -1318,6 +1318,11 @@ action = { type = "kodi", do = "play_pause" }
 row = 1
 column = 0
 action = { type = "kodi", method = "GUI.ShowNotification", params = { title = "a", message = "b" } }
+
+[[pages.keys]]
+row = 1
+column = 1
+action = { type = "kodi", do = "pause", url = "http://other.test/jsonrpc", token_file = "~/.deckplate-tokens/other" }
 """, "/base")
     keys = config.pages[0].keys
     assert keys[(0, 0)].action.params == {"inhibit": True, "nudge": True, "every_ms": 60000}
@@ -1327,6 +1332,8 @@ action = { type = "kodi", method = "GUI.ShowNotification", params = { title = "a
                                           "open": False, "expect": "ok"}
     assert keys[(0, 4)].action.params == {"do": "play_pause"}
     assert keys[(1, 0)].action.params == {"method": "GUI.ShowNotification", "params": {"title": "a", "message": "b"}}
+    assert keys[(1, 1)].action.params == {"do": "pause", "url": "http://other.test/jsonrpc",
+                                          "token_file": "~/.deckplate-tokens/other"}
     assert config.deck.night_brightness == 25
     assert config.kodi.url == "http://player.test:8080/jsonrpc" and config.kodi.token_file == "~/.deckplate-tokens/kodi"
     document = cfg.document_from_config(config)
@@ -1340,6 +1347,7 @@ action = { type = "kodi", method = "GUI.ShowNotification", params = { title = "a
     ('action = { type = "stay_awake", nudge = "yes" }', "'nudge' must be true or false"),
     ('action = { type = "kodi", do = "dance" }', "unknown kodi action"),
     ('action = { type = "kodi", params = 3 }', "'params' must be a table"),
+    ('action = { type = "kodi", do = "pause", url = "player:8080" }', "'url' must start with http"),
     ('action = { type = "multi", steps = [{ type = "dnd" }] }', "cannot be a step"),
     ('action = { type = "toggle", on = { type = "status", url = "https://a.test/" } }', "cannot be a step"),
 ])

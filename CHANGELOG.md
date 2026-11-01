@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- A `kodi` key can name its own `url`, and a `token_file` beside it, for a
+  second Kodi in another room; the `[kodi]` credentials are never sent to
+  a key's own address. New `pause` and `play` shorthands, which leave the
+  player paused or playing rather than toggling it.
 - A `weather` key: the conditions glyph, temperature and wind speed drawn
   on the key, redrawn as the reading changes, and a weather site opened on
   the press, a map at the coordinates unless the key names a `url`. The

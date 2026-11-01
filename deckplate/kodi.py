@@ -8,7 +8,12 @@ and so on, and this module turns the word into the method and parameters
 Kodi wants. A key may also give a raw ``method`` and ``params`` for anything
 not listed. The address and the optional credentials live in the config's
 [kodi] table, shared by every kodi key, so a player that moves is edited in
-one place.
+one place. A key may carry its own ``url`` and ``token_file`` instead, for a
+second Kodi in another room: that key talks to its own player and leaves the
+[kodi] table alone.
+
+``pause`` and ``play`` are Player.PlayPause with ``play`` set, so a pause key
+pressed twice leaves the player paused rather than toggling it back on.
 
 The player actions need a player id that only Kodi knows, so the runner asks
 Player.GetActivePlayers first and uses the first one. With nothing playing
@@ -26,6 +31,8 @@ from typing import Any
 # Shorthand name: (method, params, needs a player id)
 SHORTHAND: dict[str, tuple[str, dict[str, Any], bool]] = {
     "play_pause": ("Player.PlayPause", {}, True),
+    "pause": ("Player.PlayPause", {"play": False}, True),
+    "play": ("Player.PlayPause", {"play": True}, True),
     "stop": ("Player.Stop", {}, True),
     "next": ("Player.GoTo", {"to": "next"}, True),
     "previous": ("Player.GoTo", {"to": "previous"}, True),

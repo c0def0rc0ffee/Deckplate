@@ -273,12 +273,15 @@ a step of a multi action.
   desktop monitors found on the machine, or `command = "..."` names one.
   Leave the key without a picture.
 - `kodi` sends Kodi a remote control action over its JSON RPC:
-  `{ type = "kodi", do = "play_pause" }`, with `do` one of play_pause, stop,
-  next, previous, up, down, left, right, select, back, home, info, context,
-  osd, volume_up, volume_down and mute, or `method = "GUI.ShowNotification"`
-  with a `params` table for anything else. The player actions find the
-  active player first and do nothing, with a log line, when nothing is
-  playing. Where Kodi is comes from `[kodi]`.
+  `{ type = "kodi", do = "play_pause" }`, with `do` one of play_pause,
+  pause, play, stop, next, previous, up, down, left, right, select, back,
+  home, info, context, osd, volume_up, volume_down and mute, or
+  `method = "GUI.ShowNotification"` with a `params` table for anything else.
+  The player actions find the active player first and do nothing, with a
+  log line, when nothing is playing. Where Kodi is comes from `[kodi]`,
+  unless the key carries its own `url`, and then an optional `token_file`,
+  for a second Kodi in another room: that key talks to its own player and
+  the `[kodi]` credentials are not sent to it.
 
 ### The other face of a key
 

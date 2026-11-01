@@ -593,25 +593,31 @@ class ActionRunner:
         action needs one.
         </summary>
         <param name="params">A kodi action's params: ``do``, or ``method``
-        with ``params``.</param>
+        with ``params``, and an optional ``url`` and ``token_file`` for a
+        player other than the one in [kodi].</param>
         <remarks>A player action with nothing playing is logged and dropped:
         Kodi would answer with an error for a missing player id, and the log
-        line says why in plain words instead.</remarks>
+        line says why in plain words instead.
+
+        A key with its own ``url`` is another machine, so the [kodi]
+        credentials are not sent to it; only a ``token_file`` on the key is.
+        A key without a ``url`` uses the [kodi] address and credentials.</remarks>
         <exception cref="ValueError">The action names nothing Kodi knows.</exception>
         <exception cref="requests.RequestException">Kodi could not be reached.</exception>"""
         method, body_params, needs_player = kodi_module.resolve(params)
+        url = params.get("url") or self.kodi.url
+        token_file = params.get("token_file") or (self.kodi.token_file if not params.get("url") else None)
         headers = {}
-        if self.kodi.token_file:
-            headers["Authorization"] = self.read_token(self.kodi.token_file)
+        if token_file:
+            headers["Authorization"] = self.read_token(token_file)
         if needs_player:
-            reply = self.send_json(self.kodi.url, headers, kodi_module.payload("Player.GetActivePlayers"),
-                                   self.kodi.timeout_s)
+            reply = self.send_json(url, headers, kodi_module.payload("Player.GetActivePlayers"), self.kodi.timeout_s)
             player = kodi_module.first_player(reply)
             if player is None:
                 self.log(f"kodi {params.get('do', method)}: nothing is playing")
                 return
             body_params["playerid"] = player
-        self.send_json(self.kodi.url, headers, kodi_module.payload(method, body_params), self.kodi.timeout_s)
+        self.send_json(url, headers, kodi_module.payload(method, body_params), self.kodi.timeout_s)
 
     def _chord(self, params: dict) -> None:
         """<summary>
