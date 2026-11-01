@@ -65,6 +65,7 @@ latitude = 51.5072
 longitude = -0.1276
 location_name = "London"
 units = "metric"        # metric or imperial
+# wind_units = "mph"    # kmh or mph for the wind on its own; follows units when left out
 refresh_minutes = 10
 
 [strip]

@@ -112,8 +112,9 @@ The config is documented by its own comments. In short:
   `long_press_ms` and `double_press_ms` are the two thresholds for second
   actions, and `follow_focus` with `focus_poll_ms` turns on per application
   pages. Both are described below.
-- `[weather]` coordinates and units. `deckplate geocode "Town"` prints
-  the coordinates for a place name. The same coordinates drive
+- `[weather]` coordinates and units, with `wind_units = "kmh"` or `"mph"`
+  for the wind on its own, following `units` when not set. `deckplate
+  geocode "Town"` prints the coordinates for a place name. The same coordinates drive
   `night_brightness` in `[deck]`: set it above 0 and the deck dims to that
   level between sunset and sunrise, worked out locally, and comes back to
   `brightness` in the morning.

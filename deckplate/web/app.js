@@ -1150,8 +1150,8 @@
       case "dnd": return { type };
       case "status": return { type, url: "https://", every_ms: 60000, insecure: false, expect: "", open: true };
       case "kodi": return { type, do: "play_pause" };
-      case "weather": return { type, url: "" };
-      case "system": return { type, command: "" };
+      case "weather": return { type };
+      case "system": return { type };
     }
     return { type };
   }
@@ -1683,14 +1683,20 @@
       }
       case "weather": {
         const url = el("input", { type: "text", value: action.url || "", placeholder: "Leave empty for a map site at the weather coordinates" });
-        url.addEventListener("input", () => change(d => { getAction().url = url.value.trim(); }, { silent: true }));
+        url.addEventListener("input", () => change(d => {
+          const a = getAction();
+          if (url.value.trim()) a.url = url.value.trim(); else delete a.url;
+        }, { silent: true }));
         box.append(el("div", { class: "field" }, [el("label", { text: "Site to open" }), url,
           el("div", { class: "help", text: "The key draws the reading from the weather settings below the pages. Give it no picture, or the picture wins." })]));
         break;
       }
       case "system": {
         const command = el("input", { type: "text", value: action.command || "", placeholder: "Leave empty for the first system monitor found" });
-        command.addEventListener("input", () => change(d => { getAction().command = command.value.trim(); }, { silent: true }));
+        command.addEventListener("input", () => change(d => {
+          const a = getAction();
+          if (command.value.trim()) a.command = command.value.trim(); else delete a.command;
+        }, { silent: true }));
         box.append(el("div", { class: "field" }, [el("label", { text: "Program to open" }), command,
           el("div", { class: "help", text: "The key draws the temperature, processor and memory from the machine itself. Give it no picture, or the picture wins." })]));
         break;
@@ -2447,6 +2453,16 @@
       textField("weather", "location_name", "Shown as"),
       el("div", { class: "row" }, [numberField("weather", "latitude", "Latitude", -90, 90), numberField("weather", "longitude", "Longitude", -180, 180)]),
       selectField("weather", "units", "Units", [["metric", "Celsius"], ["imperial", "Fahrenheit"]]),
+      (() => {
+        const select = el("select", {}, [
+          el("option", { value: "", text: "Follow the units above" }),
+          el("option", { value: "kmh", text: "km/h" }),
+          el("option", { value: "mph", text: "mph" }),
+        ]);
+        select.value = doc.weather.wind_units || "";
+        select.addEventListener("change", () => change(d => { d.weather.wind_units = select.value || null; }, { silent: true }));
+        return el("div", { class: "field" }, [el("label", { text: "Wind speed" }), select]);
+      })(),
       numberField("weather", "refresh_minutes", "Refresh every (minutes)", 1, 1440,
         "The weather is one setting, shared by every panel that shows it."),
     ]);

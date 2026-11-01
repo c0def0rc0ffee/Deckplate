@@ -6,7 +6,7 @@
   on the key, redrawn as the reading changes, and a weather site opened on
   the press, a map at the coordinates unless the key names a `url`. The
   weather reading now carries the wind speed, in km/h or mph by the units
-  setting.
+  setting, or by `wind_units` in `[weather]` when that is set on its own.
 - A `system` key: the processor temperature, load and memory drawn on the
   key as the strip's system panel draws them, and the system monitor
   launched on the press, the first desktop monitor found unless the key

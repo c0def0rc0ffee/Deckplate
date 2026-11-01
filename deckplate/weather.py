@@ -33,6 +33,8 @@ from .config import WeatherSettings
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search"
 USER_AGENT = "deckplate"
+# The wind unit codes the forecast request takes, and how each is printed.
+WIND_UNIT_TEXT = {"kmh": "km/h", "mph": "mph"}
 
 # WMO weather interpretation codes as used by Open Meteo: (short label, icon).
 # The labels are deliberately short because they are drawn along the bottom of
@@ -189,16 +191,16 @@ def fetch(settings: WeatherSettings, timeout: float = 10) -> Observation:
         "longitude": settings.longitude,
         "current": "temperature_2m,weather_code,wind_speed_10m",
         "temperature_unit": "fahrenheit" if settings.units == "imperial" else "celsius",
-        "wind_speed_unit": "mph" if settings.units == "imperial" else "kmh",
+        "wind_speed_unit": settings.wind_unit_code,
         "timezone": "auto",
     }
     response = requests.get(FORECAST_URL, params=params, timeout=timeout,
                             headers={"User-Agent": USER_AGENT})
     response.raise_for_status()
-    return parse_forecast(response.json(), settings.units)
+    return parse_forecast(response.json(), settings.units, settings.wind_unit_code)
 
 
-def parse_forecast(payload: dict, units: str) -> Observation:
+def parse_forecast(payload: dict, units: str, wind_units: str | None = None) -> Observation:
     """<summary>
     Turn a decoded forecast reply into an <see cref="Observation"/>.
     </summary>
@@ -206,6 +208,8 @@ def parse_forecast(payload: dict, units: str) -> Observation:
     <param name="units">"imperial" for Fahrenheit, anything else for
     Celsius. It must match what was asked for in the request, because the
     reply carries the numbers and this decides what to label them.</param>
+    <param name="wind_units">"kmh" or "mph", the wind unit the request asked
+    for, or None to follow ``units``.</param>
     <returns>The reading.</returns>
     <remarks>
     Split out from <see cref="fetch"/> so the decode can be tested against
@@ -226,7 +230,7 @@ def parse_forecast(payload: dict, units: str) -> Observation:
         code=code, label=label, icon=icon,
         unit="°F" if units == "imperial" else "°C",
         wind_speed=None if wind is None else float(wind),
-        wind_unit="mph" if units == "imperial" else "km/h",
+        wind_unit=WIND_UNIT_TEXT[wind_units or ("mph" if units == "imperial" else "kmh")],
     )
 
 

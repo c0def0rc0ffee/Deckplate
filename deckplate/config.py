@@ -58,6 +58,7 @@ DESKTOP_TOGGLES = ("stay_awake", "dnd")
 STATUS_EVERY_RANGE = (5_000, 3_600_000)
 NUDGE_EVERY_RANGE = (1_000, 3_600_000)
 KODI_URL_DEFAULT = "http://127.0.0.1:8080/jsonrpc"
+WIND_UNITS = ("kmh", "mph")
 # Actions that act on the key they sit on rather than on the PC, and so need
 # to know their position: the controller runs these itself. None of them can
 # be a step of another action, because a step has no key of its own.
@@ -489,6 +490,10 @@ class WeatherSettings:
 
     Refreshing costs a request to the weather service, so the floor of one
     minute is there to keep a mistyped value from hammering it.
+
+    ``wind_units`` lets the wind be read in miles an hour beside a Celsius
+    temperature, which is how Britain reads a forecast; None follows
+    ``units``.
     </remarks>"""
 
     latitude: float = 51.5072
@@ -496,6 +501,13 @@ class WeatherSettings:
     units: str = "metric"
     refresh_minutes: int = 10
     location_name: str = "London"
+    wind_units: str | None = None
+
+    @property
+    def wind_unit_code(self) -> str:
+        """<summary>The wind unit the forecast is asked for: "kmh" or "mph".</summary>
+        <returns>``wind_units`` when set, else the one that goes with ``units``.</returns>"""
+        return self.wind_units or ("mph" if self.units == "imperial" else "kmh")
 
 
 LOOPBACK_ADDRESSES = ("127.0.0.1", "localhost", "::1")
@@ -1012,10 +1024,14 @@ def _parse_weather(table: dict) -> WeatherSettings:
     units = _str(table, "units", "[weather]", "metric")
     if units not in ("metric", "imperial"):
         raise ConfigError("[weather]: 'units' must be 'metric' or 'imperial'")
+    wind_units = _str(table, "wind_units", "[weather]")
+    if wind_units is not None and wind_units not in WIND_UNITS:
+        raise ConfigError(f"[weather]: 'wind_units' must be one of {', '.join(WIND_UNITS)}")
     return WeatherSettings(
         latitude=_float(table, "latitude", "[weather]", 51.5072),
         longitude=_float(table, "longitude", "[weather]", -0.1276),
         units=units,
+        wind_units=wind_units,
         refresh_minutes=_int(table, "refresh_minutes", "[weather]", 10, 1, 24 * 60),
         location_name=_str(table, "location_name", "[weather]", "London") or "London",
     )
@@ -1496,13 +1512,19 @@ def _parse_action(table: Any, where: str, nested: bool = False) -> Action:
         # runner's default for the coordinates when none is written.
         if nested:
             raise ConfigError(f"{where}: a weather action cannot be a step of another action")
-        params["url"] = _str(table, "url", where) or ""
+        url = table.get("url", "")
+        if not isinstance(url, str):
+            raise ConfigError(f"{where}: 'url' must be text")
+        params["url"] = url.strip()
     elif kind == "system":
         # The key draws the machine's reading; the press launches a monitor,
         # the first one found on this machine when none is written.
         if nested:
             raise ConfigError(f"{where}: a system action cannot be a step of another action")
-        params["command"] = (_str(table, "command", where) or "").strip()
+        command = table.get("command", "")
+        if not isinstance(command, str):
+            raise ConfigError(f"{where}: 'command' must be text")
+        params["command"] = command.strip()
     elif kind == "kodi":
         # Either a shorthand word or a raw method; the address is in [kodi].
         do = _str(table, "do", where)
@@ -1842,6 +1864,7 @@ def document_from_config(config: Config) -> dict:
             "longitude": config.weather.longitude,
             "location_name": config.weather.location_name,
             "units": config.weather.units,
+            "wind_units": config.weather.wind_units,
             "refresh_minutes": config.weather.refresh_minutes,
         },
         "strip": strip,

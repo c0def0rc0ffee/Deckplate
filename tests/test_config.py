@@ -1358,3 +1358,45 @@ def test_the_playing_and_system_strip_kinds_parse_and_round_trip():
     assert again.strip == config.strip
     with pytest.raises(cfg.ConfigError, match="[kodi]"):
         cfg.parse(MINIMAL + '\n[kodi]\nurl = "player.test"\n', "/base")
+
+
+def test_weather_and_system_keys_survive_the_page_round_trip_with_empty_fields():
+    """<summary>
+    The configuration page writes a weather key's ``url`` and a system key's
+    ``command`` as empty text when nothing was typed, and the parser must
+    accept that, since the page saves the whole document back.
+    </summary>
+    <remarks>Found on the page itself: a weather key saved with no site
+    refused to load with "'url' must be text", so every edit after it was
+    lost.</remarks>"""
+    config = cfg.parse(MINIMAL + """
+[[pages.keys]]
+row = 0
+column = 0
+label = "Weather"
+action = { type = "weather", url = "" }
+
+[[pages.keys]]
+row = 0
+column = 1
+action = { type = "system", command = "" }
+""", "/base")
+    keys = config.pages[0].keys
+    assert keys[(0, 0)].action.params == {"url": ""}
+    assert keys[(0, 1)].action.params == {"command": ""}
+    again = cfg.parse(cfg.to_toml(cfg.document_from_config(config)), "/base")
+    assert again.pages == config.pages
+    with pytest.raises(cfg.ConfigError, match="'url' must be text"):
+        cfg.parse(MINIMAL + '\n[[pages.keys]]\nrow = 0\ncolumn = 0\naction = { type = "weather", url = 3 }\n', "/base")
+
+
+def test_wind_units_follow_the_units_unless_set():
+    """<summary>The wind unit is kmh with metric and mph with imperial, or whatever is written.</summary>"""
+    assert cfg.parse(MINIMAL, "/base").weather.wind_unit_code == "kmh"
+    assert cfg.parse(MINIMAL + '\n[weather]\nunits = "imperial"\n', "/base").weather.wind_unit_code == "mph"
+    config = cfg.parse(MINIMAL + '\n[weather]\nunits = "metric"\nwind_units = "mph"\n', "/base")
+    assert config.weather.wind_units == "mph" and config.weather.wind_unit_code == "mph"
+    again = cfg.parse(cfg.to_toml(cfg.document_from_config(config)), "/base")
+    assert again.weather == config.weather
+    with pytest.raises(cfg.ConfigError, match="wind_units"):
+        cfg.parse(MINIMAL + '\n[weather]\nwind_units = "knots"\n', "/base")

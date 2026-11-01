@@ -170,3 +170,12 @@ def test_the_wind_speed_rides_with_the_reading():
     assert weather.parse_forecast(payload, "imperial").wind_unit == "mph"
     bare = weather.parse_forecast({"current": {"temperature_2m": 1, "weather_code": 0}}, "metric")
     assert bare.wind_speed is None and bare.wind_text == "-- km/h"
+
+
+def test_the_wind_unit_can_be_chosen_apart_from_the_temperature():
+    """<summary>Miles an hour beside Celsius, when the settings say so.</summary>"""
+    payload = {"current": {"temperature_2m": 12.4, "weather_code": 3, "wind_speed_10m": 11}}
+    assert weather.parse_forecast(payload, "metric", "mph").wind_text == "11 mph"
+    assert weather.parse_forecast(payload, "imperial", "kmh").wind_text == "11 km/h"
+    from deckplate.config import WeatherSettings
+    assert WeatherSettings(units="metric", wind_units="mph").wind_unit_code == "mph"
