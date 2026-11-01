@@ -169,6 +169,26 @@
     {
       "id": "series",
       "label": "Series"
+    },
+    {
+      "id": "games",
+      "label": "Games"
+    },
+    {
+      "id": "meeting",
+      "label": "Meeting"
+    },
+    {
+      "id": "sync",
+      "label": "Sync"
+    },
+    {
+      "id": "assistant",
+      "label": "Assistant"
+    },
+    {
+      "id": "launch",
+      "label": "Launch"
     }
   ]
 }

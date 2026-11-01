@@ -611,6 +611,46 @@
       "label": "Series Lit"
     },
     {
+      "id": "games",
+      "label": "Games"
+    },
+    {
+      "id": "games-lit",
+      "label": "Games Lit"
+    },
+    {
+      "id": "meeting",
+      "label": "Meeting"
+    },
+    {
+      "id": "meeting-lit",
+      "label": "Meeting Lit"
+    },
+    {
+      "id": "sync",
+      "label": "Sync"
+    },
+    {
+      "id": "sync-lit",
+      "label": "Sync Lit"
+    },
+    {
+      "id": "assistant",
+      "label": "Assistant"
+    },
+    {
+      "id": "assistant-lit",
+      "label": "Assistant Lit"
+    },
+    {
+      "id": "launch",
+      "label": "Launch"
+    },
+    {
+      "id": "launch-lit",
+      "label": "Launch Lit"
+    },
+    {
       "id": "armed",
       "label": "Armed"
     },

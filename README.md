@@ -273,7 +273,8 @@ Twelve icon themes ship with the app. The first five are general:
   music, video, images, downloads, the bin, wireless, Bluetooth, keyboard,
   printer and software, then the home lab: server, network storage,
   firewall, network, router, VPN, cloud and database, with a film reel and
-  a television set for the movie and series libraries.
+  a television set for the movie and series libraries, and five launchers:
+  a game controller, a meeting, a file sync, an assistant and a rocket.
 - "Sherbet" and "Lagoon", every Controls and Desktop icon again, repainted
   in bright corner to corner colour sweeps, warm and cool. They are made to
   sit happily beside a gradient desktop icon theme. Each holds the same ids

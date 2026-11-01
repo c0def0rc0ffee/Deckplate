@@ -1299,6 +1299,58 @@ def series(pen: Pen) -> None:
     pen.line([(34, 87), (66, 87)], STEEL, 6)
 
 
+# Launchers: a controller for games, a meeting for a calls and chat app, a
+# pair of chasing arrows for a file sync, a spark for an assistant and a
+# rocket for anything launched. Plain objects again, no product's mark.
+
+def games(pen: Pen) -> None:
+    """<summary>A game controller with its grips, a pad on the left and buttons on the right.</summary>"""
+    pen.rounded(10, 34, 90, 70, 18)
+    pen.line([(28, 44), (28, 60)], SIGNAL, 6)
+    pen.line([(20, 52), (36, 52)], SIGNAL, 6)
+    pen.dot(66, 46, 4, SIGNAL)
+    pen.dot(78, 52, 4, STEEL)
+    pen.dot(66, 58, 4, STEEL)
+    pen.dot(54, 52, 4, STEEL)
+
+
+def meeting(pen: Pen) -> None:
+    """<summary>Two speech bubbles, one over the other: a meeting or chat.</summary>
+    <remarks>The front bubble is filled with transparency so it cuts the back
+    one's outline where they overlap.</remarks>"""
+    pen.rounded(12, 14, 66, 52, 10, STEEL, 6)
+    pen.line([(22, 52), (22, 64), (34, 52)], STEEL, 6)
+    pen.rounded(34, 36, 88, 74, 10, INK, STROKE, fill=CLEAR)
+    pen.line([(78, 74), (78, 86), (66, 74)], INK, STROKE)
+    for x in (50, 61, 72):
+        pen.dot(x, 55, 3.5, SIGNAL)
+
+
+def sync(pen: Pen) -> None:
+    """<summary>Two arrows chasing each other round a circle: a file sync.</summary>"""
+    pen.arc(50, 50, 32, 200, 340, INK)
+    pen.line([(85, 26), (80, 39), (68, 32)], INK)
+    pen.arc(50, 50, 32, 20, 160, SIGNAL)
+    pen.line([(15, 74), (20, 61), (32, 68)], SIGNAL)
+
+
+def assistant(pen: Pen) -> None:
+    """<summary>A four pointed spark with a smaller one beside it: an assistant.</summary>"""
+    pen.polygon([(44, 14), (52, 44), (82, 52), (52, 60), (44, 90), (36, 60), (6, 52), (36, 44)],
+                fill=INK, width=None)
+    pen.polygon([(76, 12), (79, 23), (90, 26), (79, 29), (76, 40), (73, 29), (62, 26), (73, 23)],
+                fill=SIGNAL, width=None)
+
+
+def launch(pen: Pen) -> None:
+    """<summary>A rocket climbing with its flame: launch something.</summary>"""
+    pen.polygon([(50, 10), (64, 30), (66, 62), (34, 62), (36, 30)])
+    pen.line([(36, 44), (20, 60), (20, 70), (34, 62)], STEEL, 6)
+    pen.line([(64, 44), (80, 60), (80, 70), (66, 62)], STEEL, 6)
+    pen.dot(50, 40, 7, SIGNAL)
+    pen.polygon([(42, 66), (58, 66), (50, 88)], fill=WARM, width=None)
+
+
 # The game flavoured sets. Each one is meant to sit well beside a kind of
 # game, not to belong to any: gothic war in the far future, cheerful planet
 # hopping, a modern strategy war, alien crystal and bio tech, a horror corps
@@ -2289,6 +2341,7 @@ DESKTOP = {
     "software": software,
     "server": server, "nas": nas, "firewall": firewall, "network": network, "router": router,
     "vpn": vpn, "cloud": cloud, "database": database, "movies": movies, "series": series,
+    "games": games, "meeting": meeting, "sync": sync, "assistant": assistant, "launch": launch,
 }
 DESKTOP_LABELS = {
     "terminal": "Terminal", "files": "Files", "home": "Home", "browser": "Browser",
@@ -2304,6 +2357,7 @@ DESKTOP_LABELS = {
     "server": "Server", "nas": "Network Storage", "firewall": "Firewall", "network": "Network",
     "router": "Router", "vpn": "VPN", "cloud": "Cloud", "database": "Database",
     "movies": "Movies", "series": "Series",
+    "games": "Games", "meeting": "Meeting", "sync": "Sync", "assistant": "Assistant", "launch": "Launch",
 }
 
 

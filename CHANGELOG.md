@@ -6,8 +6,9 @@
   and Amber Console too: a page and the next and previous page, a key
   sequence and a held key, server, network storage, firewall, network,
   router, VPN, cloud, database, and a film reel and a television set for
-  the movie and series libraries. Every icon that was there before is
-  unchanged.
+  the movie and series libraries, and five launchers: a game controller, a
+  meeting, a file sync, an assistant and a rocket. Every icon that was
+  there before is unchanged.
 - A boost can build up first, holding its key alone for `start_ms` to
   `start_max_ms` before the first boost, and can tap a third key once in
   each off phase: `between = "tab"`, a random `between_after_ms` to
