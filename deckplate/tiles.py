@@ -30,6 +30,7 @@ from PIL import Image, ImageDraw, ImageEnhance
 from . import animations, images
 from .config import AnimationConfig, KeyConfig, StripTile
 from .media import NowPlaying
+from .lights import LightState
 from .system import SystemReading
 from .weather import Observation
 
@@ -588,6 +589,7 @@ def with_mark(tile: Image.Image, colour: tuple[int, int, int]) -> Image.Image:
 
 # The empty part of a bar on the system tile, a shade above the navy.
 BAR_TRACK = (44, 54, 70)
+LIGHTS_FLOOR = 0.35  # the dimmest a lit key's colour is drawn, as a share of full
 
 # The status dot in a key's top right corner: up, down and not yet asked.
 DOT_UP = (76, 175, 125)
@@ -903,6 +905,73 @@ def system_tile(reading: SystemReading | None, size: int,
             colour = ALERT if value >= 90 else images.ACCENT
             draw.rectangle([left, top, left + (right - left) * value / 100, bottom], fill=colour)
             draw.text((right, bottom + 1), f"{value}%", fill=MUTED, font=images.load_font(int(room * 0.1)), anchor="ra")
+    return tile
+
+
+def lights_tile(state: LightState | None, size: int,
+                background: tuple[int, int, int] = images.BACKGROUND, labelled: bool = False) -> Image.Image:
+    """<summary>
+    The lights at a glance: their own colour behind a lamp, lit or dark,
+    with the brightness as a bar and a percentage.
+    </summary>
+    <param name="state">The latest state, or None when unknown or unreachable.</param>
+    <param name="size">The tile size in pixels.</param>
+    <param name="background">RGB tuple behind everything while the lights
+    are off or unknown.</param>
+    <param name="labelled">True when a label band will go along the bottom,
+    which squeezes everything into the space above it.</param>
+    <returns>An upright tile, always.</returns>
+    <remarks>
+    While the lights are on, the key's background is their first colour,
+    scaled by the brightness so a dim setting reads dim, with a floor so a
+    low setting is still visibly the colour. A colour too dark to show, or
+    black, leaves the plain background. The lamp has a dark rim so it reads
+    on any colour. An unknown state draws a grey lamp, a dash and an empty
+    bar, so a device that has gone away is not mistaken for one that is off.
+    </remarks>
+    """
+    lit = state is not None and state.on
+    back = background
+    if lit:
+        level = LIGHTS_FLOOR + (1 - LIGHTS_FLOOR) * state.brightness / 255
+        candidate = tuple(int(c * level) for c in state.colour)
+        if max(candidate) >= 40:
+            back = candidate
+    tile = images.solid(back, size)
+    draw = ImageDraw.Draw(tile)
+    room = size * (0.74 if labelled else 1.0)
+    cx, cy, r = size / 2, room * 0.36, room * 0.19
+    rim = (16, 22, 32)
+    bulb = images.FOREGROUND if lit else (MUTED if state is not None else BAR_TRACK)
+    width = max(2, int(r * 0.16))
+    draw.ellipse([cx - r - width, cy - r - width, cx + r + width, cy + r + width], fill=rim)
+    draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=bulb if lit else back, outline=bulb, width=width)
+    neck = r * 0.45
+    draw.rectangle([cx - neck, cy + r * 0.75, cx + neck, cy + r * 1.35], fill=rim)
+    draw.rectangle([cx - neck + width, cy + r * 0.85, cx + neck - width, cy + r * 1.25], fill=bulb)
+    if lit:
+        for dx, dy in ((-1.55, -1.0), (1.55, -1.0), (-1.9, 0.2), (1.9, 0.2)):
+            x, y = cx + r * dx, cy + r * dy
+            draw.line([x, y, x + r * 0.3 * (1 if dx > 0 else -1), y + r * 0.3 * (1 if dy > 0 else -1)],
+                      fill=rim, width=width + 2)
+            draw.line([x, y, x + r * 0.3 * (1 if dx > 0 else -1), y + r * 0.3 * (1 if dy > 0 else -1)],
+                      fill=bulb, width=width)
+    text = f"{state.percent}%" if state is not None else "--"
+    font = images.load_font(int(room * 0.15))
+    tx, ty = size / 2, room * 0.71
+    # Dark ink on a light colour, light ink with a dark shadow on anything else.
+    luminance = 0.299 * back[0] + 0.587 * back[1] + 0.114 * back[2]
+    if luminance > 150:
+        draw.text((tx, ty), text, fill=rim, font=font, anchor="mm")
+    else:
+        draw.text((tx + 1, ty + 1), text, fill=rim, font=font, anchor="mm")
+        draw.text((tx, ty), text, fill=images.FOREGROUND, font=font, anchor="mm")
+    left, right, top, bottom = size * 0.12, size * 0.88, room * 0.82, room * 0.9
+    draw.rectangle([left - 1, top - 1, right + 1, bottom + 1], fill=rim)
+    draw.rectangle([left, top, right, bottom], fill=BAR_TRACK)
+    if state is not None:
+        draw.rectangle([left, top, left + (right - left) * state.brightness / 255, bottom],
+                       fill=images.ACCENT if lit else MUTED)
     return tile
 
 

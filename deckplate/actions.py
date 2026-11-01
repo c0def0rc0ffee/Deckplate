@@ -40,6 +40,7 @@ import requests
 
 from . import audio as audio_module
 from . import awake
+from . import lights as lights_module
 from . import desktop as desktop_module
 from . import hotkeys
 from . import kodi as kodi_module
@@ -281,6 +282,7 @@ class ActionRunner:
                  screensaver=None,
                  notifier=None,
                  nudge: Callable[[], None] | None = None,
+                 lights=None,
                  log: Callable[[str], None] = print) -> None:
         """<summary>
         Build a runner, taking its deck context and its way out to the machine.
@@ -294,7 +296,10 @@ class ActionRunner:
         None for the defaults. Replaced by the controller on a reload.</param>
         <param name="weather">The weather coordinates, for the site a
         weather key opens by default. Replaced by the controller on a reload.</param>
-        <param name="send_json">How a kodi action posts and reads JSON.</param>
+        <param name="send_json">How a kodi or wled action posts and reads JSON.</param>
+        <param name="lights">The lights monitor, with ``state(url)`` and
+        ``update(url, state)``, or None when no key draws the lights. Set by
+        the controller, which owns the monitor.</param>
         <param name="screensaver">The screensaver inhibitor for Stay Awake,
         or None for the desktop's own.</param>
         <param name="notifier">The notification inhibitor for Do Not Disturb,
@@ -343,6 +348,7 @@ class ActionRunner:
         self.screensaver = screensaver
         self.notifier = notifier
         self.nudge = nudge
+        self.lights = lights
         self.log = log
 
     @property
@@ -498,6 +504,8 @@ class ActionRunner:
                 self.open_url(params["url"])
         elif action.type == "kodi":
             self._kodi(params)
+        elif action.type == "wled":
+            self._wled(params)
         elif action.type == "weather":
             self.open_url(params.get("url") or weather_site(self.weather))
         elif action.type == "system":
@@ -618,6 +626,27 @@ class ActionRunner:
                 return
             body_params["playerid"] = player
         self.send_json(url, headers, kodi_module.payload(method, body_params), self.kodi.timeout_s)
+
+    def _wled(self, params: dict) -> None:
+        """<summary>
+        Post one change to a WLED device and hand the state it answers with
+        to the lights monitor, so the key follows the press at once.
+        </summary>
+        <param name="params">A wled action's params: ``url``, ``do`` and
+        ``preset`` or ``step``.</param>
+        <remarks>The body asks for the state back; a reply that is not one
+        is ignored rather than failing the press, since the change was made.</remarks>
+        <exception cref="ValueError">The action names nothing WLED knows.</exception>
+        <exception cref="requests.RequestException">The device could not be reached.</exception>"""
+        url = params["url"]
+        known = self.lights.state(url) if self.lights is not None else None
+        reply = self.send_json(lights_module.state_url(url), {}, lights_module.command(params, known),
+                               lights_module.TIMEOUT_S)
+        if self.lights is not None:
+            try:
+                self.lights.update(url, lights_module.parse_state(reply))
+            except ValueError:
+                pass
 
     def _chord(self, params: dict) -> None:
         """<summary>

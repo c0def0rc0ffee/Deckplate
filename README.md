@@ -275,6 +275,13 @@ a step of a multi action.
   monitor when pressed: `{ type = "system" }` launches the first of the
   desktop monitors found on the machine, or `command = "..."` names one.
   Leave the key without a picture.
+- `wled` draws a WLED light on the key, its own colour behind a lamp with
+  the brightness as a bar, polled every `every_ms` (10 s by default), and
+  changes it on the press: `{ type = "wled", url = "http://lights.local/",
+  do = "toggle" }`, with `do` one of toggle, on, off, preset (with
+  `preset = 2`), brighter and dimmer (with an optional `step` out of 255,
+  32 by default). The reply to a press updates the key at once. Leave the
+  key without a picture, or the picture wins and the active face shows on.
 - `kodi` sends Kodi a remote control action over its JSON RPC:
   `{ type = "kodi", do = "play_pause" }`, with `do` one of play_pause,
   pause, play, stop, next, previous, up, down, left, right, select, back,

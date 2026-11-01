@@ -527,3 +527,31 @@ def test_the_system_face_squeezes_above_a_label_band():
     for y in range(band_top, SIZE):
         for x in range(0, SIZE, 7):
             assert squeezed.getpixel((x, y)) == blank.getpixel((x, y))
+
+
+def test_the_lights_face_follows_the_state_and_wears_the_lights_colour():
+    """<summary>
+    Unknown, off and on draw differently; a lit key's background is the
+    lights' colour scaled by brightness; white lights still show their
+    percentage; and the labelled layout keeps above the band.
+    </summary>
+    """
+    from deckplate.lights import LightState
+    unknown = tiles.lights_tile(None, SIZE)
+    off = tiles.lights_tile(LightState(False, 128, (255, 160, 0)), SIZE)
+    on = tiles.lights_tile(LightState(True, 255, (255, 160, 0)), SIZE)
+    dim = tiles.lights_tile(LightState(True, 20, (255, 160, 0)), SIZE)
+    assert len({unknown.tobytes(), off.tobytes(), on.tobytes(), dim.tobytes()}) == 4
+    assert differs_from_blank(unknown)
+    assert on.getpixel((2, 2)) == (255, 160, 0)
+    r, g, b = dim.getpixel((2, 2))
+    assert 0 < r < 255 and g < 160 and b == 0
+    assert off.getpixel((2, 2)) == tiles.key_tile(None, SIZE).getpixel((2, 2))
+    assert tiles.lights_tile(LightState(True, 200, (0, 0, 0)), SIZE).getpixel((2, 2)) == off.getpixel((2, 2))
+    white = tiles.lights_tile(LightState(True, 255, (255, 255, 255)), SIZE)
+    assert any(white.getpixel((x, int(SIZE * 0.71))) != (255, 255, 255) for x in range(SIZE // 3, SIZE * 2 // 3))
+    squeezed = tiles.lights_tile(LightState(True, 255, (255, 160, 0)), SIZE, labelled=True)
+    band_top = SIZE - max(16, int(SIZE * 0.26))
+    for y in range(band_top, SIZE):
+        for x in range(0, SIZE, 7):
+            assert squeezed.getpixel((x, y)) == (255, 160, 0)

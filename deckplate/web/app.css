@@ -121,7 +121,7 @@ button.ghost:hover { border-color: var(--steel); }
 button.ghost.danger { color: var(--bad); }
 button.ghost.danger:hover { border-color: var(--bad); }
 button.small { padding: 4px 9px; font-size: 13px; }
-input[type="text"], input[type="number"], input[type="search"], select, textarea {
+input[type="text"], input[type="password"], input[type="number"], input[type="search"], select, textarea {
   background: var(--paper);
   border: 1px solid var(--rule);
   border-radius: 6px;

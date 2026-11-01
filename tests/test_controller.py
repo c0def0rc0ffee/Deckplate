@@ -2321,3 +2321,46 @@ action = { type = "system", command = "htop" }
     controller.handle_event(KeyEvent(10, True))
     controller.handle_event(KeyEvent(7, True))
     assert launched == ["fake-monitor", "htop"]
+
+
+def test_a_wled_key_draws_the_lights_lights_when_on_and_follows_the_press(setup):
+    """<summary>
+    A wled key's device is handed to the lights monitor at reload, the key
+    draws the lights' state with no picture, counts as active while they
+    are on, and a press posts the change whose reply redraws the key.
+    </summary>
+    """
+    from deckplate.lights import LightState, LightsMonitor
+    controller, deck, clock, urls, path = setup
+    answers = {"http://lamp.test/": LightState(True, 128, (255, 160, 0))}
+    monitor = LightsMonitor(prober=lambda url: answers[url], monotonic=lambda: clock.mono, log=lambda t: None,
+                            threaded=False)
+    controller.lights = monitor
+    controller.runner.lights = monitor
+    sent = []
+    controller.runner.send_json = lambda url, headers, body, timeout: sent.append((url, body)) or {
+        "on": False, "bri": 128, "seg": [{"col": [[255, 160, 0]]}]}
+    controller.reload(cfg.parse(TEXT + """
+[[pages.keys]]
+row = 0
+column = 1
+label = "Lounge"
+action = { type = "wled", url = "http://lamp.test/", every_ms = 5000 }
+""", path.parent, path))
+    controller.switch_page("Second")
+    key = controller.page.keys[(0, 1)]
+    assert controller._key_lights(key) is None
+    monitor.poll_once()
+    assert controller._key_lights(key) == LightState(True, 128, (255, 160, 0))
+    active, _face = controller._key_face(key, (0, 1), set(), controller.page)
+    assert active is True
+    before = controller._face_signature(0, 1, set())
+    image, frames, _fps = controller._draw_key(0, 1, controller.deck.image_size, set())
+    assert frames is None and image.getpixel((2, 2)) != controller._draw_key(0, 2, controller.deck.image_size, set())[0].getpixel((2, 2))
+    controller.handle_event(KeyEvent(10, True))
+    assert sent == [("http://lamp.test/json/state", {"v": True, "on": "t"})]
+    assert controller._face_signature(0, 1, set()) != before
+    active, _face = controller._key_face(key, (0, 1), set(), controller.page)
+    assert active is False
+    controller.reload(cfg.parse(TEXT, path.parent, path))
+    assert monitor.state("http://lamp.test/") is None

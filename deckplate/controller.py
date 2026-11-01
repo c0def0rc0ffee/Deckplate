@@ -39,6 +39,7 @@ from .config import MARK_DEFAULT_FLASH_MS, POSITIONAL_ACTIONS, Action, Config, l
 from .media import MediaService
 from .presses import Actions, PressRouter
 from .protocol import KeyEvent
+from .lights import LightsMonitor
 from .status import StatusMonitor, Watch
 from .system import SystemService
 from .weather import WeatherService
@@ -365,7 +366,8 @@ class Controller:
                  watcher: "focus.FocusWatcher | None" = None,
                  status: StatusMonitor | None = None,
                  media: MediaService | None = None,
-                 system: SystemService | None = None) -> None:
+                 system: SystemService | None = None,
+                 lights: LightsMonitor | None = None) -> None:
         """<summary>
         Wire a deck to a config, without drawing anything yet.
         </summary>
@@ -387,6 +389,7 @@ class Controller:
         not started unless the config asks to follow the focused window.</param>
         <param name="status">The monitor behind status keys. Made here if not
         given; it polls nothing until a status key is configured.</param>
+        <param name="lights">The monitor behind wled keys, likewise.</param>
         <param name="media">The now playing reader for the strip. Made here if
         not given; asked only while a panel shows it.</param>
         <param name="system">The machine reader for the strip. Made here if
@@ -407,6 +410,8 @@ class Controller:
         self.status = status or StatusMonitor(monotonic=monotonic, log=log)
         self.media = media or MediaService(monotonic=monotonic, log=log)
         self.system = system or SystemService(monotonic=monotonic)
+        self.lights = lights or LightsMonitor(monotonic=monotonic, log=log)
+        self.runner.lights = self.lights
         # Whether the night brightness is in force, None until first checked.
         self._night: bool | None = None
         self._last_night_check: float | None = None
@@ -487,6 +492,7 @@ class Controller:
         self.weather.refresh_if_due()
         self._refresh_readings()
         self._watch_status()
+        self._watch_lights()
         self.render_all()
         self.log(f"showing page '{self.page.name}' with {len(self.page.keys)} keys")
         if self.config.deck.follow_focus:
@@ -812,6 +818,9 @@ class Controller:
                 active = active or (chosen is not None and chosen.id == default)
             elif kind == "status":
                 active = active or bool(self.status.ok(action.params["url"]))
+            elif kind == "wled":
+                state = self.lights.state(action.params["url"])
+                active = active or (state is not None and state.on)
         return active, face
 
     def _face_signature(self, row: int, column: int, holding) -> tuple:
@@ -821,7 +830,8 @@ class Controller:
         <param name="row">Row from 0 at the top.</param>
         <param name="column">Column from 0 at the left.</param>
         <param name="holding">The task keys running now.</param>
-        <returns>(border colour, active, face, status dot colour, weather reading, machine reading).</returns>
+        <returns>(border colour, active, face, status dot colour, weather reading,
+        machine reading, lights state).</returns>
         <remarks>Compared with the last one drawn to decide whether the key
         needs sending again. A face changes once a second at most, since its
         text is whole seconds and its ring is rounded to the pixel.</remarks>
@@ -831,7 +841,8 @@ class Controller:
         active, face = self._key_face(key, (row, column), holding, self.page)
         if face is not None and face.ring is not None:
             face = replace(face, ring=round(face.ring * 100) / 100)
-        return mark, active, face, self._key_dot(key), self._key_weather(key), self._key_system(key)
+        return (mark, active, face, self._key_dot(key), self._key_weather(key), self._key_system(key),
+                self._key_lights(key))
 
     def _key_dot(self, key) -> tuple[int, int, int] | None:
         """<summary>
@@ -889,6 +900,21 @@ class Controller:
             return None
         return self.system.reading
 
+    def _key_lights(self, key):
+        """<summary>
+        The lights state a key draws on its face, or None for a key that
+        draws none.
+        </summary>
+        <param name="key">The key to judge, or None for an empty position.</param>
+        <returns>The latest state for a key whose plain action is wled and
+        which has no picture of its own; otherwise None.</returns>
+        <remarks>As <see cref="_key_system"/>. A wled key with a picture
+        keeps it and shows the lights through its active face instead.</remarks>
+        """
+        if key is None or key.image is not None or key.action is None or key.action.type != "wled":
+            return None
+        return self.lights.state(key.action.params["url"])
+
     def _draw_key(self, row: int, column: int, size: int, holding, page=None, config=None) -> tuple:
         """<summary>
         Draw one key panel at any size, without sending anything.
@@ -944,6 +970,9 @@ class Controller:
                                            tiles.key_background(key, config.deck.background), labelled=bool(key.label))
         elif key is not None and key.image is None and key.action is not None and key.action.type == "system":
             drawn = tiles.system_tile(self.system.reading, size,
+                                      tiles.key_background(key, config.deck.background), labelled=bool(key.label))
+        elif key is not None and key.image is None and key.action is not None and key.action.type == "wled":
+            drawn = tiles.lights_tile(self.lights.state(key.action.params["url"]), size,
                                       tiles.key_background(key, config.deck.background), labelled=bool(key.label))
         if drawn is not None:
             tile = drawn
@@ -1691,6 +1720,21 @@ class Controller:
                         watches.append(Watch(params["url"], params["every_ms"], params["insecure"], params["expect"]))
         self.status.watch(watches)
 
+    def _watch_lights(self) -> None:
+        """<summary>
+        Hand the lights monitor every device a wled key on any page names.
+        </summary>
+        <remarks>As <see cref="_watch_status"/>: every page, at start and
+        after a reload.</remarks>
+        """
+        devices = []
+        for page in self.config.pages:
+            for key in page.keys.values():
+                for action in key.actions():
+                    if action is not None and action.type == "wled":
+                        devices.append((action.params["url"], action.params["every_ms"]))
+        self.lights.watch(devices)
+
     def _night_brightness(self, now: float) -> None:
         """<summary>
         Dim the deck after sunset and brighten it after sunrise, when the
@@ -1905,6 +1949,7 @@ class Controller:
         self.router.clear()
         self.watcher.stop()
         self.status.stop()
+        self.lights.stop()
 
     def reload(self, config: Config) -> None:
         """<summary>
@@ -1957,6 +2002,7 @@ class Controller:
         self.runner.kodi = config.kodi
         self.runner.weather = config.weather
         self._watch_status()
+        self._watch_lights()
         self._strip_signatures = [None] * layout.ROWS
         self.animator.clear_all()
         self._flashes.clear()

@@ -1149,6 +1149,7 @@
       case "stay_awake": return { type, inhibit: true, nudge: true, every_ms: 60000 };
       case "dnd": return { type };
       case "status": return { type, url: "https://", every_ms: 60000, insecure: false, expect: "", open: true };
+      case "wled": return { type, url: "http://", do: "toggle", every_ms: 10000 };
       case "kodi": return { type, do: "play_pause" };
       case "weather": return { type };
       case "system": return { type };
@@ -1236,6 +1237,8 @@
       icon: '<path d="M7 17a4 4 0 010-8 5.5 5.5 0 0110.5 1.5A3.5 3.5 0 0117 17H7z"/><path d="M8 20h2M12 20h2M16 20h2"/>' },
     system: { label: "The machine", help: "Shows the processor temperature, load and memory on the key; the press opens the system monitor.", nested: false,
       icon: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/><path d="M6 13l3-4 3 2 3-5 3 4"/>' },
+    wled: { label: "Lights", help: "Shows a WLED light's state and colour on the key; the press toggles it, picks a preset or steps the brightness.", nested: false,
+      icon: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 00-3.5 10.9c.8.6 1.5 1.6 1.5 2.6h4c0-1 .7-2 1.5-2.6A6 6 0 0012 3z"/>' },
     kodi: { label: "Media centre", help: "Sends play, pause, stop or a remote control key to Kodi.",
       icon: '<rect x="7" y="2.5" width="10" height="19" rx="3"/><path d="M12 7v4M10 9h4M12 15h.01M10 18h4"/>' },
   };
@@ -1246,7 +1249,7 @@
    * enough failure to be worth saying out loud here.</remarks> */
   const ACTION_GROUPS = [
     { title: "Keys and text", types: ["hotkey", "sequence", "chord", "text", "hold", "boost", "repeat"] },
-    { title: "Programs and the web", types: ["launch", "url", "request", "status", "weather", "system", "kodi"] },
+    { title: "Programs and the web", types: ["launch", "url", "request", "status", "weather", "system", "kodi", "wled"] },
     { title: "Sound and windows", types: ["volume", "audio_output", "window"] },
     { title: "The desktop", types: ["stay_awake", "dnd"] },
     { title: "Keys that remember", types: ["toggle", "timer", "stopwatch", "counter"] },
@@ -1679,6 +1682,38 @@
         };
         box.append(tick("insecure", "Accept a certificate that does not verify", false, "For a firewall or server with its own certificate."));
         box.append(tick("open", "Open the address when pressed", true, "Untick for a key that only shows the state."));
+        break;
+      }
+      case "wled": {
+        const url = el("input", { type: "text", value: action.url || "", placeholder: "http://lights.local/" });
+        url.addEventListener("input", () => change(d => { getAction().url = url.value.trim(); }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { text: "Device address" }), url,
+          el("div", { class: "help", text: "The WLED device's own address. The key draws its state and colour; give it no picture, or the picture wins and the active face shows on instead." })]));
+        const doings = [["toggle", "Toggle the lights"], ["on", "Turn on"], ["off", "Turn off"],
+          ["preset", "Pick a preset"], ["brighter", "Brighter"], ["dimmer", "Dimmer"]];
+        const pick = el("select");
+        for (const [value, text] of doings) pick.append(el("option", { value, text }));
+        pick.value = action.do || "toggle";
+        const preset = el("input", { type: "number", min: 1, max: 250, value: action.preset || 1 });
+        const step = el("input", { type: "number", min: 1, max: 254, value: action.step || 32 });
+        const presetField = el("div", { class: "field" }, [el("label", { text: "Preset number" }), preset,
+          el("div", { class: "help", text: "As numbered in WLED's presets page." })]);
+        const stepField = el("div", { class: "field" }, [el("label", { text: "Step" }), step,
+          el("div", { class: "help", text: "Out of 255. 32 is an eighth of the range." })]);
+        const show = () => { presetField.hidden = pick.value !== "preset"; stepField.hidden = !["brighter", "dimmer"].includes(pick.value); };
+        const apply = () => change(d => {
+          const a = getAction();
+          a.do = pick.value;
+          delete a.preset; delete a.step;
+          if (pick.value === "preset") a.preset = Math.max(1, Math.min(250, parseInt(preset.value, 10) || 1));
+          if (pick.value === "brighter" || pick.value === "dimmer") a.step = Math.max(1, Math.min(254, parseInt(step.value, 10) || 32));
+        }, { silent: true });
+        pick.addEventListener("change", () => { show(); apply(); });
+        preset.addEventListener("input", apply);
+        step.addEventListener("input", apply);
+        show();
+        box.append(el("div", { class: "field" }, [el("label", { text: "On press" }), pick]), presetField, stepField);
+        box.append(millis("every_ms", "Ask every", { min: 5000, max: 3600000, step: 5000, fallback: 10000 }));
         break;
       }
       case "weather": {

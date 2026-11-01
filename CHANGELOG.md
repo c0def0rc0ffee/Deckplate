@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- A `wled` key for WLED lights: the lights' own colour behind a lamp, lit
+  or dark, with the brightness as a bar and a percentage, polled on a
+  timer; the press toggles them, turns them on or off, picks a preset or
+  steps the brightness, and the key follows the press at once.
 - A `kodi` key can name its own `url`, and a `token_file` beside it, for a
   second Kodi in another room; the `[kodi]` credentials are never sent to
   a key's own address. New `pause` and `play` shorthands, which leave the

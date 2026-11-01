@@ -51,7 +51,7 @@ STRIP_TILE_KINDS = ("clock", "date", "weather", "playing", "system", "blank")
 ACTION_TYPES = ("hotkey", "sequence", "chord", "hold", "boost", "repeat",
                 "text", "launch", "url", "request", "page", "brightness", "sleep", "multi",
                 "toggle", "volume", "audio_output", "window", "timer", "stopwatch", "counter",
-                "stay_awake", "dnd", "status", "kodi", "weather", "system")
+                "stay_awake", "dnd", "status", "kodi", "weather", "system", "wled")
 # The toggling desktop actions: like a hold they run until pressed again,
 # so they cannot be a step of another action either.
 DESKTOP_TOGGLES = ("stay_awake", "dnd")
@@ -1507,6 +1507,24 @@ def _parse_action(table: Any, where: str, nested: bool = False) -> Action:
         if not isinstance(expect, str):
             raise ConfigError(f"{where}: 'expect' must be text")
         params["expect"] = expect
+    elif kind == "wled":
+        # The key draws the lights' state; the press changes it.
+        if nested:
+            raise ConfigError(f"{where}: a wled action cannot be a step of another action")
+        from . import lights as lights_module
+        url = _str(table, "url", where, required=True) or ""
+        if not url.startswith(("http://", "https://")):
+            raise ConfigError(f"{where}: 'url' must start with http:// or https://")
+        params["url"] = url
+        do = _str(table, "do", where, "toggle") or "toggle"
+        if do not in lights_module.DOINGS:
+            raise ConfigError(f"{where}: 'do' must be one of {', '.join(lights_module.DOINGS)}")
+        params["do"] = do
+        if do == "preset":
+            params["preset"] = _int(table, "preset", where, None, 1, 250)
+        elif do in ("brighter", "dimmer"):
+            params["step"] = _int(table, "step", where, lights_module.STEP_DEFAULT, 1, 254)
+        params["every_ms"] = _int(table, "every_ms", where, lights_module.DEFAULT_EVERY_MS, *STATUS_EVERY_RANGE)
     elif kind == "weather":
         # The key draws the reading itself; the press opens a site, the
         # runner's default for the coordinates when none is written.

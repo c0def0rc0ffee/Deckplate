@@ -1323,6 +1323,21 @@ action = { type = "kodi", method = "GUI.ShowNotification", params = { title = "a
 row = 1
 column = 1
 action = { type = "kodi", do = "pause", url = "http://other.test/jsonrpc", token_file = "~/.deckplate-tokens/other" }
+
+[[pages.keys]]
+row = 1
+column = 2
+action = { type = "wled", url = "http://lamp.test/" }
+
+[[pages.keys]]
+row = 1
+column = 3
+action = { type = "wled", url = "http://lamp.test/", do = "preset", preset = 3, every_ms = 5000 }
+
+[[pages.keys]]
+row = 1
+column = 4
+action = { type = "wled", url = "http://lamp.test/", do = "dimmer" }
 """, "/base")
     keys = config.pages[0].keys
     assert keys[(0, 0)].action.params == {"inhibit": True, "nudge": True, "every_ms": 60000}
@@ -1334,6 +1349,9 @@ action = { type = "kodi", do = "pause", url = "http://other.test/jsonrpc", token
     assert keys[(1, 0)].action.params == {"method": "GUI.ShowNotification", "params": {"title": "a", "message": "b"}}
     assert keys[(1, 1)].action.params == {"do": "pause", "url": "http://other.test/jsonrpc",
                                           "token_file": "~/.deckplate-tokens/other"}
+    assert keys[(1, 2)].action.params == {"url": "http://lamp.test/", "do": "toggle", "every_ms": 10000}
+    assert keys[(1, 3)].action.params == {"url": "http://lamp.test/", "do": "preset", "preset": 3, "every_ms": 5000}
+    assert keys[(1, 4)].action.params == {"url": "http://lamp.test/", "do": "dimmer", "step": 32, "every_ms": 10000}
     assert config.deck.night_brightness == 25
     assert config.kodi.url == "http://player.test:8080/jsonrpc" and config.kodi.token_file == "~/.deckplate-tokens/kodi"
     document = cfg.document_from_config(config)
@@ -1348,6 +1366,11 @@ action = { type = "kodi", do = "pause", url = "http://other.test/jsonrpc", token
     ('action = { type = "kodi", do = "dance" }', "unknown kodi action"),
     ('action = { type = "kodi", params = 3 }', "'params' must be a table"),
     ('action = { type = "kodi", do = "pause", url = "player:8080" }', "'url' must start with http"),
+    ('action = { type = "wled" }', "'url'"),
+    ('action = { type = "wled", url = "http://lamp.test/", do = "disco" }', "'do' must be one of"),
+    ('action = { type = "wled", url = "http://lamp.test/", do = "preset" }', "'preset'"),
+    ('action = { type = "wled", url = "http://lamp.test/", do = "brighter", step = 0 }', "step"),
+    ('action = { type = "multi", steps = [{ type = "wled", url = "http://lamp.test/" }] }', "cannot be a step"),
     ('action = { type = "multi", steps = [{ type = "dnd" }] }', "cannot be a step"),
     ('action = { type = "toggle", on = { type = "status", url = "https://a.test/" } }', "cannot be a step"),
 ])

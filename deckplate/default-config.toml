@@ -134,6 +134,8 @@ tiles = ["clock", "date", "weather"]
 #              the press opens url, or a map site at the coordinates when none is given
 #   system     draws the processor temperature, load and memory on the key; the press
 #              launches command, or the first desktop system monitor found
+#   wled       url = "http://lights/"  do = "toggle" | "on" | "off" | "preset" (preset = 2) |
+#              "brighter" | "dimmer" (step = 32); draws the light's colour and brightness
 #   kodi       do = "play_pause" | "pause" | "play" | "stop" | "next" | "previous" | "up" |
 #              "down" | "left" | "right" | "select" | "back" | "home" | "info" | "context" |
 #              "osd" | "volume_up" | "volume_down" | "mute", or method = "..." with
