@@ -129,6 +129,46 @@
     {
       "id": "software",
       "label": "Software"
+    },
+    {
+      "id": "server",
+      "label": "Server"
+    },
+    {
+      "id": "nas",
+      "label": "Network Storage"
+    },
+    {
+      "id": "firewall",
+      "label": "Firewall"
+    },
+    {
+      "id": "network",
+      "label": "Network"
+    },
+    {
+      "id": "router",
+      "label": "Router"
+    },
+    {
+      "id": "vpn",
+      "label": "VPN"
+    },
+    {
+      "id": "cloud",
+      "label": "Cloud"
+    },
+    {
+      "id": "database",
+      "label": "Database"
+    },
+    {
+      "id": "movies",
+      "label": "Movies"
+    },
+    {
+      "id": "series",
+      "label": "Series"
     }
   ]
 }

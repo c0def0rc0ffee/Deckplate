@@ -262,7 +262,8 @@ Twelve icon themes ship with the app. The first five are general:
 - "Space Game", the space sim glyphs.
 - "Controls", pictures for the actions above (volume, mute, headphones,
   speaker, windows, timer, stopwatch, counter, toggle on and off, camera and
-  microphone on and off, play, pause, stop, record, reset, bell) plus four
+  microphone on and off, play, pause, stop, record, reset, bell, a page and
+  the next and previous page, a key sequence and a held key) plus four
   animated ones: a running hourglass, a running stopwatch, an emptying ring
   and a tally counting up. An animated icon is a GIF and plays on the key.
 - "Desktop", the everyday things a Linux desktop does: terminal, files,
@@ -270,7 +271,9 @@ Twelve icon themes ship with the app. The first five are general:
   lock, log out, power off, restart, suspend, the workspaces either side,
   show desktop, the application menu, search, clipboard, mail, calendar,
   music, video, images, downloads, the bin, wireless, Bluetooth, keyboard,
-  printer and software.
+  printer and software, then the home lab: server, network storage,
+  firewall, network, router, VPN, cloud and database, with a film reel and
+  a television set for the movie and series libraries.
 - "Sherbet" and "Lagoon", every Controls and Desktop icon again, repainted
   in bright corner to corner colour sweeps, warm and cool. They are made to
   sit happily beside a gradient desktop icon theme. Each holds the same ids

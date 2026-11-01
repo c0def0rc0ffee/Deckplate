@@ -69,6 +69,7 @@ SIGNAL = (92, 155, 222, 255)    # the page's blue
 STEEL = (143, 160, 175, 255)    # the page's muted grey
 WARM = (255, 200, 60, 255)      # flame and warnings
 RED = (232, 96, 96, 255)
+CLEAR = (0, 0, 0, 0)            # paints transparency, to cut one shape out of another
 
 
 class Pen:
@@ -846,6 +847,57 @@ def dim(pen: Pen) -> None:
     pen.circle(62, 42, 24, (0, 0, 0, 0), None, fill=(0, 0, 0, 0))
 
 
+# Page and key pictures for the deck's own navigation and typing actions.
+
+def _pages(pen: Pen, x: float) -> None:
+    """<summary>Two stacked pages, the front one cut out of the back one, with their left edge at ``x``.</summary>
+    <param name="pen">Where to draw.</param>
+    <param name="x">The back page's left edge in grid units; the stack is 48 wide.</param>
+    <remarks>The front page is filled with transparency first so it cuts the
+    back page's outline where it overlaps, the way the printer's page does.</remarks>"""
+    pen.rounded(x, 20, x + 38, 68, 5, STEEL, 6)
+    pen.rounded(x + 10, 30, x + 48, 80, 5, INK, STROKE, fill=CLEAR)
+
+
+def page(pen: Pen) -> None:
+    """<summary>A stack of pages with two lines on the front one: go to a named page.</summary>"""
+    _pages(pen, 26)
+    pen.line([(46, 48), (66, 48)], SIGNAL, 6)
+    pen.line([(46, 62), (60, 62)], SIGNAL, 6)
+
+
+def page_next(pen: Pen) -> None:
+    """<summary>A stack of pages with an arrow leading away to the right: the next page.</summary>"""
+    _pages(pen, 10)
+    pen.line([(68, 55), (86, 55)], SIGNAL)
+    pen.line([(78, 45), (86, 55), (78, 65)], SIGNAL)
+
+
+def page_previous(pen: Pen) -> None:
+    """<summary>A stack of pages with an arrow leading away to the left: the previous page.</summary>"""
+    _pages(pen, 42)
+    pen.line([(32, 55), (14, 55)], SIGNAL)
+    pen.line([(22, 45), (14, 55), (22, 65)], SIGNAL)
+
+
+def key_sequence(pen: Pen) -> None:
+    """<summary>Three key caps in a row with an arrow running under them: keys typed one after another.</summary>"""
+    for x in (12, 38, 64):
+        pen.rounded(x, 24, x + 24, 48, 5, INK, 6)
+    pen.line([(16, 70), (80, 70)], SIGNAL)
+    pen.line([(70, 60), (80, 70), (70, 80)], SIGNAL)
+
+
+def key_hold(pen: Pen) -> None:
+    """<summary>A key cap sunk into its base under a pressing arrow: a key held.</summary>
+    <remarks>The cap is filled with transparency so it cuts the base's outline
+    where it sits inside it, which is what makes it look pressed in.</remarks>"""
+    pen.line([(50, 10), (50, 26)], SIGNAL)
+    pen.line([(41, 17), (50, 26), (59, 17)], SIGNAL)
+    pen.rounded(20, 50, 80, 84, 6, STEEL, 6)
+    pen.rounded(30, 36, 70, 70, 5, INK, STROKE, fill=CLEAR)
+
+
 # Animated icons take the loop position t in [0, 1) and draw one frame.
 
 def hourglass_running(pen: Pen, t: float) -> None:
@@ -882,9 +934,6 @@ def counting(pen: Pen, t: float) -> None:
 # The desktop set: the standard things a Linux desktop offers, drawn as plain
 # pictograms so they read the same on any distribution. None of them is any
 # desktop's own artwork: a folder is a folder, a gear is a gear.
-
-CLEAR = (0, 0, 0, 0)    # paints transparency, to cut one shape out of another
-
 
 def terminal(pen: Pen) -> None:
     """<summary>A window with a prompt and a cursor: a terminal.</summary>"""
@@ -1145,6 +1194,109 @@ def software(pen: Pen) -> None:
     pen.polygon([(50, 14), (84, 31), (84, 69), (50, 86), (16, 69), (16, 31)])
     pen.line([(16, 31), (50, 48), (84, 31)])
     pen.line([(50, 48), (50, 86)], SIGNAL)
+
+
+# Network and servers: the things a home lab's keys open, drawn as plain
+# objects, a rack, a storage tower, a wall, a router, with no vendor's badge
+# or colour. The movie and series pictures are a film reel and a set with an
+# aerial, for the pair of library managers most such labs run.
+
+def server(pen: Pen) -> None:
+    """<summary>Three rack units stacked, each with its lamp and a vent: a server.</summary>"""
+    for top in (14, 40, 66):
+        pen.rounded(14, top, 86, top + 20, 4)
+        pen.dot(26, top + 10, 4, SIGNAL)
+        pen.line([(44, top + 10), (74, top + 10)], STEEL, 5)
+
+
+def nas(pen: Pen) -> None:
+    """<summary>A tower with three drive bays, each with its lamp: network storage.</summary>"""
+    pen.rounded(22, 12, 78, 88, 6)
+    for y in (32, 50, 68):
+        pen.line([(34, y), (56, y)], STEEL, 6)
+        pen.dot(66, y, 3.5, SIGNAL)
+
+
+def firewall(pen: Pen) -> None:
+    """<summary>A brick wall with a flame rising behind it: the firewall.</summary>"""
+    pen.dot(50, 36, 13, WARM)
+    pen.polygon([(50, 8), (37, 36), (63, 36)], fill=WARM, width=None)
+    pen.rounded(12, 50, 88, 88, 3, INK, None, fill=INK)
+    for y in (62.5, 75.5):
+        pen.line([(12, y), (88, y)], CLEAR, 4)
+    for top, columns in ((50, (37, 63)), (62.5, (25, 50, 75)), (75.5, (37, 63))):
+        for x in columns:
+            pen.line([(x, top), (x, top + 13)], CLEAR, 4)
+
+
+def network(pen: Pen) -> None:
+    """<summary>A hub above two nodes, joined by cables: the network.</summary>"""
+    pen.line([(50, 32), (50, 50), (24, 50), (24, 66)], STEEL, 6)
+    pen.line([(50, 50), (76, 50), (76, 66)], STEEL, 6)
+    pen.rounded(36, 12, 64, 32, 4, SIGNAL, None, fill=SIGNAL)
+    pen.rounded(12, 66, 36, 86, 4, INK, None, fill=INK)
+    pen.rounded(64, 66, 88, 86, 4, INK, None, fill=INK)
+
+
+def router(pen: Pen) -> None:
+    """<summary>A flat box with two aerials and a row of lamps: the router.</summary>"""
+    pen.line([(30, 52), (30, 20)], STEEL)
+    pen.line([(70, 52), (70, 20)], STEEL)
+    pen.dot(30, 16, 5, SIGNAL)
+    pen.dot(70, 16, 5, SIGNAL)
+    pen.rounded(12, 54, 88, 84, 6)
+    for x in (28, 40, 52):
+        pen.dot(x, 69, 3.5, SIGNAL)
+    pen.line([(64, 69), (76, 69)], STEEL, 5)
+
+
+def vpn(pen: Pen) -> None:
+    """<summary>A shield with a keyhole: the private network tunnel.</summary>"""
+    pen.polygon([(50, 12), (82, 22), (82, 50), (66, 74), (50, 86), (34, 74), (18, 50), (18, 22)])
+    pen.dot(50, 44, 8, SIGNAL)
+    pen.line([(50, 48), (50, 64)], SIGNAL, 9)
+
+
+def cloud(pen: Pen) -> None:
+    """<summary>A cloud outline: a remote or hosted service.</summary>
+    <remarks>Drawn solid from three discs on a base, then the same shapes a
+    stroke smaller are cut out in transparency, which is the only way the Pen
+    has of outlining a shape made of several pieces.</remarks>"""
+    pen.dot(36, 52, 16)
+    pen.dot(58, 44, 20)
+    pen.dot(72, 58, 13)
+    pen.rounded(22, 56, 86, 72, 8, INK, None, fill=INK)
+    pen.dot(36, 52, 9, CLEAR)
+    pen.dot(58, 44, 13, CLEAR)
+    pen.dot(72, 58, 6, CLEAR)
+    pen.rounded(29, 50, 79, 65, 6, CLEAR, None, fill=CLEAR)
+
+
+def database(pen: Pen) -> None:
+    """<summary>A cylinder with a band round its middle: a database.</summary>"""
+    pen.ellipse(20, 14, 80, 30)
+    pen.line([(20, 22), (20, 78)])
+    pen.line([(80, 22), (80, 78)])
+    pen.ellipse(20, 70, 80, 86, start=0, end=180)
+    pen.ellipse(20, 42, 80, 58, SIGNAL, 6, start=0, end=180)
+
+
+def movies(pen: Pen) -> None:
+    """<summary>A film reel with its four holes and hub: the film library.</summary>"""
+    pen.circle(50, 50, 36)
+    pen.dot(50, 50, 7, SIGNAL)
+    for angle in (45, 135, 225, 315):
+        a = math.radians(angle)
+        pen.dot(50 + 19 * math.cos(a), 50 + 19 * math.sin(a), 8)
+
+
+def series(pen: Pen) -> None:
+    """<summary>A television set with an aerial and a play mark: the series library.</summary>"""
+    pen.line([(38, 28), (26, 12)], STEEL)
+    pen.line([(62, 28), (74, 12)], STEEL)
+    pen.rounded(12, 30, 88, 80, 6)
+    pen.polygon([(43, 44), (62, 55), (43, 66)], fill=SIGNAL, colour=SIGNAL, width=4)
+    pen.line([(34, 87), (66, 87)], STEEL, 6)
 
 
 # The game flavoured sets. Each one is meant to sit well beside a kind of
@@ -2075,6 +2227,8 @@ CONTROLS = {
     "camera": camera, "camera-off": camera_off, "mic": mic, "mic-off": mic_off,
     "play": play, "pause": pause, "stop": stop, "record": record, "reset": reset,
     "plus": plus, "minus": minus, "bell": bell, "bright": bright, "dim": dim,
+    "page": page, "page-next": page_next, "page-previous": page_previous,
+    "key-sequence": key_sequence, "key-hold": key_hold,
 }
 CONTROL_LABELS = {
     "volume-up": "Volume Up", "volume-down": "Volume Down", "mute": "Mute",
@@ -2086,6 +2240,8 @@ CONTROL_LABELS = {
     "camera": "Camera", "camera-off": "Camera Off", "mic": "Microphone", "mic-off": "Microphone Off",
     "play": "Play", "pause": "Pause", "stop": "Stop", "record": "Record", "reset": "Reset",
     "plus": "Plus", "minus": "Minus", "bell": "Bell", "bright": "Bright", "dim": "Dim",
+    "page": "Page", "page-next": "Next Page", "page-previous": "Previous Page",
+    "key-sequence": "Key Sequence", "key-hold": "Hold Key",
     "hourglass-running": "Hourglass Running", "stopwatch-running": "Stopwatch Running",
     "ring-running": "Ring Running", "counting": "Counting",
 }
@@ -2131,6 +2287,8 @@ DESKTOP = {
     "video": video, "image-viewer": image_viewer, "download": download, "trash": trash,
     "wifi": wifi, "bluetooth": bluetooth, "keyboard": keyboard, "printer": printer,
     "software": software,
+    "server": server, "nas": nas, "firewall": firewall, "network": network, "router": router,
+    "vpn": vpn, "cloud": cloud, "database": database, "movies": movies, "series": series,
 }
 DESKTOP_LABELS = {
     "terminal": "Terminal", "files": "Files", "home": "Home", "browser": "Browser",
@@ -2143,6 +2301,9 @@ DESKTOP_LABELS = {
     "video": "Video", "image-viewer": "Images", "download": "Downloads", "trash": "Rubbish Bin",
     "wifi": "Wi-Fi", "bluetooth": "Bluetooth", "keyboard": "Keyboard", "printer": "Printer",
     "software": "Software",
+    "server": "Server", "nas": "Network Storage", "firewall": "Firewall", "network": "Network",
+    "router": "Router", "vpn": "VPN", "cloud": "Cloud", "database": "Database",
+    "movies": "Movies", "series": "Series",
 }
 
 
