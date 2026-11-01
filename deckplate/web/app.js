@@ -2444,9 +2444,12 @@
         note.textContent = "not written: " + err.message;
       }
     });
-    return el("div", { class: "field" }, [el("label", { text: "Username and password" }),
-      el("div", { class: "inline" }, [user, pass, write]), note,
-      el("div", { class: "help", text: "Written once, by the daemon on this machine, to the credentials file above with owner only permissions. The password is never kept in the config." })]);
+    return el("div", {}, [
+      el("div", { class: "field" }, [el("label", { text: "Username" }), user]),
+      el("div", { class: "field" }, [el("label", { text: "Password" }), pass]),
+      el("div", { class: "field" }, [el("div", { class: "inline" }, [write, note]),
+        el("div", { class: "help", text: "Written once, by the daemon on this machine, to the credentials file above with owner only permissions. The password is never kept in the config." })]),
+    ]);
   }
   /**
    * <summary>The default credentials file for a Kodi address: one per player, under the tokens folder.</summary>
