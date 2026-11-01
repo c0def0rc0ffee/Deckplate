@@ -795,6 +795,39 @@ def weather_tile(observation: Observation | None, size: int, location_name: str 
     return tile
 
 
+def weather_key_tile(observation: Observation | None, size: int,
+                     background: tuple[int, int, int] = images.BACKGROUND, labelled: bool = False) -> Image.Image:
+    """<summary>
+    A key's face for the weather: the conditions glyph, the temperature and the wind.
+    </summary>
+    <param name="observation">The reading, or None before the first one.</param>
+    <param name="size">The key size in pixels.</param>
+    <param name="background">RGB tuple behind everything.</param>
+    <param name="labelled">True when a label band will go along the bottom,
+    which squeezes the three lines into the space above it.</param>
+    <returns>An upright tile, always.</returns>
+    <remarks>
+    The same reading the strip's weather panel draws, laid out for a key,
+    which is wider than the panel's window and sits behind a label band: the
+    glyph takes the top, the temperature the middle and the wind the line
+    under it. No reading draws the quiet "no weather", as the panel does.
+    </remarks>
+    """
+    tile = images.solid(background, size)
+    draw = ImageDraw.Draw(tile)
+    room = size * (0.74 if labelled else 1.0)  # the band takes the bottom 26 percent
+    if observation is None:
+        draw.text((size / 2, room * 0.5), "no weather", fill=MUTED, font=images.load_font(int(size * 0.14)), anchor="mm")
+        return tile
+    draw_icon(draw, observation.icon, size * 0.5, room * 0.24, room * 0.15)
+    draw.text((size / 2, room * 0.55), observation.temperature_text, fill=images.FOREGROUND,
+              font=images.load_font(int(room * 0.24)), anchor="mm")
+    wind = observation.wind_text
+    font = images.load_font(_fit_font_size(wind, size - 8, int(room * 0.15)))
+    draw.text((size / 2, room * 0.8), wind, fill=MUTED, font=font, anchor="mm")
+    return tile
+
+
 def playing_tile(reading: NowPlaying | None, size: int,
                  background: tuple[int, int, int] = images.BACKGROUND) -> Image.Image:
     """<summary>

@@ -260,6 +260,12 @@ a step of a multi action.
   before the first answer. Give the key an `image_active` or
   `label_active` instead and it swaps its whole face while the address
   answers, with no lamp.
+- `weather` draws the current conditions on the key, the glyph, the
+  temperature and the wind speed from the same reading as the strip's
+  weather panel, and opens a weather site when pressed:
+  `{ type = "weather" }` opens a map site at the weather coordinates, or
+  `url = "https://..."` names a page of your own. Leave the key without a
+  picture; one given wins over the drawn face.
 - `kodi` sends Kodi a remote control action over its JSON RPC:
   `{ type = "kodi", do = "play_pause" }`, with `do` one of play_pause, stop,
   next, previous, up, down, left, right, select, back, home, info, context,

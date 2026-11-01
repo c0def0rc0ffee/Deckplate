@@ -504,3 +504,12 @@ def test_the_status_lamp_sits_in_the_top_right_corner():
     assert base.getpixel((cx, cy)) != tiles.DOT_UP
     assert lit.getpixel((SIZE // 2, SIZE // 2)) == base.getpixel((SIZE // 2, SIZE // 2))
     assert tiles.with_dot(base, tiles.DOT_DOWN).getpixel((cx, cy)) == tiles.DOT_DOWN
+
+
+def test_the_weather_key_face_draws_with_and_without_a_reading():
+    """<summary>The weather key's face draws something in every state.</summary>"""
+    assert differs_from_blank(tiles.weather_key_tile(None, SIZE))
+    windy = Observation(12.4, 61, "Light rain", "rain", "°C", wind_speed=23.2, wind_unit="km/h")
+    assert differs_from_blank(tiles.weather_key_tile(windy, SIZE))
+    assert tiles.weather_key_tile(windy, SIZE).tobytes() != tiles.weather_key_tile(
+        Observation(12.4, 61, "Light rain", "rain", "°C", wind_speed=5, wind_unit="km/h"), SIZE).tobytes()

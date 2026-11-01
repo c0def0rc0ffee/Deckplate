@@ -99,7 +99,9 @@ class Observation:
     the degree symbol to print with it, so nothing downstream has to know
     which setting was used. ``label`` and ``icon`` are the decoded form of
     ``code`` and are stored rather than looked up again, which keeps the
-    drawing code free of the code table.
+    drawing code free of the code table. ``wind_speed`` is in ``wind_unit``,
+    kilometres an hour or miles an hour by the same setting as the
+    temperature, and None for a reply without it.
     Frozen and compared by value on purpose: <see cref="WeatherService"/>
     uses equality to decide whether the tile actually needs redrawing, and a
     mutable reading would defeat that.
@@ -110,6 +112,8 @@ class Observation:
     label: str
     icon: str
     unit: str
+    wind_speed: float | None = None
+    wind_unit: str = "km/h"
 
     @property
     def temperature_text(self) -> str:
@@ -126,6 +130,14 @@ class Observation:
         </remarks>
         """
         return f"{round(self.temperature)}{self.unit}"
+
+    @property
+    def wind_text(self) -> str:
+        """<summary>The wind as it goes on a key: a whole number and its unit, or a dash.</summary>
+        <returns>A string such as "12 km/h".</returns>"""
+        if self.wind_speed is None:
+            return f"-- {self.wind_unit}"
+        return f"{round(self.wind_speed)} {self.wind_unit}"
 
 
 @dataclass(frozen=True)
@@ -175,8 +187,9 @@ def fetch(settings: WeatherSettings, timeout: float = 10) -> Observation:
     params = {
         "latitude": settings.latitude,
         "longitude": settings.longitude,
-        "current": "temperature_2m,weather_code",
+        "current": "temperature_2m,weather_code,wind_speed_10m",
         "temperature_unit": "fahrenheit" if settings.units == "imperial" else "celsius",
+        "wind_speed_unit": "mph" if settings.units == "imperial" else "kmh",
         "timezone": "auto",
     }
     response = requests.get(FORECAST_URL, params=params, timeout=timeout,
@@ -207,10 +220,13 @@ def parse_forecast(payload: dict, units: str) -> Observation:
     current = payload["current"]
     code = int(current["weather_code"])
     label, icon = describe(code)
+    wind = current.get("wind_speed_10m")
     return Observation(
         temperature=float(current["temperature_2m"]),
         code=code, label=label, icon=icon,
         unit="°F" if units == "imperial" else "°C",
+        wind_speed=None if wind is None else float(wind),
+        wind_unit="mph" if units == "imperial" else "km/h",
     )
 
 

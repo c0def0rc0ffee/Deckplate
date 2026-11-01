@@ -129,6 +129,8 @@ tiles = ["clock", "date", "weather"]
 #   status     url = "https://box/"  lights the key's active face while the address
 #              answers, asked every every_ms; expect = "text", insecure = true and
 #              open = false are optional, and the press opens the address
+#   weather    draws the conditions, temperature and wind on the key, from [weather];
+#              the press opens url, or a map site at the coordinates when none is given
 #   kodi       do = "play_pause" | "stop" | "next" | "previous" | "up" | "down" | "left" |
 #              "right" | "select" | "back" | "home" | "info" | "context" | "osd" |
 #              "volume_up" | "volume_down" | "mute", or method = "..." with params = { };

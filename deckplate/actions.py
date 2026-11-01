@@ -43,7 +43,7 @@ from . import desktop as desktop_module
 from . import hotkeys
 from . import kodi as kodi_module
 from .audio import AudioError
-from .config import POSITIONAL_ACTIONS, Action, KodiSettings
+from .config import POSITIONAL_ACTIONS, Action, KodiSettings, WeatherSettings
 from .holds import HoldManager, task_key
 
 
@@ -195,6 +195,16 @@ def default_json_request(url: str, headers: dict, body: dict, timeout: float) ->
     return response.json()
 
 
+WEATHER_SITE = "https://www.windy.com/?{latitude:.4f},{longitude:.4f},9"
+
+
+def weather_site(settings: WeatherSettings) -> str:
+    """<summary>The weather page a weather key opens when it names none.</summary>
+    <param name="settings">The coordinates to open it at.</param>
+    <returns>A URL on a map site, centred on the coordinates.</returns>"""
+    return WEATHER_SITE.format(latitude=settings.latitude, longitude=settings.longitude)
+
+
 def platform_command(params: dict) -> str:
     """<summary>
     The command for this platform, falling back to the shared one.
@@ -250,6 +260,7 @@ class ActionRunner:
                  audio=None,
                  desktop=None,
                  kodi: KodiSettings | None = None,
+                 weather: WeatherSettings | None = None,
                  send_json: Callable[[str, dict, dict, float], dict] = default_json_request,
                  screensaver=None,
                  notifier=None,
@@ -265,6 +276,8 @@ class ActionRunner:
         and wrong for the daemon.</param>
         <param name="kodi">Where Kodi is, from the config's [kodi] table, or
         None for the defaults. Replaced by the controller on a reload.</param>
+        <param name="weather">The weather coordinates, for the site a
+        weather key opens by default. Replaced by the controller on a reload.</param>
         <param name="send_json">How a kodi action posts and reads JSON.</param>
         <param name="screensaver">The screensaver inhibitor for Stay Awake,
         or None for the desktop's own.</param>
@@ -309,6 +322,7 @@ class ActionRunner:
         self._audio = audio
         self._desktop = desktop
         self.kodi = kodi or KodiSettings()
+        self.weather = weather or WeatherSettings()
         self.send_json = send_json
         self.screensaver = screensaver
         self.notifier = notifier
@@ -468,6 +482,8 @@ class ActionRunner:
                 self.open_url(params["url"])
         elif action.type == "kodi":
             self._kodi(params)
+        elif action.type == "weather":
+            self.open_url(params.get("url") or weather_site(self.weather))
         elif action.type in POSITIONAL_ACTIONS:
             raise ValueError(f"a {action.type} action acts on its key and must be run by the controller")
         else:

@@ -156,3 +156,17 @@ def test_service_keeps_last_reading_on_failure():
     clock.t += 121
     state["fail"] = False
     assert service.refresh_if_due() is False  # same reading, so not "changed"
+
+
+def test_the_wind_speed_rides_with_the_reading():
+    """<summary>
+    The forecast's wind is read into the observation in the unit the
+    settings chose, and a reply without it still parses.
+    </summary>
+    """
+    payload = {"current": {"temperature_2m": 12.4, "weather_code": 3, "wind_speed_10m": 17.6}}
+    metric = weather.parse_forecast(payload, "metric")
+    assert metric.wind_speed == 17.6 and metric.wind_unit == "km/h" and metric.wind_text == "18 km/h"
+    assert weather.parse_forecast(payload, "imperial").wind_unit == "mph"
+    bare = weather.parse_forecast({"current": {"temperature_2m": 1, "weather_code": 0}}, "metric")
+    assert bare.wind_speed is None and bare.wind_text == "-- km/h"

@@ -1150,6 +1150,7 @@
       case "dnd": return { type };
       case "status": return { type, url: "https://", every_ms: 60000, insecure: false, expect: "", open: true };
       case "kodi": return { type, do: "play_pause" };
+      case "weather": return { type, url: "" };
     }
     return { type };
   }
@@ -1230,6 +1231,8 @@
       icon: '<path d="M6 16V11a6 6 0 0110-4.5M18 11v5l2 2H4l2-2"/><path d="M10 21h4M3 3l18 18"/>' },
     status: { label: "Watch a web address", help: "Lights the key while an address answers; the press opens it.", nested: false,
       icon: '<circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/>' },
+    weather: { label: "Weather", help: "Shows the conditions, temperature and wind on the key; the press opens a weather site.", nested: false,
+      icon: '<path d="M7 17a4 4 0 010-8 5.5 5.5 0 0110.5 1.5A3.5 3.5 0 0117 17H7z"/><path d="M8 20h2M12 20h2M16 20h2"/>' },
     kodi: { label: "Media centre", help: "Sends play, pause, stop or a remote control key to Kodi.",
       icon: '<rect x="7" y="2.5" width="10" height="19" rx="3"/><path d="M12 7v4M10 9h4M12 15h.01M10 18h4"/>' },
   };
@@ -1240,7 +1243,7 @@
    * enough failure to be worth saying out loud here.</remarks> */
   const ACTION_GROUPS = [
     { title: "Keys and text", types: ["hotkey", "sequence", "chord", "text", "hold", "boost", "repeat"] },
-    { title: "Programs and the web", types: ["launch", "url", "request", "status", "kodi"] },
+    { title: "Programs and the web", types: ["launch", "url", "request", "status", "weather", "kodi"] },
     { title: "Sound and windows", types: ["volume", "audio_output", "window"] },
     { title: "The desktop", types: ["stay_awake", "dnd"] },
     { title: "Keys that remember", types: ["toggle", "timer", "stopwatch", "counter"] },
@@ -1673,6 +1676,13 @@
         };
         box.append(tick("insecure", "Accept a certificate that does not verify", false, "For a firewall or server with its own certificate."));
         box.append(tick("open", "Open the address when pressed", true, "Untick for a key that only shows the state."));
+        break;
+      }
+      case "weather": {
+        const url = el("input", { type: "text", value: action.url || "", placeholder: "Leave empty for a map site at the weather coordinates" });
+        url.addEventListener("input", () => change(d => { getAction().url = url.value.trim(); }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { text: "Site to open" }), url,
+          el("div", { class: "help", text: "The key draws the reading from the weather settings below the pages. Give it no picture, or the picture wins." })]));
         break;
       }
       case "kodi": {

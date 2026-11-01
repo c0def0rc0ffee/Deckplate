@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A `weather` key: the conditions glyph, temperature and wind speed drawn
+  on the key, redrawn as the reading changes, and a weather site opened on
+  the press, a map at the coordinates unless the key names a `url`. The
+  weather reading now carries the wind speed, in km/h or mph by the units
+  setting.
 - Four more action types. `stay_awake` keeps the machine from going idle
   until pressed again, through the desktop's screensaver inhibit and a
   pointer nudge through the X test extension, either half optional. `dnd`

@@ -2243,3 +2243,38 @@ def test_night_brightness_dims_after_sunset_and_restores_at_sunrise(setup, monke
     clock.advance(61)
     controller.tick()
     assert controller.brightness == controller.config.deck.brightness
+
+
+def test_a_weather_key_draws_the_reading_and_opens_the_site(setup):
+    """<summary>
+    A weather key with no picture draws the reading on its face, is
+    redrawn when the reading changes, and opens the map site at the
+    coordinates when pressed, or its own url when it names one.
+    </summary>
+    """
+    from deckplate import actions as actions_module
+    controller, deck, clock, urls, path = setup
+    controller.reload(cfg.parse(TEXT + """
+[[pages.keys]]
+row = 0
+column = 1
+label = "Weather"
+action = { type = "weather" }
+
+[[pages.keys]]
+row = 0
+column = 2
+action = { type = "weather", url = "https://weather.test/" }
+""", path.parent, path))
+    controller.switch_page("Second")
+    key = controller.page.keys[(0, 1)]
+    assert controller._key_weather(key) == controller.weather.observation
+    before = controller._face_signature(0, 1, set())
+    image, frames, _fps = controller._draw_key(0, 1, controller.deck.image_size, set())
+    assert frames is None
+    controller.weather.observation = Observation(25, 0, "Clear", "sun", "°C", wind_speed=30)
+    assert controller._face_signature(0, 1, set()) != before
+    controller.handle_event(KeyEvent(10, True))
+    assert urls == [actions_module.weather_site(controller.config.weather)]
+    controller.handle_event(KeyEvent(7, True))  # key 7 is row 0 column 2
+    assert urls[-1] == "https://weather.test/"

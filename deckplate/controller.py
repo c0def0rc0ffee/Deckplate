@@ -402,7 +402,7 @@ class Controller:
         self.now = now
         self.monotonic = monotonic
         self.log = log
-        self.runner = runner or ActionRunner(self, log=log, kodi=config.kodi)
+        self.runner = runner or ActionRunner(self, log=log, kodi=config.kodi, weather=config.weather)
         self.weather = weather or WeatherService(config.weather, monotonic=monotonic, log=log)
         self.status = status or StatusMonitor(monotonic=monotonic, log=log)
         self.media = media or MediaService(monotonic=monotonic, log=log)
@@ -821,7 +821,7 @@ class Controller:
         <param name="row">Row from 0 at the top.</param>
         <param name="column">Column from 0 at the left.</param>
         <param name="holding">The task keys running now.</param>
-        <returns>(border colour, active, face, status dot colour).</returns>
+        <returns>(border colour, active, face, status dot colour, weather reading).</returns>
         <remarks>Compared with the last one drawn to decide whether the key
         needs sending again. A face changes once a second at most, since its
         text is whole seconds and its ring is rounded to the pixel.</remarks>
@@ -831,7 +831,7 @@ class Controller:
         active, face = self._key_face(key, (row, column), holding, self.page)
         if face is not None and face.ring is not None:
             face = replace(face, ring=round(face.ring * 100) / 100)
-        return mark, active, face, self._key_dot(key)
+        return mark, active, face, self._key_dot(key), self._key_weather(key)
 
     def _key_dot(self, key) -> tuple[int, int, int] | None:
         """<summary>
@@ -857,6 +857,22 @@ class Controller:
                     return tiles.DOT_UNKNOWN
                 return tiles.DOT_UP if up else tiles.DOT_DOWN
         return None
+
+    def _key_weather(self, key):
+        """<summary>
+        The weather reading a key draws on its face, or None for a key that
+        draws none.
+        </summary>
+        <param name="key">The key to judge, or None for an empty position.</param>
+        <returns>The latest observation for a key whose plain action is
+        weather and which has no picture of its own; otherwise None.</returns>
+        <remarks>A picture on the key wins: the user chose it, and the
+        press still opens the site. In the signature, so the face is redrawn
+        when the reading changes and not otherwise.</remarks>
+        """
+        if key is None or key.image is not None or key.action is None or key.action.type != "weather":
+            return None
+        return self.weather.observation
 
     def _draw_key(self, row: int, column: int, size: int, holding, page=None, config=None) -> tuple:
         """<summary>
@@ -907,6 +923,14 @@ class Controller:
         """
         mark = self._key_mark(key, holding)
         active, face = self._key_face(key, (row, column), holding, page)
+        if key is not None and key.image is None and key.action is not None and key.action.type == "weather":
+            tile = tiles.weather_key_tile(self.weather.observation, size,
+                                          tiles.key_background(key, config.deck.background), labelled=bool(key.label))
+            if key.label:
+                tile = tiles.with_label(tile, key.label)
+            if mark is not None:
+                tile = tiles.with_mark(tile, mark)
+            return tile, None, 0
         if active and key is not None and (key.image_active or key.label_active):
             key = replace(key, image=key.image_active or key.image, label=key.label_active or key.label)
         default_bg = config.deck.background
@@ -1908,6 +1932,7 @@ class Controller:
         self._night = None
         self._last_night_check = None
         self.runner.kodi = config.kodi
+        self.runner.weather = config.weather
         self._watch_status()
         self._strip_signatures = [None] * layout.ROWS
         self.animator.clear_all()
