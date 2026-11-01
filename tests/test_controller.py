@@ -2278,3 +2278,46 @@ action = { type = "weather", url = "https://weather.test/" }
     assert urls == [actions_module.weather_site(controller.config.weather)]
     controller.handle_event(KeyEvent(7, True))  # key 7 is row 0 column 2
     assert urls[-1] == "https://weather.test/"
+
+
+def test_a_system_key_draws_the_machine_and_opens_the_monitor(setup, monkeypatch):
+    """<summary>
+    A system key with no picture draws the machine reading, keeps the
+    reader refreshing while it is on the page, is redrawn when the reading
+    changes, and launches its command, or the first monitor found, on the press.
+    </summary>
+    """
+    from deckplate import actions as actions_module
+    from deckplate.system import SystemReading
+    controller, deck, clock, urls, path = setup
+    launched = []
+    controller.runner.launch = launched.append
+    controller.reload(cfg.parse(TEXT + """
+[[pages.keys]]
+row = 0
+column = 1
+label = "Machine"
+action = { type = "system" }
+
+[[pages.keys]]
+row = 0
+column = 2
+action = { type = "system", command = "htop" }
+""", path.parent, path))
+    controller.switch_page("Second")
+    key = controller.page.keys[(0, 1)]
+    readings = iter([SystemReading(10, 20, 40), SystemReading(50, 20, 41)])
+    controller.system.read = lambda: next(readings)
+    controller.system._next_due = 0.0
+    controller.tick()
+    assert controller._key_system(key) == SystemReading(10, 20, 40)
+    before = controller._face_signature(0, 1, set())
+    image, frames, _fps = controller._draw_key(0, 1, controller.deck.image_size, set())
+    assert frames is None
+    clock.advance(3)
+    controller.tick()
+    assert controller._face_signature(0, 1, set()) != before
+    monkeypatch.setattr(actions_module, "default_monitor", lambda: "fake-monitor")
+    controller.handle_event(KeyEvent(10, True))
+    controller.handle_event(KeyEvent(7, True))
+    assert launched == ["fake-monitor", "htop"]

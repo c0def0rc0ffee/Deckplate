@@ -1151,6 +1151,7 @@
       case "status": return { type, url: "https://", every_ms: 60000, insecure: false, expect: "", open: true };
       case "kodi": return { type, do: "play_pause" };
       case "weather": return { type, url: "" };
+      case "system": return { type, command: "" };
     }
     return { type };
   }
@@ -1233,6 +1234,8 @@
       icon: '<circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/>' },
     weather: { label: "Weather", help: "Shows the conditions, temperature and wind on the key; the press opens a weather site.", nested: false,
       icon: '<path d="M7 17a4 4 0 010-8 5.5 5.5 0 0110.5 1.5A3.5 3.5 0 0117 17H7z"/><path d="M8 20h2M12 20h2M16 20h2"/>' },
+    system: { label: "The machine", help: "Shows the processor temperature, load and memory on the key; the press opens the system monitor.", nested: false,
+      icon: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/><path d="M6 13l3-4 3 2 3-5 3 4"/>' },
     kodi: { label: "Media centre", help: "Sends play, pause, stop or a remote control key to Kodi.",
       icon: '<rect x="7" y="2.5" width="10" height="19" rx="3"/><path d="M12 7v4M10 9h4M12 15h.01M10 18h4"/>' },
   };
@@ -1243,7 +1246,7 @@
    * enough failure to be worth saying out loud here.</remarks> */
   const ACTION_GROUPS = [
     { title: "Keys and text", types: ["hotkey", "sequence", "chord", "text", "hold", "boost", "repeat"] },
-    { title: "Programs and the web", types: ["launch", "url", "request", "status", "weather", "kodi"] },
+    { title: "Programs and the web", types: ["launch", "url", "request", "status", "weather", "system", "kodi"] },
     { title: "Sound and windows", types: ["volume", "audio_output", "window"] },
     { title: "The desktop", types: ["stay_awake", "dnd"] },
     { title: "Keys that remember", types: ["toggle", "timer", "stopwatch", "counter"] },
@@ -1683,6 +1686,13 @@
         url.addEventListener("input", () => change(d => { getAction().url = url.value.trim(); }, { silent: true }));
         box.append(el("div", { class: "field" }, [el("label", { text: "Site to open" }), url,
           el("div", { class: "help", text: "The key draws the reading from the weather settings below the pages. Give it no picture, or the picture wins." })]));
+        break;
+      }
+      case "system": {
+        const command = el("input", { type: "text", value: action.command || "", placeholder: "Leave empty for the first system monitor found" });
+        command.addEventListener("input", () => change(d => { getAction().command = command.value.trim(); }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { text: "Program to open" }), command,
+          el("div", { class: "help", text: "The key draws the temperature, processor and memory from the machine itself. Give it no picture, or the picture wins." })]));
         break;
       }
       case "kodi": {

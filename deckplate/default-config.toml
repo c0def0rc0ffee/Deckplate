@@ -131,6 +131,8 @@ tiles = ["clock", "date", "weather"]
 #              open = false are optional, and the press opens the address
 #   weather    draws the conditions, temperature and wind on the key, from [weather];
 #              the press opens url, or a map site at the coordinates when none is given
+#   system     draws the processor temperature, load and memory on the key; the press
+#              launches command, or the first desktop system monitor found
 #   kodi       do = "play_pause" | "stop" | "next" | "previous" | "up" | "down" | "left" |
 #              "right" | "select" | "back" | "home" | "info" | "context" | "osd" |
 #              "volume_up" | "volume_down" | "mute", or method = "..." with params = { };

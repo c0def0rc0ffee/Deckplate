@@ -586,6 +586,9 @@ def with_mark(tile: Image.Image, colour: tuple[int, int, int]) -> Image.Image:
     return _draw_mark(tile.copy(), colour)
 
 
+# The empty part of a bar on the system tile, a shade above the navy.
+BAR_TRACK = (44, 54, 70)
+
 # The status dot in a key's top right corner: up, down and not yet asked.
 DOT_UP = (76, 175, 125)
 DOT_DOWN = (232, 96, 96)
@@ -866,13 +869,15 @@ def playing_tile(reading: NowPlaying | None, size: int,
 
 
 def system_tile(reading: SystemReading | None, size: int,
-                background: tuple[int, int, int] = images.BACKGROUND) -> Image.Image:
+                background: tuple[int, int, int] = images.BACKGROUND, labelled: bool = False) -> Image.Image:
     """<summary>
     The machine at a glance: temperature on top, then a processor bar and a memory bar.
     </summary>
     <param name="reading">The latest reading, or None before the first one.</param>
     <param name="size">The tile size in pixels, the visible window on a strip panel.</param>
     <param name="background">RGB tuple behind everything.</param>
+    <param name="labelled">True when a label band will go along the bottom,
+    which squeezes the rows into the space above it, for a key.</param>
     <returns>An upright tile, always.</returns>
     <remarks>
     A value the machine could not give is drawn as a dash and an empty bar,
@@ -882,21 +887,22 @@ def system_tile(reading: SystemReading | None, size: int,
     """
     tile = images.solid(background, size)
     draw = ImageDraw.Draw(tile)
+    room = size * (0.74 if labelled else 1.0)  # the band takes the bottom 26 percent
     temp = reading.temperature_c if reading is not None else None
-    draw.text((size / 2, size * 0.2), f"{temp}°C" if temp is not None else "--°C",
-              fill=images.FOREGROUND, font=images.load_font(int(size * 0.26)), anchor="mm")
-    small = images.load_font(int(size * 0.13))
-    rows = (("CPU", reading.cpu_percent if reading is not None else None, 0.46),
-            ("MEM", reading.memory_percent if reading is not None else None, 0.74))
-    left, right = size * 0.3, size * 0.94
+    draw.text((size / 2, room * 0.18), f"{temp}°C" if temp is not None else "--°C",
+              fill=images.FOREGROUND, font=images.load_font(int(room * 0.26)), anchor="mm")
+    small = images.load_font(int(room * 0.11))
+    rows = (("CPU", reading.cpu_percent if reading is not None else None, 0.4),
+            ("MEM", reading.memory_percent if reading is not None else None, 0.7))
+    left, right = size * 0.34, size * 0.94
     for name, value, y in rows:
-        top, bottom = size * y, size * (y + 0.12)
+        top, bottom = room * y, room * (y + 0.12)
         draw.text((size * 0.04, (top + bottom) / 2), name, fill=MUTED, font=small, anchor="lm")
-        draw.rectangle([left, top, right, bottom], fill=RING_TRACK[:3])
+        draw.rectangle([left, top, right, bottom], fill=BAR_TRACK)
         if value is not None:
             colour = ALERT if value >= 90 else images.ACCENT
             draw.rectangle([left, top, left + (right - left) * value / 100, bottom], fill=colour)
-            draw.text((right, bottom + 1), f"{value}%", fill=MUTED, font=images.load_font(int(size * 0.1)), anchor="ra")
+            draw.text((right, bottom + 1), f"{value}%", fill=MUTED, font=images.load_font(int(room * 0.1)), anchor="ra")
     return tile
 
 

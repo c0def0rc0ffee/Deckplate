@@ -7,6 +7,10 @@
   the press, a map at the coordinates unless the key names a `url`. The
   weather reading now carries the wind speed, in km/h or mph by the units
   setting.
+- A `system` key: the processor temperature, load and memory drawn on the
+  key as the strip's system panel draws them, and the system monitor
+  launched on the press, the first desktop monitor found unless the key
+  names a `command`.
 - Four more action types. `stay_awake` keeps the machine from going idle
   until pressed again, through the desktop's screensaver inhibit and a
   pointer nudge through the X test extension, either half optional. `dnd`

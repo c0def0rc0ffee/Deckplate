@@ -51,7 +51,7 @@ STRIP_TILE_KINDS = ("clock", "date", "weather", "playing", "system", "blank")
 ACTION_TYPES = ("hotkey", "sequence", "chord", "hold", "boost", "repeat",
                 "text", "launch", "url", "request", "page", "brightness", "sleep", "multi",
                 "toggle", "volume", "audio_output", "window", "timer", "stopwatch", "counter",
-                "stay_awake", "dnd", "status", "kodi", "weather")
+                "stay_awake", "dnd", "status", "kodi", "weather", "system")
 # The toggling desktop actions: like a hold they run until pressed again,
 # so they cannot be a step of another action either.
 DESKTOP_TOGGLES = ("stay_awake", "dnd")
@@ -1497,6 +1497,12 @@ def _parse_action(table: Any, where: str, nested: bool = False) -> Action:
         if nested:
             raise ConfigError(f"{where}: a weather action cannot be a step of another action")
         params["url"] = _str(table, "url", where) or ""
+    elif kind == "system":
+        # The key draws the machine's reading; the press launches a monitor,
+        # the first one found on this machine when none is written.
+        if nested:
+            raise ConfigError(f"{where}: a system action cannot be a step of another action")
+        params["command"] = (_str(table, "command", where) or "").strip()
     elif kind == "kodi":
         # Either a shorthand word or a raw method; the address is in [kodi].
         do = _str(table, "do", where)

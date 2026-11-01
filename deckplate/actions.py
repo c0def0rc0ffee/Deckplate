@@ -29,6 +29,7 @@ from __future__ import annotations
 import os
 import random
 import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -203,6 +204,21 @@ def weather_site(settings: WeatherSettings) -> str:
     <param name="settings">The coordinates to open it at.</param>
     <returns>A URL on a map site, centred on the coordinates.</returns>"""
     return WEATHER_SITE.format(latitude=settings.latitude, longitude=settings.longitude)
+
+
+# The system monitors a system key tries, first found wins. Linux desktops
+# first, each desktop's own, then Windows' task manager.
+MONITORS = ("plasma-systemmonitor", "gnome-system-monitor", "xfce4-taskmanager", "mate-system-monitor",
+            "lxtask", "ksysguard", "taskmgr")
+
+
+def default_monitor() -> str | None:
+    """<summary>The first system monitor installed here, or None.</summary>
+    <returns>A command name on the path, or None when none of the known ones is.</returns>"""
+    for name in MONITORS:
+        if shutil.which(name):
+            return name
+    return None
 
 
 def platform_command(params: dict) -> str:
@@ -484,6 +500,12 @@ class ActionRunner:
             self._kodi(params)
         elif action.type == "weather":
             self.open_url(params.get("url") or weather_site(self.weather))
+        elif action.type == "system":
+            command = params.get("command") or default_monitor()
+            if command:
+                self.launch(command)
+            else:
+                self.log("system: no system monitor found; give the key a command")
         elif action.type in POSITIONAL_ACTIONS:
             raise ValueError(f"a {action.type} action acts on its key and must be run by the controller")
         else:

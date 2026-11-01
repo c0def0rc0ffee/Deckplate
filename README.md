@@ -266,6 +266,11 @@ a step of a multi action.
   `{ type = "weather" }` opens a map site at the weather coordinates, or
   `url = "https://..."` names a page of your own. Leave the key without a
   picture; one given wins over the drawn face.
+- `system` draws the machine on the key, the processor temperature, load
+  and memory as the strip's system panel does, and opens the system
+  monitor when pressed: `{ type = "system" }` launches the first of the
+  desktop monitors found on the machine, or `command = "..."` names one.
+  Leave the key without a picture.
 - `kodi` sends Kodi a remote control action over its JSON RPC:
   `{ type = "kodi", do = "play_pause" }`, with `do` one of play_pause, stop,
   next, previous, up, down, left, right, select, back, home, info, context,

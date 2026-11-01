@@ -821,7 +821,7 @@ class Controller:
         <param name="row">Row from 0 at the top.</param>
         <param name="column">Column from 0 at the left.</param>
         <param name="holding">The task keys running now.</param>
-        <returns>(border colour, active, face, status dot colour, weather reading).</returns>
+        <returns>(border colour, active, face, status dot colour, weather reading, machine reading).</returns>
         <remarks>Compared with the last one drawn to decide whether the key
         needs sending again. A face changes once a second at most, since its
         text is whole seconds and its ring is rounded to the pixel.</remarks>
@@ -831,7 +831,7 @@ class Controller:
         active, face = self._key_face(key, (row, column), holding, self.page)
         if face is not None and face.ring is not None:
             face = replace(face, ring=round(face.ring * 100) / 100)
-        return mark, active, face, self._key_dot(key), self._key_weather(key)
+        return mark, active, face, self._key_dot(key), self._key_weather(key), self._key_system(key)
 
     def _key_dot(self, key) -> tuple[int, int, int] | None:
         """<summary>
@@ -873,6 +873,21 @@ class Controller:
         if key is None or key.image is not None or key.action is None or key.action.type != "weather":
             return None
         return self.weather.observation
+
+    def _key_system(self, key):
+        """<summary>
+        The machine reading a key draws on its face, or None for a key that
+        draws none.
+        </summary>
+        <param name="key">The key to judge, or None for an empty position.</param>
+        <returns>The latest reading for a key whose plain action is system
+        and which has no picture of its own; otherwise None.</returns>
+        <remarks>As <see cref="_key_weather"/>: a picture wins, and the
+        reading is in the signature so the face follows it.</remarks>
+        """
+        if key is None or key.image is not None or key.action is None or key.action.type != "system":
+            return None
+        return self.system.reading
 
     def _draw_key(self, row: int, column: int, size: int, holding, page=None, config=None) -> tuple:
         """<summary>
@@ -923,9 +938,15 @@ class Controller:
         """
         mark = self._key_mark(key, holding)
         active, face = self._key_face(key, (row, column), holding, page)
+        drawn = None
         if key is not None and key.image is None and key.action is not None and key.action.type == "weather":
-            tile = tiles.weather_key_tile(self.weather.observation, size,
-                                          tiles.key_background(key, config.deck.background), labelled=bool(key.label))
+            drawn = tiles.weather_key_tile(self.weather.observation, size,
+                                           tiles.key_background(key, config.deck.background), labelled=bool(key.label))
+        elif key is not None and key.image is None and key.action is not None and key.action.type == "system":
+            drawn = tiles.system_tile(self.system.reading, size,
+                                      tiles.key_background(key, config.deck.background), labelled=bool(key.label))
+        if drawn is not None:
+            tile = drawn
             if key.label:
                 tile = tiles.with_label(tile, key.label)
             if mark is not None:
@@ -1643,12 +1664,14 @@ class Controller:
         </summary>
         <remarks>Both readers decide for themselves whether they are due, so
         this is cheap on every pass; the kind check is what keeps a deck with
-        no such panel from ever touching the bus or the kernel files.</remarks>
+        no such panel from ever touching the bus or the kernel files. A
+        system key on the page showing counts like a system panel.</remarks>
         """
         kinds = {tile.kind for tile in self.config.strip}
         if "playing" in kinds:
             self.media.refresh_if_due()
-        if "system" in kinds:
+        if "system" in kinds or any(key.action is not None and key.action.type == "system"
+                                    for key in self.page.keys.values()):
             self.system.refresh_if_due()
 
     def _watch_status(self) -> None:

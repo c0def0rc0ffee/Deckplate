@@ -513,3 +513,17 @@ def test_the_weather_key_face_draws_with_and_without_a_reading():
     assert differs_from_blank(tiles.weather_key_tile(windy, SIZE))
     assert tiles.weather_key_tile(windy, SIZE).tobytes() != tiles.weather_key_tile(
         Observation(12.4, 61, "Light rain", "rain", "°C", wind_speed=5, wind_unit="km/h"), SIZE).tobytes()
+
+
+def test_the_system_face_squeezes_above_a_label_band():
+    """<summary>The labelled layout keeps every row above the band's 26 percent.</summary>"""
+    from deckplate.system import SystemReading
+    reading = SystemReading(55, 60, 65)
+    plain = tiles.system_tile(reading, SIZE)
+    squeezed = tiles.system_tile(reading, SIZE, labelled=True)
+    assert plain.tobytes() != squeezed.tobytes()
+    band_top = SIZE - max(16, int(SIZE * 0.26))
+    blank = tiles.key_tile(None, SIZE)
+    for y in range(band_top, SIZE):
+        for x in range(0, SIZE, 7):
+            assert squeezed.getpixel((x, y)) == blank.getpixel((x, y))
