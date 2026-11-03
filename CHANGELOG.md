@@ -6,12 +6,19 @@
   `every_ms`, `insecure` and `expect` and a kodi key's `token_file`, and
   wears the green, red or grey lamp for it whatever its action is, so the
   page key that leads to the Kodi page shows whether the Kodi in the other
-  room is there. A fold on every key on the configuration page.
+  room is there. With `kind = "wled"` it reads a WLED device instead and
+  is green while the lights are on, red while off, grey while unreachable.
+  A fold on every key on the configuration page.
 - A `playing` strip panel can show what a Kodi player is playing:
   `{ kind = "playing", source = "kodi", url = "...", token_file = "..." }`,
   asked every few seconds on a thread of its own so a player that is off
   never holds the deck up. A source choice on the panel's editor on the
   configuration page.
+- The `playing` panel shows the album cover or poster of what is playing,
+  from the desktop player's art address or Kodi's own web server, fetched
+  on a thread of its own and kept by address, with the title on a band
+  across it. `art = false` on the panel keeps it to words, and so does a
+  tick on the configuration page.
 - Right click a key on the configuration page to move it or copy it to
   another page: a window offers the page and its fifteen positions, a
   free one takes the key, and a taken one asks whether to replace what

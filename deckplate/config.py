@@ -51,6 +51,9 @@ STRIP_TILE_KINDS = ("clock", "date", "weather", "playing", "system", "blank")
 # Where a playing panel reads from: the desktop's own players over the
 # session bus, or a Kodi player at an address of its own.
 PLAYING_SOURCES = ("local", "kodi")
+# What a key's lamp watches: a web address that answers, or a WLED device
+# whose lights are on.
+LAMP_KINDS = ("web", "wled")
 ACTION_TYPES = ("hotkey", "sequence", "chord", "hold", "boost", "repeat",
                 "text", "launch", "url", "request", "page", "brightness", "sleep", "multi",
                 "toggle", "volume", "audio_output", "window", "timer", "stopwatch", "counter",
@@ -278,6 +281,10 @@ class LampSettings:
     answer below 400.</param>
     <param name="token_file">A credentials file whose contents go in the
     Authorization header, or None for no header.</param>
+    <param name="kind">"web" asks the address and is green while it answers;
+    "wled" reads a WLED device the way a wled key does and is green while
+    the lights are on, red while they are off and grey while the device
+    cannot be reached. The three web fields mean nothing to a wled lamp.</param>
     <remarks>
     A status key and a remote kodi key wear the lamp for the address they
     act on. A lamp on any other key, a page key that leads to the remote
@@ -292,6 +299,7 @@ class LampSettings:
     insecure: bool = False
     expect: str = ""
     token_file: str | None = None
+    kind: str = "web"
 
 
 @dataclass(frozen=True)
@@ -413,8 +421,9 @@ class StripTile:
     A playing tile reads the desktop's own players unless ``source`` is
     "kodi", and then ``url`` is that player's JSON RPC address and
     ``token_file`` its optional credentials file, the same two a kodi key
-    carries for a player in another room. The other kinds leave all three
-    at their defaults.
+    carries for a player in another room. ``art`` false leaves the picture
+    of what is playing off the panel, for words alone. The other kinds
+    leave all four at their defaults.
     </remarks>"""
 
     kind: str
@@ -425,6 +434,7 @@ class StripTile:
     source: str = "local"
     url: str | None = None
     token_file: str | None = None
+    art: bool = True
 
 
 # The three strip panels show less of the picture than the keys do: the
@@ -1132,6 +1142,11 @@ def _parse_strip(table: dict, base_dir: Path) -> tuple[StripTile, ...]:
                 raise ConfigError(f"{where}: 'source' must be one of {', '.join(PLAYING_SOURCES)}")
             if source != "local" and kind != "playing":
                 raise ConfigError(f"{where}: only a playing tile takes a 'source'")
+            art = entry.get("art", True)
+            if not isinstance(art, bool):
+                raise ConfigError(f"{where}: 'art' must be true or false")
+            if not art and kind != "playing":
+                raise ConfigError(f"{where}: only a playing tile takes 'art'")
             url = token_file = None
             if source == "kodi":
                 url = _str(entry, "url", where, required=True) or ""
@@ -1139,7 +1154,7 @@ def _parse_strip(table: dict, base_dir: Path) -> tuple[StripTile, ...]:
                     raise ConfigError(f"{where}: 'url' must start with http:// or https://")
                 token_file = _str(entry, "token_file", where) or None
             tiles.append(StripTile(kind=kind, background=_colour(entry, "background", where),
-                                   source=source, url=url, token_file=token_file))
+                                   source=source, url=url, token_file=token_file, art=art))
         else:
             raise ConfigError(f"{where}: must be one of {', '.join(STRIP_TILE_KINDS)} or an image path")
     return tuple(tiles)
@@ -1298,14 +1313,19 @@ def _parse_lamp(table: Any, where: str) -> LampSettings | None:
     <param name="where">How to name the key in an error.</param>
     <returns>The settings, or None.</returns>
     <remarks>The same checks as a status action's fields, so a lamp and a
-    status key refuse the same mistakes in the same words.</remarks>
+    status key refuse the same mistakes in the same words. A wled lamp is
+    asked on the wled key's default interval, a web one on the status
+    key's, unless ``every_ms`` says otherwise.</remarks>
     <exception cref="ConfigError">Not a table, no address, an address that is
-    not http or https, or a field of the wrong type.</exception>"""
+    not http or https, an unknown kind, or a field of the wrong type.</exception>"""
     if table is None:
         return None
     here = f"{where} lamp"
     if not isinstance(table, dict):
         raise ConfigError(f"{here}: must be a table")
+    kind = _str(table, "kind", here, "web") or "web"
+    if kind not in LAMP_KINDS:
+        raise ConfigError(f"{here}: 'kind' must be one of {', '.join(LAMP_KINDS)}")
     url = _str(table, "url", here, required=True) or ""
     if not url.startswith(("http://", "https://")):
         raise ConfigError(f"{here}: 'url' must start with http:// or https://")
@@ -1315,12 +1335,15 @@ def _parse_lamp(table: Any, where: str) -> LampSettings | None:
     expect = table.get("expect", "")
     if not isinstance(expect, str):
         raise ConfigError(f"{here}: 'expect' must be text")
+    from . import lights as lights_module
+    default_every = lights_module.DEFAULT_EVERY_MS if kind == "wled" else STATUS_EVERY_RANGE[0] * 12
     return LampSettings(
         url=url,
-        every_ms=_int(table, "every_ms", here, STATUS_EVERY_RANGE[0] * 12, *STATUS_EVERY_RANGE),
+        every_ms=_int(table, "every_ms", here, default_every, *STATUS_EVERY_RANGE),
         insecure=insecure,
         expect=expect,
         token_file=_str(table, "token_file", here) or None,
+        kind=kind,
     )
 
 
@@ -1886,7 +1909,8 @@ def _lamp_document(lamp: LampSettings | None) -> dict | None:
     <returns>A dict with every field, the credentials file only when set.</returns>"""
     if lamp is None:
         return None
-    document: dict[str, Any] = {"url": lamp.url, "every_ms": lamp.every_ms, "insecure": lamp.insecure, "expect": lamp.expect}
+    document: dict[str, Any] = {"kind": lamp.kind, "url": lamp.url, "every_ms": lamp.every_ms,
+                                "insecure": lamp.insecure, "expect": lamp.expect}
     if lamp.token_file:
         document["token_file"] = lamp.token_file
     return document
@@ -1957,13 +1981,15 @@ def document_from_config(config: Config) -> dict:
             entry: Any = {"image": _relative(tile.image, config.base_dir), "fit": tile.fit}
         elif tile.kind == "animation":
             entry = {"animation": _animation_document(tile.animation)}
-        elif tile.background or tile.source != "local":
+        elif tile.background or tile.source != "local" or not tile.art:
             entry = {"kind": tile.kind}
             if tile.source != "local":
                 entry["source"] = tile.source
                 entry["url"] = tile.url
                 if tile.token_file:
                     entry["token_file"] = tile.token_file
+            if not tile.art:
+                entry["art"] = False
         else:
             entry = tile.kind
         if tile.background and isinstance(entry, dict):

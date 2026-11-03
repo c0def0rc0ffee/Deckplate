@@ -834,21 +834,31 @@ def weather_key_tile(observation: Observation | None, size: int,
 
 
 def playing_tile(reading: NowPlaying | None, size: int,
-                 background: tuple[int, int, int] = images.BACKGROUND) -> Image.Image:
+                 background: tuple[int, int, int] = images.BACKGROUND,
+                 art: Image.Image | None = None) -> Image.Image:
     """<summary>
-    What the media player is playing: a play or pause mark, the title and the artist.
+    What the media player is playing: a play or pause mark, the title and the
+    artist, over the picture of it when there is one.
     </summary>
     <param name="reading">The player's state, or None when no player is open.</param>
     <param name="size">The tile size in pixels, the visible window on a strip panel.</param>
     <param name="background">RGB tuple behind everything.</param>
+    <param name="art">The picture of what is playing, or None for text alone.</param>
     <returns>An upright tile, always.</returns>
     <remarks>
     The title gets the larger line and is shrunk to fit rather than wrapped,
     because a panel is too small for two lines of title and a name cut short
     reads better than one broken mid word. No player at all draws a quiet
     "nothing playing", the same way the weather tile says it has none.
+
+    With a picture, it fills the square, cropped to the middle, and the
+    text sits on a dark band across the bottom with the play or pause mark
+    small in the top left corner, so the picture reads first and the words
+    still do.
     </remarks>
     """
+    if reading is not None and art is not None:
+        return _playing_with_art(reading, size, art)
     tile = images.solid(background, size)
     draw = ImageDraw.Draw(tile)
     if reading is None:
@@ -868,6 +878,42 @@ def playing_tile(reading: NowPlaying | None, size: int,
         font = images.load_font(_fit_font_size(reading.artist, size - 6, int(size * 0.15)))
         draw.text((size / 2, size * 0.82), reading.artist, fill=MUTED, font=font, anchor="mm")
     return tile
+
+
+def _playing_with_art(reading: NowPlaying, size: int, art: Image.Image) -> Image.Image:
+    """<summary>The playing tile's other form: the picture, a band, the words.</summary>
+    <param name="reading">The player's state.</param>
+    <param name="size">The tile size in pixels.</param>
+    <param name="art">The picture, any size.</param>
+    <returns>An upright tile of ``size`` square.</returns>
+    <remarks>Cover cropped: scaled so the shorter side fills the square and
+    the longer side's overflow is cut equally from both ends, so a poster
+    loses its top and bottom and a wide picture its sides, and the middle
+    of either is what shows.</remarks>"""
+    scale = size / min(art.width, art.height)
+    scaled = art.resize((max(size, round(art.width * scale)), max(size, round(art.height * scale))), Image.Resampling.LANCZOS)
+    left, top = (scaled.width - size) // 2, (scaled.height - size) // 2
+    tile = scaled.crop((left, top, left + size, top + size)).convert("RGBA")
+    band = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    band_draw = ImageDraw.Draw(band)
+    band_draw.rectangle([0, round(size * 0.6), size, size], fill=(0, 0, 0, 165))
+    r = size * 0.07
+    cx, cy = size * 0.14, size * 0.14
+    band_draw.ellipse([cx - r * 1.6, cy - r * 1.6, cx + r * 1.6, cy + r * 1.6], fill=(0, 0, 0, 150))
+    tile = Image.alpha_composite(tile, band)
+    draw = ImageDraw.Draw(tile)
+    if reading.playing:
+        draw.polygon([(cx - r * 0.8, cy - r), (cx + r, cy), (cx - r * 0.8, cy + r)], fill=images.ACCENT)
+    else:
+        for dx in (-r * 0.7, r * 0.25):
+            draw.rectangle([cx + dx, cy - r, cx + dx + r * 0.45, cy + r], fill=images.FOREGROUND)
+    title = reading.title or reading.player or "unknown"
+    font = images.load_font(_fit_font_size(title, size - 6, int(size * 0.17)))
+    draw.text((size / 2, size * 0.73), title, fill=images.FOREGROUND, font=font, anchor="mm")
+    if reading.artist:
+        font = images.load_font(_fit_font_size(reading.artist, size - 6, int(size * 0.13)))
+        draw.text((size / 2, size * 0.89), reading.artist, fill=MUTED, font=font, anchor="mm")
+    return tile.convert("RGB")
 
 
 def system_tile(reading: SystemReading | None, size: int,
@@ -1071,7 +1117,7 @@ def _cloud(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, colour) ->
 def strip_tile(tile: StripTile, now: datetime, observation: Observation | None,
                size: int, location_name: str, visible: tuple[int, int] | None = None,
                default_background: str | None = None, playing: NowPlaying | None = None,
-               system: SystemReading | None = None) -> Image.Image:
+               system: SystemReading | None = None, playing_art: Image.Image | None = None) -> Image.Image:
     """<summary>
     The still picture for one strip panel, whatever kind of tile it is
     configured as.
@@ -1087,6 +1133,7 @@ def strip_tile(tile: StripTile, now: datetime, observation: Observation | None,
     <param name="default_background">The page or deck wide background colour.</param>
     <param name="playing">The media player reading for a now playing panel, or None.</param>
     <param name="system">The machine reading for a system panel, or None.</param>
+    <param name="playing_art">The picture of what is playing, once fetched, or None.</param>
     <returns>An upright tile of ``size`` square, always.</returns>
     <remarks>
     The panel shows only a central window of ``visible`` pixels out of the
@@ -1112,7 +1159,7 @@ def strip_tile(tile: StripTile, now: datetime, observation: Observation | None,
     if tile.kind == "weather":
         return centred(weather_tile(observation, inner, location_name, bg), size, bg)
     if tile.kind == "playing":
-        return centred(playing_tile(playing, inner, bg), size, bg)
+        return centred(playing_tile(playing, inner, bg, playing_art), size, bg)
     if tile.kind == "system":
         return centred(system_tile(system, inner, bg), size, bg)
     if tile.kind == "image" and tile.image is not None:
@@ -1423,7 +1470,8 @@ def grid_pattern(size: int, pitch_x: int, pitch_y: int) -> dict[tuple[int, int],
 
 
 def strip_signature(tile: StripTile, now: datetime, observation: Observation | None,
-                    playing: NowPlaying | None = None, system: SystemReading | None = None) -> tuple:
+                    playing: NowPlaying | None = None, system: SystemReading | None = None,
+                    playing_art_ready: bool = False) -> tuple:
     """<summary>
     A value that changes whenever the panel's picture would change, and not
     otherwise.
@@ -1433,6 +1481,8 @@ def strip_signature(tile: StripTile, now: datetime, observation: Observation | N
     <param name="observation">The weather reading, or None.</param>
     <param name="playing">The media player reading, or None.</param>
     <param name="system">The machine reading, or None.</param>
+    <param name="playing_art_ready">Whether the picture of what is playing
+    has arrived, so the panel is drawn again when it does.</param>
     <returns>A hashable tuple to compare against the last one.</returns>
     <remarks>
     This is what stops the deck being sent the same picture several times a
@@ -1453,7 +1503,7 @@ def strip_signature(tile: StripTile, now: datetime, observation: Observation | N
     if tile.kind == "weather":
         return ("weather", observation, tile.background)
     if tile.kind == "playing":
-        return ("playing", playing, tile.background)
+        return ("playing", playing, tile.background, playing_art_ready)
     if tile.kind == "system":
         return ("system", system, tile.background)
     return (tile.kind, str(tile.image), tile.fit, tile.animation, tile.background)

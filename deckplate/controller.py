@@ -36,7 +36,7 @@ from typing import Callable
 from . import animations, audio, focus, holds, images, layout, live, sun, tiles
 from .actions import ActionRunner
 from .config import MARK_DEFAULT_FLASH_MS, POSITIONAL_ACTIONS, Action, Config, load
-from .media import KodiPlayingMonitor, MediaService, fetch_kodi
+from .media import ArtCache, KodiPlayingMonitor, MediaService, fetch_kodi
 from .presses import Actions, PressRouter
 from .protocol import KeyEvent
 from .lights import LightsMonitor
@@ -368,7 +368,8 @@ class Controller:
                  media: MediaService | None = None,
                  system: SystemService | None = None,
                  lights: LightsMonitor | None = None,
-                 kodi_media: KodiPlayingMonitor | None = None) -> None:
+                 kodi_media: KodiPlayingMonitor | None = None,
+                 art: ArtCache | None = None) -> None:
         """<summary>
         Wire a deck to a config, without drawing anything yet.
         </summary>
@@ -396,6 +397,8 @@ class Controller:
         <param name="kodi_media">The monitor behind a playing panel that
         names a Kodi player. Made here if not given; it polls nothing until
         such a panel is configured.</param>
+        <param name="art">The cache of pictures of what is playing. Made
+        here if not given; it fetches nothing until a panel asks.</param>
         <param name="system">The machine reader for the strip. Made here if
         not given; read only while a panel shows it.</param>
         <remarks>
@@ -414,6 +417,7 @@ class Controller:
         self.status = status or StatusMonitor(monotonic=monotonic, log=log)
         self.media = media or MediaService(monotonic=monotonic, log=log)
         self.kodi_media = kodi_media or KodiPlayingMonitor(prober=self._probe_kodi_playing, monotonic=monotonic, log=log)
+        self.art = art or ArtCache(monotonic=monotonic, log=log)
         self.system = system or SystemService(monotonic=monotonic)
         self.lights = lights or LightsMonitor(monotonic=monotonic, log=log)
         self.runner.lights = self.lights
@@ -861,7 +865,10 @@ class Controller:
         <remarks>
         A key with a ``lamp`` of its own wears that, whatever its actions
         are: it is how a page key that leads to the Kodi page shows whether
-        the player in the other room is there. Otherwise a status key that
+        the player in the other room is there, and how a key with a picture
+        of a light shows whether the lounge lights are on. A wled lamp
+        reads the lights monitor, as a wled key does, and is green while
+        the lights are on, red while off and grey while unreachable. Otherwise a status key that
         carries an active picture or label has chosen to show its state by
         swapping the whole face, so it gets no lamp on top: one indicator
         per key. A kodi key with its own ``url`` is a player in another
@@ -874,6 +881,11 @@ class Controller:
         if key is None:
             return None
         if key.lamp is not None:
+            if key.lamp.kind == "wled":
+                state = self.lights.state(key.lamp.url)
+                if state is None:
+                    return tiles.DOT_UNKNOWN
+                return tiles.DOT_UP if state.on else tiles.DOT_DOWN
             up = self.status.ok(key.lamp.url)
             if up is None:
                 return tiles.DOT_UNKNOWN
@@ -1072,7 +1084,8 @@ class Controller:
             return frames[0], frames, fps
         image = tiles.strip_tile(tile, now, observation, size,
                                  config.weather.location_name, visible,
-                                 default_bg, playing=self._playing_reading(tile), system=self.system.reading)
+                                 default_bg, playing=self._playing_reading(tile), system=self.system.reading,
+                                 playing_art=self._playing_art(tile))
         return image, None, 0
 
     def _scaled_visible(self, visible, size: int):
@@ -1148,7 +1161,8 @@ class Controller:
         observation = self.weather.observation
         sent = False
         for row, tile in enumerate(self.config.strip):
-            signature = tiles.strip_signature(tile, now, observation, self._playing_reading(tile), self.system.reading)
+            signature = tiles.strip_signature(tile, now, observation, self._playing_reading(tile), self.system.reading,
+                                              playing_art_ready=self._playing_art(tile) is not None)
             if not force and signature == self._strip_signatures[row]:
                 continue
             image, frames, fps = self._draw_strip(row, self.deck.image_size, now, observation)
@@ -1740,6 +1754,24 @@ class Controller:
             return self.kodi_media.reading(tile.url)
         return self.media.reading
 
+    def _playing_art(self, tile):
+        """<summary>
+        The picture of what a playing panel is showing, once it is here.
+        </summary>
+        <param name="tile">The strip tile.</param>
+        <returns>The picture, or None when the tile is not a playing one,
+        has the picture turned off, the player names none, or the fetch has
+        not come back yet.</returns>
+        <remarks>Asking the cache queues the fetch, so the first draw of a
+        new track goes out as words and the picture follows on the next
+        pass after it lands.</remarks>"""
+        if tile.kind != "playing" or not tile.art:
+            return None
+        reading = self._playing_reading(tile)
+        if reading is None or not reading.art:
+            return None
+        return self.art.image(reading.art, reading.art_token_file)
+
     def _probe_kodi_playing(self, url: str, token_file: str | None):
         """<summary>
         Ask one Kodi player what it is playing, through the runner's own
@@ -1781,7 +1813,7 @@ class Controller:
         watches = []
         for page in self.config.pages:
             for key in page.keys.values():
-                if key.lamp is not None:
+                if key.lamp is not None and key.lamp.kind == "web":
                     lamp = key.lamp
                     watches.append(Watch(lamp.url, lamp.every_ms, lamp.insecure, lamp.expect, lamp.token_file))
                 for action in key.actions():
@@ -1796,7 +1828,8 @@ class Controller:
 
     def _watch_lights(self) -> None:
         """<summary>
-        Hand the lights monitor every device a wled key on any page names.
+        Hand the lights monitor every device a wled key on any page names,
+        and every device a wled lamp watches.
         </summary>
         <remarks>As <see cref="_watch_status"/>: every page, at start and
         after a reload.</remarks>
@@ -1804,6 +1837,8 @@ class Controller:
         devices = []
         for page in self.config.pages:
             for key in page.keys.values():
+                if key.lamp is not None and key.lamp.kind == "wled":
+                    devices.append((key.lamp.url, key.lamp.every_ms))
                 for action in key.actions():
                     if action is not None and action.type == "wled":
                         devices.append((action.params["url"], action.params["every_ms"]))
@@ -2025,6 +2060,7 @@ class Controller:
         self.status.stop()
         self.lights.stop()
         self.kodi_media.stop()
+        self.art.stop()
 
     def reload(self, config: Config) -> None:
         """<summary>

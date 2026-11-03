@@ -1293,7 +1293,7 @@
       let e = d.strip[row];
       if (typeof e === "string") e = d.strip[row] = { kind: e };
       if (value) e.background = value; else delete e.background;
-      if (e.kind && !e.background && !e.source) d.strip[row] = e.kind;  // back to the plain form
+      if (e.kind && !e.background && !e.source && e.art === undefined) d.strip[row] = e.kind;  // back to the plain form
     }, { silent: true });
     const kindSelect = tpl.querySelector("#stripKind");
     kindSelect.value = kind;
@@ -1367,8 +1367,11 @@
       if (typeof e === "string") e = d.strip[row] = { kind: e };
       mutate(e);
       if (e.source !== "kodi") { delete e.source; delete e.url; delete e.token_file; }
-      if (e.kind && !e.background && !e.source) d.strip[row] = e.kind;
+      if (e.kind && !e.background && !e.source && e.art === undefined) d.strip[row] = e.kind;
     }, { silent: true });
+    const art = el("input", { type: "checkbox", id: "playingArt" });
+    art.checked = entry.art !== false;
+    art.addEventListener("change", () => edit(e => { if (art.checked) delete e.art; else e.art = false; }));
     const pick = el("select", {}, [
       el("option", { value: "local", text: "This machine's media player" }),
       el("option", { value: "kodi", text: "A Kodi player" }),
@@ -1402,7 +1405,12 @@
         }
       });
     });
-    return el("div", {}, [el("div", { class: "field" }, [el("label", { text: "Shows what is playing on" }), pick]), kodiBox]);
+    return el("div", {}, [
+      el("div", { class: "field" }, [el("label", { text: "Shows what is playing on" }), pick]),
+      kodiBox,
+      el("div", { class: "field" }, [el("label", { class: "check", for: "playingArt" }, [art, el("span", { text: "Show a picture of what is playing" })]),
+        el("div", { class: "help", text: "The album cover or poster the player names, with the title on a band across it. Untick for words alone." })]),
+    ]);
   }
 
   /**
@@ -1411,7 +1419,9 @@
    * <returns>The fields.</returns>
    * <remarks>
    * The lamp exists while the address does: clearing the address takes the
-   * lamp off the key, which is also what makes a fresh fold harmless. Every
+   * lamp off the key, which is also what makes a fresh fold harmless. Two
+   * kinds: a web address, with the status key's fields, or a WLED device,
+   * which needs only the address and hides the rest. Every
    * edit looks the key up again through <see cref="ensureKey"/>, as the rest
    * of the editor does. The interval is edited in seconds and stored in
    * milliseconds, in the status key's range.
@@ -1419,42 +1429,63 @@
    */
   function lampFields(key) {
     const lamp = key.lamp || {};
-    const edit = mutate => change(d => {
-      const k = ensureKey(currentPage(), selected.row, selected.column);
-      const next = Object.assign({ url: "", every_ms: 60000, insecure: false, expect: "" }, k.lamp || {});
-      mutate(next);
-      next.url = (next.url || "").trim();
-      if (!next.token_file) delete next.token_file;
-      k.lamp = next.url ? next : null;
-      dropEmptyKey(currentPage(), k);
-    }, { silent: true });
-    const url = el("input", { type: "text", value: lamp.url || "", placeholder: "http://player:8080/jsonrpc" });
-    url.addEventListener("input", () => edit(l => { l.url = url.value; }));
-    const seconds = el("input", { type: "number", min: 5, max: 3600, step: 5, value: Math.round((lamp.every_ms || 60000) / 1000) });
-    seconds.addEventListener("input", () => edit(l => {
-      l.every_ms = Math.max(5, Math.min(3600, parseInt(seconds.value, 10) || 60)) * 1000;
-    }));
+    const wledAtStart = lamp.kind === "wled";
+    const kind = el("select", {}, [
+      el("option", { value: "web", text: "A web address" }),
+      el("option", { value: "wled", text: "WLED lights" }),
+    ]);
+    kind.value = wledAtStart ? "wled" : "web";
+    const url = el("input", { type: "text", value: lamp.url || "" });
+    const seconds = el("input", { type: "number", min: 5, max: 3600, step: 5, value: Math.round((lamp.every_ms || (wledAtStart ? 10000 : 60000)) / 1000) });
     const expect = el("input", { type: "text", value: lamp.expect || "", placeholder: "Leave empty for any answer" });
-    expect.addEventListener("input", () => edit(l => { l.expect = expect.value; }));
     const insecure = el("input", { type: "checkbox", id: "lampInsecure" });
     insecure.checked = !!lamp.insecure;
-    insecure.addEventListener("change", () => edit(l => { l.insecure = insecure.checked; }));
     const tokenFile = el("input", { type: "text", value: lamp.token_file || "", placeholder: "~/.deckplate-tokens/kodi-other" });
-    tokenFile.addEventListener("input", () => edit(l => {
-      if (tokenFile.value.trim()) l.token_file = tokenFile.value.trim(); else delete l.token_file;
-    }));
-    return el("div", {}, [
-      el("div", { class: "field" }, [el("label", { text: "Address to watch" }), url,
-        el("div", { class: "help", text: "Green while the address answers, red while it does not, whatever the key does when pressed. For the key that opens the Kodi page, give the player's JSON RPC address and its credentials file. Clear the address to take the lamp off." })]),
-      el("div", { class: "field" }, [el("label", { text: "Ask every (seconds)" }), seconds]),
+    // The form is the truth: every save rebuilds the lamp from what the
+    // fields say now, so a kind chosen before the address is typed is not
+    // lost when the address arrives.
+    const save = () => change(d => {
+      const k = ensureKey(currentPage(), selected.row, selected.column);
+      const address = url.value.trim();
+      if (!address) { k.lamp = null; dropEmptyKey(currentPage(), k); return; }
+      const next = { kind: kind.value, url: address,
+        every_ms: Math.max(5, Math.min(3600, parseInt(seconds.value, 10) || 60)) * 1000,
+        insecure: insecure.checked, expect: expect.value };
+      if (tokenFile.value.trim()) next.token_file = tokenFile.value.trim();
+      k.lamp = next;
+    }, { silent: true });
+    for (const input of [url, seconds, expect, tokenFile]) input.addEventListener("input", save);
+    insecure.addEventListener("change", save);
+    const help = el("div", { class: "help" });
+    const webBox = el("div", {}, [
       el("div", { class: "field" }, [el("label", { text: "Text the page must contain" }), expect]),
       el("div", { class: "field" }, [el("label", { class: "check", for: "lampInsecure" }, [insecure, el("span", { text: "Accept a certificate that does not verify" })])]),
       el("div", { class: "field" }, [el("label", { text: "Credentials file" }), tokenFile,
         el("div", { class: "help", text: "Sent as the Authorization header, as a kodi key sends it. Leave empty for an address that asks for none." })]),
       credentialsFields(() => tokenFile.value.trim(), () => kodiTokenPath(url.value.trim()), path => {
         tokenFile.value = path;
-        edit(l => { l.token_file = path; });
+        save();
       }),
+    ]);
+    const show = () => {
+      const wled = kind.value === "wled";
+      webBox.hidden = wled;
+      url.placeholder = wled ? "http://lights.local/" : "http://player:8080/jsonrpc";
+      help.textContent = wled
+        ? "The WLED device's own address, as on a lights key. Green while the lights are on, red while they are off, grey while the device cannot be reached. Clear the address to take the lamp off."
+        : "Green while the address answers, red while it does not, whatever the key does when pressed. For the key that opens the Kodi page, give the player's JSON RPC address and its credentials file. Clear the address to take the lamp off.";
+    };
+    kind.addEventListener("change", () => {
+      show();
+      seconds.value = kind.value === "wled" ? 10 : 60;
+      save();
+    });
+    show();
+    return el("div", {}, [
+      el("div", { class: "field" }, [el("label", { text: "Watches" }), kind]),
+      el("div", { class: "field" }, [el("label", { text: "Address to watch" }), url, help]),
+      el("div", { class: "field" }, [el("label", { text: "Ask every (seconds)" }), seconds]),
+      webBox,
     ]);
   }
 

@@ -170,3 +170,67 @@ def test_the_kodi_monitor_polls_on_its_interval_and_logs_reachability_once():
     monitor.watch([])
     assert monitor.reading("http://p.test/jsonrpc") is None
     assert monitor.poll_once() == 60.0
+
+
+# ---- The picture of what is playing ------------------------------------------
+
+def test_readings_carry_the_picture_address(monkeypatch):
+    """<summary>
+    A desktop player's art address rides on its reading, and a Kodi item's
+    picture becomes an address on the player's own web server, escaped,
+    with the player's credentials file beside it; an item with no picture
+    carries none.
+    </summary>
+    """
+    props = {"PlaybackStatus": "Playing", "Metadata": {"xesam:title": "T", "mpris:artUrl": "file:///tmp/cover.jpg"}}
+    monkeypatch.setattr(media.sessionbus, "get_property", lambda name, path, interface, prop: props[prop])
+    assert media.read_player("org.mpris.MediaPlayer2.vlc").art == "file:///tmp/cover.jpg"
+    assert media.kodi_image_url("http://p.test:8080/jsonrpc", "image://smb%3a%2f%2fbox%2fa%20b.jpg/") \
+        == "http://p.test:8080/image/image%3A%2F%2Fsmb%253a%252f%252fbox%252fa%2520b.jpg%2F"
+    item = {"result": {"item": {"title": "Song", "artist": ["Band"], "thumbnail": "image://t/",
+                                "art": {"poster": "image://p/", "thumb": "image://thumb/"}}}}
+    reading = media.kodi_reading(PLAYERS, item, {"result": {"speed": 1}}, "http://p.test:8080/jsonrpc", "~/t")
+    assert reading.art == "http://p.test:8080/image/image%3A%2F%2Fthumb%2F" and reading.art_token_file == "~/t"
+    bare = {"result": {"item": {"title": "Song", "artist": ["Band"], "thumbnail": "", "art": {}}}}
+    reading = media.kodi_reading(PLAYERS, bare, {"result": {"speed": 1}}, "http://p.test:8080/jsonrpc", "~/t")
+    assert reading.art is None and reading.art_token_file is None
+    assert media.kodi_reading(PLAYERS, item, {"result": {"speed": 1}}).art is None
+
+
+def test_the_art_cache_fetches_once_remembers_failures_and_stays_bounded():
+    """<summary>
+    The first ask queues a fetch and answers None, the fetch fills the
+    cache, a second ask is answered from it; a failed address is logged
+    and not asked again until the retry time passes; and the oldest
+    pictures go once the limit is passed.
+    </summary>
+    """
+    from PIL import Image
+    clock = Clock()
+    lines = []
+    fetched = []
+
+    def fetcher(url, token_file):
+        fetched.append((url, token_file))
+        if "bad" in url:
+            raise ConnectionError("refused")
+        return Image.new("RGB", (4, 4), (255, 0, 0))
+
+    cache = media.ArtCache(fetcher=fetcher, monotonic=clock, log=lines.append, threaded=False, limit=2, retry_s=100)
+    assert cache.image("http://a.test/1.jpg", "~/t") is None
+    assert cache.image("http://a.test/1.jpg", "~/t") is None
+    assert cache.fetch_once() is True
+    assert fetched == [("http://a.test/1.jpg", "~/t")]
+    assert cache.image("http://a.test/1.jpg").size == (4, 4)
+    assert cache.fetch_once() is False
+    assert cache.image("http://bad.test/x.jpg") is None
+    cache.fetch_once()
+    assert lines == ["now playing picture http://bad.test/x.jpg: refused"]
+    assert cache.image("http://bad.test/x.jpg") is None and cache.fetch_once() is False
+    clock.t += 101
+    assert cache.image("http://bad.test/x.jpg") is None and cache.fetch_once() is True
+    for n in (2, 3):
+        cache.image(f"http://a.test/{n}.jpg")
+    cache.fetch_once()
+    assert cache.image("http://a.test/1.jpg") is None  # evicted, so asked again
+    assert cache.image("http://a.test/3.jpg") is not None

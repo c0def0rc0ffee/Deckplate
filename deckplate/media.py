@@ -23,10 +23,15 @@ pass.
 
 from __future__ import annotations
 
+import io
 import threading
 import time
+import urllib.parse
 from dataclasses import dataclass
 from typing import Any, Callable
+
+import requests
+from PIL import Image
 
 from . import kodi as kodi_module
 from . import sessionbus
@@ -43,12 +48,18 @@ class NowPlaying:
     <param name="title">The track title, or "" when the player has none.</param>
     <param name="artist">The first artist, or "".</param>
     <param name="status">"Playing", "Paused" or "Stopped".</param>
-    <param name="player">The player's short name, from its bus name.</param>"""
+    <param name="player">The player's short name, from its bus name.</param>
+    <param name="art">Where a picture of what is playing can be fetched, a
+    ``file://`` or web address, or None when the player names none.</param>
+    <param name="art_token_file">The credentials file a web fetch of the
+    picture sends, for a Kodi player that wants a password; None otherwise.</param>"""
 
     title: str
     artist: str
     status: str
     player: str
+    art: str | None = None
+    art_token_file: str | None = None
 
     @property
     def playing(self) -> bool:
@@ -69,7 +80,9 @@ def read_player(name: str) -> NowPlaying:
     if isinstance(artists, str):
         artists = [artists]
     artist = str(artists[0]) if artists else ""
-    return NowPlaying(title=title, artist=artist, status=str(status), player=name[len(MPRIS_PREFIX):])
+    art = metadata.get("mpris:artUrl")
+    return NowPlaying(title=title, artist=artist, status=str(status), player=name[len(MPRIS_PREFIX):],
+                      art=str(art) if art else None)
 
 
 def fetch() -> NowPlaying | None:
@@ -137,16 +150,21 @@ class MediaService:
 # ---- A Kodi player as the source -------------------------------------------
 
 KODI_EVERY_MS = 3000
-KODI_ITEM_PROPERTIES = ["title", "artist", "showtitle", "season", "episode"]
+KODI_ITEM_PROPERTIES = ["title", "artist", "showtitle", "season", "episode", "art", "thumbnail"]
 
 
-def kodi_reading(players: Any, item: Any, properties: Any) -> NowPlaying | None:
+def kodi_reading(players: Any, item: Any, properties: Any,
+                 url: str | None = None, token_file: str | None = None) -> NowPlaying | None:
     """<summary>
     One reading of a Kodi player from the three replies that describe it.
     </summary>
     <param name="players">The Player.GetActivePlayers reply.</param>
     <param name="item">The Player.GetItem reply for the first player.</param>
     <param name="properties">The Player.GetProperties reply asking for speed.</param>
+    <param name="url">The player's JSON RPC address, so the item's picture
+    can be named at the player's web server; None leaves the picture off.</param>
+    <param name="token_file">The player's credentials file, carried on the
+    reading for the picture fetch.</param>
     <returns>The reading, or None when no player is active.</returns>
     <remarks>
     Pure, so the tests can hand in replies as dicts. The title is the item's
@@ -180,7 +198,10 @@ def kodi_reading(players: Any, item: Any, properties: Any) -> NowPlaying | None:
     except (KeyError, TypeError):
         speed = 1
     status = "Paused" if speed in (0, 0.0) else "Playing"
-    return NowPlaying(title=title, artist=artist, status=status, player="kodi")
+    picture = kodi_art(data)
+    art = kodi_image_url(url, picture) if url and picture else None
+    return NowPlaying(title=title, artist=artist, status=status, player="kodi",
+                      art=art, art_token_file=token_file if art else None)
 
 
 def fetch_kodi(url: str, token_file: str | None, send_json: Callable[[str, dict, dict, float], dict],
@@ -210,7 +231,7 @@ def fetch_kodi(url: str, token_file: str | None, send_json: Callable[[str, dict,
         "Player.GetItem", {"playerid": player, "properties": KODI_ITEM_PROPERTIES}), timeout)
     properties = send_json(url, headers, kodi_module.payload(
         "Player.GetProperties", {"playerid": player, "properties": ["speed"]}), timeout)
-    return kodi_reading(players, item, properties)
+    return kodi_reading(players, item, properties, url, token_file)
 
 
 def default_kodi_prober(url: str, token_file: str | None) -> NowPlaying | None:
@@ -367,3 +388,191 @@ class KodiPlayingMonitor:
                 self.log(f"kodi playing monitor: {err}")
                 wait = 30.0
             self._wake.wait(wait)
+
+
+# ---- The picture of what is playing ------------------------------------------
+
+ART_SIDE = 256
+ART_TIMEOUT_S = 5.0
+ART_RETRY_S = 300.0
+ART_LIMIT = 12
+KODI_ART_KEYS = ("thumb", "poster", "album.thumb", "tvshow.poster", "fanart")
+
+
+def kodi_image_url(url: str, path: str) -> str:
+    """<summary>The web address Kodi serves one of its pictures at.</summary>
+    <param name="url">The player's JSON RPC address.</param>
+    <param name="path">The picture as Kodi names it, an ``image://`` path.</param>
+    <returns>The address under the player's own web server.</returns>
+    <remarks>Kodi's web server hands any picture it knows out at
+    ``/image/`` followed by the path with every reserved character escaped,
+    the slashes included; the JSON RPC address is that same server with
+    ``/jsonrpc`` on the end, so the base is the address with that cut off.</remarks>"""
+    base = url[:-len("/jsonrpc")] if url.endswith("/jsonrpc") else url.rstrip("/")
+    return base + "/image/" + urllib.parse.quote(path, safe="")
+
+
+def kodi_art(item: Any) -> str | None:
+    """<summary>The picture Kodi names for an item, if any.</summary>
+    <param name="item">The item table from a Player.GetItem reply.</param>
+    <returns>The ``image://`` path, or None.</returns>
+    <remarks>The ``art`` table is preferred, thumbnail first, then poster,
+    the album's picture, the show's poster and the fan art, with the plain
+    ``thumbnail`` as the fallback for an item with no art table at all.</remarks>"""
+    if not isinstance(item, dict):
+        return None
+    art = item.get("art")
+    if isinstance(art, dict):
+        for key in KODI_ART_KEYS:
+            value = art.get(key)
+            if isinstance(value, str) and value:
+                return value
+    thumbnail = item.get("thumbnail")
+    return thumbnail if isinstance(thumbnail, str) and thumbnail else None
+
+
+def default_art_fetch(url: str, token_file: str | None) -> Image.Image:
+    """<summary>Fetch one picture and bring it down to a thumbnail.</summary>
+    <param name="url">A ``file://`` address, or an http or https one.</param>
+    <param name="token_file">A credentials file whose contents go in the
+    Authorization header of a web fetch, or None.</param>
+    <returns>The picture, RGB, no larger than ART_SIDE on either side.</returns>
+    <remarks>Shrunk here rather than at draw time so the cache holds
+    thumbnails, not posters; a panel is under a hundred pixels across.</remarks>
+    <exception cref="Exception">The picture could not be fetched or read.</exception>"""
+    if url.startswith("file://"):
+        source = Image.open(urllib.parse.unquote(urllib.parse.urlparse(url).path))
+    else:
+        from .actions import read_token
+        headers = {"User-Agent": "deckplate"}
+        if token_file:
+            headers["Authorization"] = read_token(token_file)
+        response = requests.get(url, headers=headers, timeout=ART_TIMEOUT_S)
+        response.raise_for_status()
+        source = Image.open(io.BytesIO(response.content))
+    with source:
+        picture = source.convert("RGB")
+    picture.thumbnail((ART_SIDE, ART_SIDE), Image.Resampling.LANCZOS)
+    return picture
+
+
+class ArtCache:
+    """<summary>
+    The pictures of what is playing, fetched on a thread of their own and
+    kept by address.
+    </summary>
+    <remarks>
+    <see cref="image"/> never waits: it hands back the picture if it is
+    here and otherwise queues the fetch and says None, so the panel draws
+    its text at once and again with the picture a moment later, when the
+    controller's signature sees the picture has arrived. A fetch that fails
+    is remembered for a while rather than retried on every pass, so a
+    player that names a picture it cannot serve costs one line in the log
+    every few minutes, not a request a second.
+
+    Bounded: the oldest entries go once the cache is past its limit, which
+    keeps a long evening of tracks from piling up thumbnails. The fetcher
+    and the clock are injectable, and ``threaded=False`` keeps the thread
+    from ever starting, so the tests drive <see cref="fetch_once"/> by hand.
+    </remarks>
+    """
+
+    def __init__(self, *, fetcher: Callable[[str, str | None], Image.Image] = default_art_fetch,
+                 monotonic: Callable[[], float] = time.monotonic, log: Callable[[str], None] = print,
+                 threaded: bool = True, limit: int = ART_LIMIT, retry_s: float = ART_RETRY_S) -> None:
+        """<summary>An empty cache, no thread yet.</summary>
+        <param name="fetcher">Fetches one picture from its address and credentials file, or raises.</param>
+        <param name="monotonic">The clock failures are aged by.</param>
+        <param name="log">Where a failed fetch goes.</param>
+        <param name="threaded">False to never start the thread.</param>
+        <param name="limit">How many pictures to keep.</param>
+        <param name="retry_s">Seconds before a failed address is tried again.</param>"""
+        self.fetcher = fetcher
+        self.monotonic = monotonic
+        self.log = log
+        self.threaded = threaded
+        self.limit = limit
+        self.retry_s = retry_s
+        self._lock = threading.Lock()
+        self._pictures: dict[str, Image.Image] = {}
+        self._failed: dict[str, float] = {}
+        self._pending: dict[str, str | None] = {}
+        self._thread: threading.Thread | None = None
+        self._stop_event = threading.Event()
+        self._wake = threading.Event()
+
+    def image(self, url: str, token_file: str | None = None) -> Image.Image | None:
+        """<summary>The picture at an address, or None while it is not here yet.</summary>
+        <param name="url">The picture's address.</param>
+        <param name="token_file">The credentials file a web fetch sends, or None.</param>
+        <returns>The thumbnail, or None when it is still being fetched or
+        could not be fetched lately.</returns>"""
+        with self._lock:
+            picture = self._pictures.get(url)
+            if picture is not None:
+                return picture
+            failed_at = self._failed.get(url)
+            if failed_at is not None and self.monotonic() - failed_at < self.retry_s:
+                return None
+            if url not in self._pending:
+                self._pending[url] = token_file
+                queue = True
+            else:
+                queue = False
+        if queue and self.threaded:
+            self._wake.set()
+            self._ensure_thread()
+        return None
+
+    def fetch_once(self) -> bool:
+        """<summary>Fetch everything queued, one address at a time.</summary>
+        <returns>True when anything was fetched or failed.</returns>
+        <remarks>The fetcher runs outside the lock, so a slow server never
+        stalls <see cref="image"/>; only the bookkeeping is locked.</remarks>"""
+        with self._lock:
+            pending = list(self._pending.items())
+        for url, token_file in pending:
+            try:
+                picture = self.fetcher(url, token_file)
+                why = ""
+            except Exception as err:
+                picture = None
+                why = str(err)
+            with self._lock:
+                self._pending.pop(url, None)
+                if picture is not None:
+                    self._pictures[url] = picture
+                    self._failed.pop(url, None)
+                    while len(self._pictures) > self.limit:
+                        del self._pictures[next(iter(self._pictures))]
+                else:
+                    self._failed[url] = self.monotonic()
+            if why:
+                self.log(f"now playing picture {url}: {why}")
+        return bool(pending)
+
+    def stop(self) -> None:
+        """<summary>End the fetching thread, if there is one.</summary>"""
+        self._stop_event.set()
+        self._wake.set()
+        thread = self._thread
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=2)
+
+    def _ensure_thread(self) -> None:
+        """<summary>Start the fetching thread the first time something is queued.</summary>"""
+        if self._thread is not None and self._thread.is_alive():
+            return
+        self._stop_event.clear()
+        self._thread = threading.Thread(target=self._run, name="now playing art", daemon=True)
+        self._thread.start()
+
+    def _run(self) -> None:
+        """<summary>The thread body: fetch what is queued, then wait to be woken.</summary>"""
+        while not self._stop_event.is_set():
+            self._wake.clear()
+            try:
+                self.fetch_once()
+            except Exception as err:  # a bug in the fetcher must not end the thread
+                self.log(f"now playing art: {err}")
+            self._wake.wait(60.0)

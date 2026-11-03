@@ -555,3 +555,31 @@ def test_the_lights_face_follows_the_state_and_wears_the_lights_colour():
     for y in range(band_top, SIZE):
         for x in range(0, SIZE, 7):
             assert squeezed.getpixel((x, y)) == (255, 160, 0)
+
+
+def test_the_playing_tile_shows_the_picture_with_the_words_on_a_band():
+    """<summary>
+    With a picture the tile is the picture, cover cropped, with a dark band
+    carrying the title across the bottom; without one it is the text tile;
+    and the signature changes when the picture arrives.
+    </summary>
+    """
+    from datetime import datetime
+    from PIL import Image
+    from deckplate.config import StripTile
+    from deckplate.media import NowPlaying
+    reading = NowPlaying("Song", "Band", "Playing", "kodi", art="http://p.test/image/x")
+    art = Image.new("RGB", (40, 80), (10, 200, 10))
+    with_art = tiles.playing_tile(reading, SIZE, art=art)
+    assert with_art.size == (SIZE, SIZE)
+    assert with_art.getpixel((SIZE - 3, 3)) == (10, 200, 10)       # the picture, top right, untouched
+    band = with_art.getpixel((3, SIZE - 3))
+    assert band[1] < 200 and band != (10, 200, 10)                 # the band darkens the picture
+    without = tiles.playing_tile(reading, SIZE)
+    assert without.tobytes() != with_art.tobytes()
+    playing = StripTile("playing")
+    now = datetime(2026, 1, 1, 12, 0)
+    assert tiles.strip_signature(playing, now, None, playing=reading) \
+        != tiles.strip_signature(playing, now, None, playing=reading, playing_art_ready=True)
+    panel = tiles.strip_tile(playing, now, None, 95, "", (78, 78), None, playing=reading, playing_art=art)
+    assert panel.getpixel((47, 12)) == (10, 200, 10)

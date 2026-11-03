@@ -457,12 +457,16 @@ def test_a_lamp_and_a_kodi_playing_panel_round_trip_through_the_document():
     gets the lamp, and the panel's source is the one way the strip reaches
     another machine, so losing either would quietly turn them off.</remarks>
     """
-    lamp = {"url": "http://p.test/jsonrpc", "every_ms": 30000, "insecure": True, "expect": "", "token_file": "~/t"}
+    lamp = {"kind": "web", "url": "http://p.test/jsonrpc", "every_ms": 30000, "insecure": True, "expect": "", "token_file": "~/t"}
     strip = ["clock", {"kind": "playing", "source": "kodi", "url": "http://p.test/jsonrpc", "token_file": "~/t"}, "playing"]
     doc = {"strip": strip, "pages": [{"name": "A", "keys": [
         {"row": 0, "column": 0, "label": "Kodi", "action": {"type": "page", "page": "A"}, "lamp": lamp}]}]}
     c = cfg.parse(cfg.to_toml(doc), Path("/base"))
-    assert c.pages[0].keys[(0, 0)].lamp == cfg.LampSettings("http://p.test/jsonrpc", 30000, True, "", "~/t")
+    assert c.pages[0].keys[(0, 0)].lamp == cfg.LampSettings("http://p.test/jsonrpc", 30000, True, "", "~/t", "web")
+    wled = cfg.parse(cfg.to_toml({"pages": [{"name": "A", "keys": [
+        {"row": 0, "column": 0, "lamp": {"kind": "wled", "url": "http://lights.test/"}}]}]}), Path("/base"))
+    assert wled.pages[0].keys[(0, 0)].lamp == cfg.LampSettings("http://lights.test/", 10000, False, "", None, "wled")
+    assert cfg.document_from_config(wled)["pages"][0]["keys"][0]["lamp"]["kind"] == "wled"
     assert c.strip[1].source == "kodi" and c.strip[1].url == "http://p.test/jsonrpc" and c.strip[1].token_file == "~/t"
     assert c.strip[2].source == "local" and c.strip[2].url is None
     back = cfg.document_from_config(c)
@@ -481,6 +485,8 @@ def test_a_bad_lamp_or_playing_source_is_refused():
     page = lambda key: {"pages": [{"name": "A", "keys": [dict({"row": 0, "column": 0}, **key)]}]}
     with pytest.raises(cfg.ConfigError, match="lamp.*http"):
         cfg.parse(cfg.to_toml(page({"lamp": {"url": "player"}})), Path("/base"))
+    with pytest.raises(cfg.ConfigError, match="lamp.*kind"):
+        cfg.parse(cfg.to_toml(page({"lamp": {"url": "http://p.test/", "kind": "candle"}})), Path("/base"))
     with pytest.raises(cfg.ConfigError, match="lamp.*insecure"):
         cfg.parse(cfg.to_toml(page({"lamp": {"url": "http://p.test/", "insecure": "yes"}})), Path("/base"))
     with pytest.raises(cfg.ConfigError, match="source"):
@@ -489,3 +495,16 @@ def test_a_bad_lamp_or_playing_source_is_refused():
         cfg.parse(cfg.to_toml({"strip": ["clock", {"kind": "clock", "source": "kodi", "url": "http://p.test/"}, "date"], "pages": []}), Path("/base"))
     with pytest.raises(cfg.ConfigError, match="url"):
         cfg.parse(cfg.to_toml({"strip": ["clock", {"kind": "playing", "source": "kodi"}, "date"], "pages": []}), Path("/base"))
+
+
+def test_a_playing_panel_without_the_picture_round_trips_and_art_is_refused_elsewhere():
+    """<summary>``art = false`` on a playing panel survives the save loop as
+    an object, true folds back to the bare word, and the field on another
+    kind of panel is refused.</summary>"""
+    import pytest
+    strip = ["clock", {"kind": "playing", "art": False}, "playing"]
+    c = cfg.parse(cfg.to_toml({"strip": strip, "pages": [{"name": "A", "keys": []}]}), Path("/base"))
+    assert c.strip[1].art is False and c.strip[2].art is True
+    assert cfg.document_from_config(c)["strip"] == strip
+    with pytest.raises(cfg.ConfigError, match="only a playing tile takes 'art'"):
+        cfg.parse(cfg.to_toml({"strip": ["clock", {"kind": "date", "art": False}, "date"], "pages": []}), Path("/base"))

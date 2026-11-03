@@ -130,7 +130,9 @@ The config is documented by its own comments. In short:
   `{ kind = "playing", source = "kodi", url = "http://player:8080/jsonrpc" }`
   with an optional `token_file`, the same two a kodi key carries for a
   player in another room; that player is asked every few seconds on a
-  thread of its own), `system` (processor temperature, load and memory, read from
+  thread of its own. Either way the panel shows the album cover or poster
+  the player names, with the title on a band across it, unless the panel
+  says `art = false`), `system` (processor temperature, load and memory, read from
   the kernel), `blank` or a picture path. The panels show less than the 95 pixel picture they
   are sent, so `visible_width` and `visible_height` say how much: clock,
   date and weather are drawn to fit that area, and a picture given as
@@ -305,7 +307,11 @@ A key may carry
 `lamp = { url = "http://player:8080/jsonrpc", token_file = "~/.deckplate-tokens/kodi-other" }`
 and wears the status lamp for that address, green while it answers and red
 while it does not, whatever its action is. It takes the same `every_ms`,
-`insecure` and `expect` as a status key. The page key that leads to the
+`insecure` and `expect` as a status key. With `kind = "wled"` the address
+is a WLED device's own, as on a `wled` key, and the lamp is green while
+the lights are on, red while they are off and grey while the device cannot
+be reached, so a key with a picture of a light shows whether the lounge
+lights are on. The page key that leads to the
 Kodi page can show whether the Kodi in the other room is there, without
 being a kodi key itself. A lamp set this way wins over the one a status or
 remote kodi action would bring. On the configuration page it is the "A

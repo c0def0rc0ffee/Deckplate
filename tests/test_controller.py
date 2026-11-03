@@ -2507,3 +2507,89 @@ tiles = ["clock", { kind = "playing", source = "kodi", url = "http://p.test/json
     assert sent[0] == ("http://p.test/jsonrpc", {"Authorization": "Basic xyz"}, controller.config.kodi.timeout_s)
     controller.reload(cfg.parse(TEXT, path.parent, path))
     assert monitor.reading("http://p.test/jsonrpc") is None
+
+
+def test_a_wled_lamp_reads_the_lights_monitor_and_is_green_while_the_lights_are_on(setup):
+    """<summary>
+    A lamp of kind wled is handed to the lights monitor rather than the
+    status monitor, on the wled key's interval, and the dot is green while
+    the lights are on, red while they are off and grey while the device
+    cannot be reached.
+    </summary>
+    """
+    from deckplate import tiles as tiles_module
+    from deckplate.lights import LightState, LightsMonitor
+    from deckplate.status import StatusMonitor
+    controller, deck, clock, urls, path = setup
+    answers = {"http://lights.test/": LightState(True, 200, (255, 160, 0))}
+    asked = []
+
+    def prober(url):
+        asked.append(url)
+        if url not in answers:
+            raise ConnectionError("refused")
+        return answers[url]
+
+    lights = LightsMonitor(prober=prober, monotonic=lambda: clock.mono, log=lambda t: None, threaded=False)
+    status_watched = []
+    status = StatusMonitor(prober=lambda w: status_watched.append(w.url) or True, monotonic=lambda: clock.mono,
+                           log=lambda t: None, threaded=False)
+    controller.lights = lights
+    controller.status = status
+    controller.reload(cfg.parse(TEXT + """
+[[pages.keys]]
+row = 0
+column = 1
+label = "Lights"
+lamp = { kind = "wled", url = "http://lights.test/" }
+""", path.parent, path))
+    controller.switch_page("Second")
+    key = controller.page.keys[(0, 1)]
+    assert key.lamp.kind == "wled" and key.lamp.every_ms == 10_000
+    assert controller._key_dot(key) == tiles_module.DOT_UNKNOWN
+    lights.poll_once()
+    status.poll_once()
+    assert asked == ["http://lights.test/"] and status_watched == []
+    assert controller._key_dot(key) == tiles_module.DOT_UP
+    answers["http://lights.test/"] = LightState(False, 200, (255, 160, 0))
+    clock.advance(11)
+    lights.poll_once()
+    assert controller._key_dot(key) == tiles_module.DOT_DOWN
+    del answers["http://lights.test/"]
+    clock.advance(11)
+    lights.poll_once()
+    assert controller._key_dot(key) == tiles_module.DOT_UNKNOWN
+
+
+def test_a_playing_panel_draws_the_picture_once_the_cache_has_it(setup):
+    """<summary>
+    A panel asks the art cache for the reading's picture and draws words
+    until it arrives; the signature changes when it does, so the panel is
+    sent again; a panel with the picture off never asks.
+    </summary>
+    """
+    from PIL import Image
+    from deckplate import media as media_module
+    controller, deck, clock, urls, path = setup
+    fetched = []
+
+    def fetcher(url, token_file):
+        fetched.append((url, token_file))
+        return Image.new("RGB", (30, 30), (200, 20, 20))
+
+    controller.art = media_module.ArtCache(fetcher=fetcher, monotonic=lambda: clock.mono, log=lambda t: None, threaded=False)
+    controller.media.reading = media_module.NowPlaying("Song", "Band", "Playing", "vlc", art="file:///tmp/c.jpg")
+    controller.reload(cfg.parse(TEXT + """
+[strip]
+tiles = ["clock", "playing", { kind = "playing", art = false }]
+""", path.parent, path))
+    on, off = controller.config.strip[1], controller.config.strip[2]
+    assert controller._playing_art(on) is None and controller._playing_art(off) is None
+    before = controller._draw_strip(1, controller.deck.image_size)[0]
+    assert controller.art.fetch_once() is True
+    assert fetched == [("file:///tmp/c.jpg", None)]
+    assert controller._playing_art(on) is not None and controller._playing_art(off) is None
+    after = controller._draw_strip(1, controller.deck.image_size)[0]
+    assert before.tobytes() != after.tobytes()
+    assert after.getpixel((controller.deck.image_size // 2, 12)) == (200, 20, 20)
+    assert controller._draw_strip(2, controller.deck.image_size)[0].getpixel((controller.deck.image_size // 2, 12)) != (200, 20, 20)
