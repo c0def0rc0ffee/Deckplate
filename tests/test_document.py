@@ -508,3 +508,23 @@ def test_a_playing_panel_without_the_picture_round_trips_and_art_is_refused_else
     assert cfg.document_from_config(c)["strip"] == strip
     with pytest.raises(cfg.ConfigError, match="only a playing tile takes 'art'"):
         cfg.parse(cfg.to_toml({"strip": ["clock", {"kind": "date", "art": False}, "date"], "pages": []}), Path("/base"))
+
+
+def test_a_player_a_key_follows_round_trips_and_is_checked():
+    """<summary>A key's ``playing`` survives the save loop for both sources,
+    a key without one carries None, and a Kodi source without an address is
+    refused.</summary>"""
+    import pytest
+    keys = [{"row": 0, "column": 0, "label": "Kodi", "playing": {"source": "kodi", "url": "http://p.test/jsonrpc", "token_file": "~/t"}},
+            {"row": 0, "column": 1, "label": "Local", "playing": {"source": "local"}},
+            {"row": 0, "column": 2, "label": "Plain"}]
+    c = cfg.parse(cfg.to_toml({"pages": [{"name": "A", "keys": keys}]}), Path("/base"))
+    assert c.pages[0].keys[(0, 0)].playing == cfg.PlayingSource("kodi", "http://p.test/jsonrpc", "~/t")
+    assert c.pages[0].keys[(0, 1)].playing == cfg.PlayingSource("local")
+    assert c.pages[0].keys[(0, 2)].playing is None
+    back = cfg.document_from_config(c)["pages"][0]["keys"]
+    assert [key["playing"] for key in back] == [keys[0]["playing"], {"source": "local"}, None]
+    with pytest.raises(cfg.ConfigError, match="playing.*url"):
+        cfg.parse(cfg.to_toml({"pages": [{"name": "A", "keys": [{"row": 0, "column": 0, "playing": {"source": "kodi"}}]}]}), Path("/base"))
+    with pytest.raises(cfg.ConfigError, match="playing.*source"):
+        cfg.parse(cfg.to_toml({"pages": [{"name": "A", "keys": [{"row": 0, "column": 0, "playing": {"source": "tape"}}]}]}), Path("/base"))

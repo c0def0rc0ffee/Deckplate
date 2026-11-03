@@ -19,6 +19,11 @@
   on a thread of its own and kept by address, with the title on a band
   across it. `art = false` on the panel keeps it to words, and so does a
   tick on the configuration page.
+- Any key may follow a player with `playing`, the same source, `url` and
+  `token_file` as the panel, and wears the picture of what that player is
+  playing as its whole face while it plays something, with the lamp still
+  in the corner; it looks as it always does the rest of the time. A fold on
+  every key on the configuration page.
 - Right click a key on the configuration page to move it or copy it to
   another page: a window offers the page and its fifteen positions, a
   free one takes the key, and a taken one asks whether to replace what

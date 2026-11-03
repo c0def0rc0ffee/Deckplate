@@ -176,7 +176,7 @@
    */
   function dropEmptyKey(page, key) {
     if (!key.image && !key.label && !key.action && !key.action_long && !key.action_double
-        && !key.animation && !key.background && !key.image_active && !key.label_active && !key.lamp) {
+        && !key.animation && !key.background && !key.image_active && !key.label_active && !key.lamp && !key.playing) {
       page.keys = page.keys.filter(k => k !== key);
     }
   }
@@ -1205,6 +1205,8 @@
     tpl.querySelector("#keyMark").append(markFields());
     tpl.querySelector("#keyLamp").append(lampFields(key));
     if (key.lamp) tpl.querySelector("details.lamp").open = true;
+    tpl.querySelector("#keyPlaying").append(keyPlayingFields(key));
+    if (key.playing) tpl.querySelector("details.playing-face").open = true;
 
     // The plain action and the two second actions are edited the same way and
     // differ only in which field of the key they write to.
@@ -1410,6 +1412,58 @@
       kodiBox,
       el("div", { class: "field" }, [el("label", { class: "check", for: "playingArt" }, [art, el("span", { text: "Show a picture of what is playing" })]),
         el("div", { class: "help", text: "The album cover or poster the player names, with the title on a band across it. Untick for words alone." })]),
+    ]);
+  }
+
+  /**
+   * <summary>The player a key follows, to wear the picture of what it is playing.</summary>
+   * <param name="key">The key as read at build time, for the starting values.</param>
+   * <returns>The fields.</returns>
+   * <remarks>
+   * Nothing, this machine's players, or a Kodi player with its address and
+   * credentials file, as on a playing strip panel. The form is the truth, as
+   * on the lamp fold: every save rebuilds the setting from the fields, and
+   * "nothing" takes it off the key.
+   * </remarks>
+   */
+  function keyPlayingFields(key) {
+    const playing = key.playing || {};
+    const pick = el("select", {}, [
+      el("option", { value: "", text: "Nothing" }),
+      el("option", { value: "local", text: "This machine's media player" }),
+      el("option", { value: "kodi", text: "A Kodi player" }),
+    ]);
+    pick.value = playing.source === "kodi" ? "kodi" : playing.source === "local" ? "local" : "";
+    const url = el("input", { type: "text", value: playing.url || "", placeholder: "http://player:8080/jsonrpc" });
+    const tokenFile = el("input", { type: "text", value: playing.token_file || "", placeholder: "~/.deckplate-tokens/kodi-other" });
+    const save = () => change(d => {
+      const k = ensureKey(currentPage(), selected.row, selected.column);
+      if (!pick.value) { k.playing = null; dropEmptyKey(currentPage(), k); return; }
+      const next = { source: pick.value };
+      if (pick.value === "kodi") {
+        next.url = url.value.trim();
+        if (tokenFile.value.trim()) next.token_file = tokenFile.value.trim();
+      }
+      k.playing = next;
+    }, { silent: true });
+    url.addEventListener("input", save);
+    tokenFile.addEventListener("input", save);
+    const kodiBox = el("div", {}, [
+      el("div", { class: "field" }, [el("label", { text: "Player address" }), url,
+        el("div", { class: "help", text: "The player's JSON RPC address, as on a kodi key for another room." })]),
+      el("div", { class: "field" }, [el("label", { text: "Its credentials file" }), tokenFile]),
+      credentialsFields(() => tokenFile.value.trim(), () => kodiTokenPath(url.value.trim()), path => {
+        tokenFile.value = path;
+        save();
+      }),
+    ]);
+    const show = () => { kodiBox.hidden = pick.value !== "kodi"; };
+    pick.addEventListener("change", () => { show(); save(); });
+    show();
+    return el("div", {}, [
+      el("div", { class: "field" }, [el("label", { text: "Follows" }), pick,
+        el("div", { class: "help", text: "While that player has something on, the key's whole face is the cover or poster of it, with the lamp still in the corner. The rest of the time the key looks as it does now." })]),
+      kodiBox,
     ]);
   }
 

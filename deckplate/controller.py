@@ -852,7 +852,50 @@ class Controller:
         if face is not None and face.ring is not None:
             face = replace(face, ring=round(face.ring * 100) / 100)
         return (mark, active, face, self._key_dot(key), self._key_weather(key), self._key_system(key),
-                self._key_lights(key))
+                self._key_lights(key), self._key_playing_signature(key))
+
+    def _key_playing_reading(self, key):
+        """<summary>
+        The now playing reading of the player a key follows, or None.
+        </summary>
+        <param name="key">The key, or None.</param>
+        <returns>The reading, or None when the key follows no player or
+        nothing is playing on it.</returns>"""
+        if key is None or key.playing is None:
+            return None
+        if key.playing.source == "kodi":
+            return self.kodi_media.reading(key.playing.url)
+        return self.media.reading
+
+    def _key_playing_art(self, key):
+        """<summary>
+        The picture a key wears for what its player is playing, once it is here.
+        </summary>
+        <param name="key">The key, or None.</param>
+        <returns>The picture, or None when the key follows no player,
+        nothing is playing, the player names no picture, or the fetch has
+        not come back yet. With None the key draws its ordinary face.</returns>"""
+        reading = self._key_playing_reading(key)
+        if reading is None or not reading.art:
+            return None
+        return self.art.image(reading.art, reading.art_token_file)
+
+    def _key_playing_signature(self, key) -> tuple | None:
+        """<summary>
+        What decides the picture a key wears for its player, for the face signature.
+        </summary>
+        <param name="key">The key, or None.</param>
+        <returns>(the picture's address, whether it has arrived), or None
+        for a key that follows no player.</returns>
+        <remarks>The address rather than the picture, so a new track with a
+        new picture changes the signature the moment it is read, and the
+        arrival flag so the key is drawn again when the picture lands.</remarks>"""
+        if key is None or key.playing is None:
+            return None
+        reading = self._key_playing_reading(key)
+        if reading is None or not reading.art:
+            return (None, False)
+        return (reading.art, self.art.image(reading.art, reading.art_token_file) is not None)
 
     def _key_dot(self, key) -> tuple[int, int, int] | None:
         """<summary>
@@ -1000,6 +1043,15 @@ class Controller:
         mark = self._key_mark(key, holding)
         active, face = self._key_face(key, (row, column), holding, page)
         drawn = None
+        playing_art = self._key_playing_art(key)
+        if playing_art is not None:
+            # The picture of what the key's player is playing is the whole
+            # face while it plays: no label, no live text, the lamp still on
+            # top from the caller, and the border for a running task kept.
+            tile = tiles.picture_face(playing_art, size)
+            if mark is not None:
+                tile = tiles.with_mark(tile, mark)
+            return tile, None, 0
         if key is not None and key.image is None and key.action is not None and key.action.type == "weather":
             drawn = tiles.weather_key_tile(self.weather.observation, size,
                                            tiles.key_background(key, config.deck.background), labelled=bool(key.label))
@@ -1292,7 +1344,7 @@ class Controller:
         else:
             key = page.keys.get((row, column))
             holding = self.runner.holds.active_combos()
-            signature = (repr(key), config.deck.background, tuple(sorted(holding)))
+            signature = (repr(key), config.deck.background, tuple(sorted(holding)), self._key_playing_signature(key))
             frames_of = lambda: self._draw_key(row, column, size, holding, page=page, config=config)
         cache_key = (row, column, scale)
         with self._preview_lock:
@@ -1734,7 +1786,8 @@ class Controller:
         system key on the page showing counts like a system panel.</remarks>
         """
         kinds = {tile.kind for tile in self.config.strip}
-        if any(tile.kind == "playing" and tile.source == "local" for tile in self.config.strip):
+        if any(tile.kind == "playing" and tile.source == "local" for tile in self.config.strip) \
+                or any(key.playing is not None and key.playing.source == "local" for key in self.page.keys.values()):
             self.media.refresh_if_due()
         if "system" in kinds or any(key.action is not None and key.action.type == "system"
                                     for key in self.page.keys.values()):
@@ -1788,13 +1841,19 @@ class Controller:
 
     def _watch_media(self) -> None:
         """<summary>
-        Hand the Kodi playing monitor every player a playing panel names.
+        Hand the Kodi playing monitor every player a playing panel names,
+        and every one a key follows for its picture, on any page.
         </summary>
         <remarks>Called at start and after a reload, like the status and
-        lights monitors. A panel reading the desktop's players is not a
-        watch: that reading is taken on the loop itself.</remarks>"""
-        self.kodi_media.watch([(tile.url, tile.token_file) for tile in self.config.strip
-                               if tile.kind == "playing" and tile.source == "kodi" and tile.url])
+        lights monitors. A panel or key reading the desktop's players is
+        not a watch: that reading is taken on the loop itself.</remarks>"""
+        players = [(tile.url, tile.token_file) for tile in self.config.strip
+                   if tile.kind == "playing" and tile.source == "kodi" and tile.url]
+        for page in self.config.pages:
+            for key in page.keys.values():
+                if key.playing is not None and key.playing.source == "kodi" and key.playing.url:
+                    players.append((key.playing.url, key.playing.token_file))
+        self.kodi_media.watch(players)
 
     def _watch_status(self) -> None:
         """<summary>

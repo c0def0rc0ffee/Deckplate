@@ -2593,3 +2593,60 @@ tiles = ["clock", "playing", { kind = "playing", art = false }]
     assert before.tobytes() != after.tobytes()
     assert after.getpixel((controller.deck.image_size // 2, 12)) == (200, 20, 20)
     assert controller._draw_strip(2, controller.deck.image_size)[0].getpixel((controller.deck.image_size // 2, 12)) != (200, 20, 20)
+
+
+def test_a_key_following_a_player_wears_its_picture_while_it_plays(setup):
+    """<summary>
+    A key that follows a Kodi player is handed to the Kodi playing monitor,
+    draws its ordinary face while nothing plays or the picture has not
+    arrived, draws the picture as its whole face once it has, keeps the
+    lamp on top, and goes back to its own face when the player stops.
+    </summary>
+    """
+    from PIL import Image
+    from deckplate import media as media_module
+    from deckplate import tiles as tiles_module
+    from deckplate.status import StatusMonitor
+    controller, deck, clock, urls, path = setup
+    track = {"value": media_module.NowPlaying("Film", "", "Playing", "kodi", art="http://p.test/image/x", art_token_file="~/t")}
+    watched = []
+    monitor = media_module.KodiPlayingMonitor(prober=lambda url, token_file: watched.append((url, token_file)) or track["value"],
+                                              monotonic=lambda: clock.mono, log=lambda t: None, threaded=False)
+    fetched = []
+    cache = media_module.ArtCache(fetcher=lambda url, token_file: fetched.append((url, token_file)) or Image.new("RGB", (20, 30), (0, 0, 250)),
+                                  monotonic=lambda: clock.mono, log=lambda t: None, threaded=False)
+    status = StatusMonitor(prober=lambda w: True, monotonic=lambda: clock.mono, log=lambda t: None, threaded=False)
+    controller.kodi_media = monitor
+    controller.art = cache
+    controller.status = status
+    controller.reload(cfg.parse(TEXT + """
+[[pages.keys]]
+row = 0
+column = 1
+label = "Kodi"
+action = { type = "page", page = "Main" }
+lamp = { url = "http://p.test/jsonrpc", token_file = "~/t" }
+playing = { source = "kodi", url = "http://p.test/jsonrpc", token_file = "~/t" }
+""", path.parent, path))
+    controller.switch_page("Second")
+    key = controller.page.keys[(0, 1)]
+    size = controller.deck.image_size
+    plain = controller._draw_key(0, 1, size, set())[0]
+    assert controller._key_playing_signature(key) == (None, False)
+    monitor.poll_once()
+    assert watched == [("http://p.test/jsonrpc", "~/t")]
+    assert controller._key_playing_signature(key) == ("http://p.test/image/x", False)
+    assert controller._draw_key(0, 1, size, set())[0].tobytes() == plain.tobytes()  # words until the picture lands
+    cache.fetch_once()
+    assert fetched == [("http://p.test/image/x", "~/t")]
+    assert controller._key_playing_signature(key) == ("http://p.test/image/x", True)
+    status.poll_once()
+    image = controller._draw_key(0, 1, size, set())[0]
+    assert image.getpixel((size // 2, size // 2)) == (0, 0, 250)
+    cx, cy = size - round(size * tiles_module.DOT_INSET), round(size * tiles_module.DOT_INSET)
+    assert image.getpixel((cx, cy)) == tiles_module.DOT_UP
+    track["value"] = None
+    clock.advance(4)
+    monitor.poll_once()
+    assert controller._key_playing_signature(key) == (None, False)
+    assert controller._draw_key(0, 1, size, set())[0].getpixel((size // 2, size // 2)) != (0, 0, 250)

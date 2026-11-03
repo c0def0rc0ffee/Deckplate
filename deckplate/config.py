@@ -303,6 +303,26 @@ class LampSettings:
 
 
 @dataclass(frozen=True)
+class PlayingSource:
+    """<summary>
+    A media player a key follows, to wear the picture of what it is playing.
+    </summary>
+    <param name="source">"local" for the desktop's own players over the
+    session bus, "kodi" for a Kodi player at ``url``.</param>
+    <param name="url">The Kodi player's JSON RPC address; None for local.</param>
+    <param name="token_file">The Kodi player's credentials file, or None.</param>
+    <remarks>The same three a playing strip panel takes. While the player
+    has something on and names a picture for it, the key's face is that
+    picture; otherwise the key looks as it always does, so a page key that
+    leads to the Kodi page shows the film poster while the film runs and
+    its own icon the rest of the time.</remarks>"""
+
+    source: str = "local"
+    url: str | None = None
+    token_file: str | None = None
+
+
+@dataclass(frozen=True)
 class KeyConfig:
     """<summary>
     One key on one page.
@@ -334,7 +354,9 @@ class KeyConfig:
 
     ``lamp`` gives any key the status lamp for an address of the key's own
     choosing; see <see cref="LampSettings"/>. It wins over the lamp a
-    status or remote kodi action would otherwise bring.
+    status or remote kodi action would otherwise bring. ``playing`` makes
+    the key wear the picture of what a player is playing while it plays;
+    see <see cref="PlayingSource"/>.
     </remarks>
     """
 
@@ -351,6 +373,7 @@ class KeyConfig:
     image_active: Path | None = None
     label_active: str | None = None
     lamp: LampSettings | None = None
+    playing: PlayingSource | None = None
 
     def actions(self) -> tuple[Action | None, Action | None, Action | None]:
         """<summary>
@@ -1301,8 +1324,37 @@ def _parse_keys(raw: Any, where: str, base_dir: Path) -> dict[tuple[int, int], K
             image_active=_resolve(image_active, base_dir) if image_active else None,
             label_active=_str(table, "label_active", here),
             lamp=_parse_lamp(table.get("lamp"), here),
+            playing=_parse_playing(table.get("playing"), here),
         )
     return keys
+
+
+def _parse_playing(table: Any, where: str) -> PlayingSource | None:
+    """<summary>
+    Build the player a key follows from its ``playing`` table, or None.
+    </summary>
+    <param name="table">The table from the file, or None.</param>
+    <param name="where">How to name the key in an error.</param>
+    <returns>The source, or None.</returns>
+    <remarks>The same checks as a playing strip panel's source, so the two
+    refuse the same mistakes in the same words.</remarks>
+    <exception cref="ConfigError">Not a table, an unknown source, or a Kodi
+    source without an http or https address.</exception>"""
+    if table is None:
+        return None
+    here = f"{where} playing"
+    if not isinstance(table, dict):
+        raise ConfigError(f"{here}: must be a table")
+    source = _str(table, "source", here, "local") or "local"
+    if source not in PLAYING_SOURCES:
+        raise ConfigError(f"{here}: 'source' must be one of {', '.join(PLAYING_SOURCES)}")
+    url = token_file = None
+    if source == "kodi":
+        url = _str(table, "url", here, required=True) or ""
+        if not url.startswith(("http://", "https://")):
+            raise ConfigError(f"{here}: 'url' must start with http:// or https://")
+        token_file = _str(table, "token_file", here) or None
+    return PlayingSource(source=source, url=url, token_file=token_file)
 
 
 def _parse_lamp(table: Any, where: str) -> LampSettings | None:
@@ -1916,6 +1968,20 @@ def _lamp_document(lamp: LampSettings | None) -> dict | None:
     return document
 
 
+def _playing_document(playing: PlayingSource | None) -> dict | None:
+    """<summary>The player a key follows as the page's JSON, or None for none.</summary>
+    <param name="playing">The source, or None.</param>
+    <returns>A dict with the source, and the address and credentials file for a Kodi one.</returns>"""
+    if playing is None:
+        return None
+    document: dict[str, Any] = {"source": playing.source}
+    if playing.source == "kodi":
+        document["url"] = playing.url
+        if playing.token_file:
+            document["token_file"] = playing.token_file
+    return document
+
+
 def _animation_document(animation: AnimationConfig | None) -> dict | None:
     """
     <summary>
@@ -1972,6 +2038,7 @@ def document_from_config(config: Config) -> dict:
                 "image_active": _relative(key.image_active, config.base_dir),
                 "label_active": key.label_active,
                 "lamp": _lamp_document(key.lamp),
+                "playing": _playing_document(key.playing),
             })
         pages.append({"name": page.name, "keys": keys, "match_window": page.match_window,
                       "wallpaper": _relative(page.wallpaper, config.base_dir)})
@@ -2214,7 +2281,7 @@ def to_toml(document: dict) -> str:
                 raise ConfigError("each key must be an object")
             lines.append("[[pages.keys]]")
             for field in ("row", "column", "image", "label", "image_active", "label_active",
-                          "background", "mark", "lamp", "action", "action_long", "action_double", "animation"):
+                          "background", "mark", "lamp", "playing", "action", "action_long", "action_double", "animation"):
                 if key.get(field) is not None:
                     lines.append(f"{field} = {_toml_value(key[field])}")
             lines.append("")

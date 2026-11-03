@@ -880,6 +880,21 @@ def playing_tile(reading: NowPlaying | None, size: int,
     return tile
 
 
+def picture_face(art: Image.Image, size: int) -> Image.Image:
+    """<summary>A picture as the whole face of a key, cover cropped to the square.</summary>
+    <param name="art">The picture, any size.</param>
+    <param name="size">The key size in pixels.</param>
+    <returns>An upright RGB tile of ``size`` square.</returns>
+    <remarks>Scaled so the shorter side fills the square and the longer
+    side's overflow is cut equally from both ends: a poster loses its top
+    and bottom, a wide picture its sides, and the middle of either shows.
+    The playing panel's picture form crops the same way.</remarks>"""
+    scale = size / min(art.width, art.height)
+    scaled = art.resize((max(size, round(art.width * scale)), max(size, round(art.height * scale))), Image.Resampling.LANCZOS)
+    left, top = (scaled.width - size) // 2, (scaled.height - size) // 2
+    return scaled.crop((left, top, left + size, top + size)).convert("RGB")
+
+
 def _playing_with_art(reading: NowPlaying, size: int, art: Image.Image) -> Image.Image:
     """<summary>The playing tile's other form: the picture, a band, the words.</summary>
     <param name="reading">The player's state.</param>
@@ -890,10 +905,7 @@ def _playing_with_art(reading: NowPlaying, size: int, art: Image.Image) -> Image
     the longer side's overflow is cut equally from both ends, so a poster
     loses its top and bottom and a wide picture its sides, and the middle
     of either is what shows.</remarks>"""
-    scale = size / min(art.width, art.height)
-    scaled = art.resize((max(size, round(art.width * scale)), max(size, round(art.height * scale))), Image.Resampling.LANCZOS)
-    left, top = (scaled.width - size) // 2, (scaled.height - size) // 2
-    tile = scaled.crop((left, top, left + size, top + size)).convert("RGBA")
+    tile = picture_face(art, size).convert("RGBA")
     band = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     band_draw = ImageDraw.Draw(band)
     band_draw.rectangle([0, round(size * 0.6), size, size], fill=(0, 0, 0, 165))

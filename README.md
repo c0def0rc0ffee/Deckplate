@@ -317,6 +317,17 @@ being a kodi key itself. A lamp set this way wins over the one a status or
 remote kodi action would bring. On the configuration page it is the "A
 lamp in the corner" fold on every key.
 
+### A picture of what is playing on any key
+
+A key may carry `playing = { source = "kodi", url = "http://player:8080/jsonrpc", token_file = "..." }`,
+or `playing = { source = "local" }` for this machine's own players, the
+same three a `playing` strip panel takes. While that player has something
+on and names a picture for it, the key's whole face is that picture, cover
+or poster, with the lamp still in its corner; the rest of the time the key
+looks as it always does. So the page key that leads to the Kodi page shows
+the film's poster while the film runs and its own icon otherwise. On the
+configuration page it is the "Picture of what is playing" fold on every key.
+
 ### The other face of a key
 
 A key may carry `image_active` and `label_active`, shown in place of its

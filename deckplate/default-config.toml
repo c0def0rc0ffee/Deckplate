@@ -129,6 +129,9 @@ tiles = ["clock", "date", "weather"]
 #   and wears the status lamp for that address whatever it does when pressed;
 #   every_ms, insecure and expect as on a status key. With kind = "wled" the
 #   url is a WLED device's own and the lamp is green while the lights are on.
+#   A key may carry playing = { source = "kodi", url = "...", token_file = "..." }
+#   (or source = "local") and wears the picture of what that player is playing
+#   while it plays something, its own face the rest of the time.
 #   A key may carry image_active and label_active, shown while its toggle is on,
 #   its hold or repeat runs, its timer counts, or the sound is muted by it.
 #   stay_awake keeps the machine awake until pressed again: the screensaver inhibit
