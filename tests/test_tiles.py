@@ -613,3 +613,28 @@ def test_the_pi_hole_tile_shows_the_share_and_says_when_it_is_paused():
     assert tiles.pihole_tile(None, SIZE).tobytes() != tiles.pihole_tile(on, SIZE).tobytes()
     assert tiles.pihole_tile(on, SIZE, labelled=True).tobytes() != tiles.pihole_tile(on, SIZE).tobytes()
     assert [tiles.compact_count(n) for n in (950, 1000, 12345, 1_200_000)] == ["950", "1k", "12.3k", "1.2M"]
+
+
+def test_the_synology_tile_draws_each_view_and_reads_sizes_as_dsm_does():
+    """<summary>The three views draw and differ from each other, a nearly full
+    volume differs from a roomy one, an unknown volume and no reading both
+    say so, and byte counts and uptimes come out as DSM's pages show them.</summary>"""
+    from deckplate.synology import SynologyReading, Volume
+    reading = SynologyReading((Volume("volume_1", "normal", 8_000_000_000_000, 5_000_000_000_000),
+                               Volume("volume_2", "normal", 2_000_000_000_000, 500_000_000_000)),
+                              True, 41, 12, 45, 46, False, 300000, "DS923+")
+    space = tiles.synology_tile(reading, SIZE)
+    assert differs_from_blank(space)
+    assert space.tobytes() != tiles.synology_tile(reading, SIZE, "load").tobytes()
+    assert space.tobytes() != tiles.synology_tile(reading, SIZE, "system").tobytes()
+    assert space.tobytes() != tiles.synology_tile(reading, SIZE, "space", "volume_2").tobytes()
+    full = SynologyReading((Volume("volume_1", "normal", 1000, 950),))
+    assert tiles.synology_tile(full, SIZE).tobytes() != tiles.synology_tile(SynologyReading((Volume("volume_1", "normal", 1000, 50),)), SIZE).tobytes()
+    assert tiles.synology_tile(reading, SIZE, "space", "volume_9").tobytes() != space.tobytes()
+    assert tiles.synology_tile(None, SIZE).tobytes() != space.tobytes()
+    assert tiles.synology_tile(reading, SIZE, labelled=True).tobytes() != space.tobytes()
+    assert differs_from_blank(tiles.synology_tile(SynologyReading(()), SIZE, "load"))
+    assert [tiles.human_bytes(n) for n in (500, 1536, 512 * 1024 ** 3, 3_400_000_000_000, 150 * 1024 ** 4)] == \
+        ["500 B", "1.5 KB", "512 GB", "3.1 TB", "150 TB"]
+    assert [tiles.uptime_text(s) for s in (300000, 18600, 720)] == ["up 3 d 11 h", "up 5 h 10 m", "up 12 m"]
+    assert tiles.volume_label("volume_1") == "Volume 1"

@@ -510,6 +510,9 @@ class ActionRunner:
             self._wled(params)
         elif action.type == "pihole":
             self._pihole(params)
+        elif action.type == "synology":
+            # The watching is the controller's; the press opens DSM.
+            self.open_url(params["url"])
         elif action.type == "weather":
             self.open_url(params.get("url") or weather_site(self.weather))
         elif action.type == "system":

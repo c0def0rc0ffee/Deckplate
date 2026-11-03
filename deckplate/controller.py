@@ -38,6 +38,7 @@ from .actions import ActionRunner
 from .config import MARK_DEFAULT_FLASH_MS, POSITIONAL_ACTIONS, Action, Config, load
 from .media import ArtCache, KodiPlayingMonitor, MediaService, fetch_kodi
 from .pihole import PiholeMonitor
+from .synology import SynologyMonitor
 from .presses import Actions, PressRouter
 from .protocol import KeyEvent
 from .lights import LightsMonitor
@@ -372,6 +373,7 @@ class Controller:
                  kodi_media: KodiPlayingMonitor | None = None,
                  art: ArtCache | None = None,
                  pihole: PiholeMonitor | None = None,
+                 synology: SynologyMonitor | None = None,
                  on_reload: Callable[[Config], None] | None = None) -> None:
         """<summary>
         Wire a deck to a config, without drawing anything yet.
@@ -403,6 +405,7 @@ class Controller:
         <param name="art">The cache of pictures of what is playing. Made
         here if not given; it fetches nothing until a panel asks.</param>
         <param name="pihole">The monitor behind pihole keys, likewise.</param>
+        <param name="synology">The monitor behind synology keys, likewise.</param>
         <param name="system">The machine reader for the strip. Made here if
         not given; read only while a panel shows it.</param>
         <param name="on_reload">Called with the new config at the end of
@@ -432,6 +435,7 @@ class Controller:
         self.runner.lights = self.lights
         self.pihole = pihole or PiholeMonitor(monotonic=monotonic, log=log)
         self.runner.pihole = self.pihole
+        self.synology = synology or SynologyMonitor(monotonic=monotonic, log=log)
         self.on_reload = on_reload
         # Whether the night brightness is in force, None until first checked.
         self._night: bool | None = None
@@ -516,6 +520,7 @@ class Controller:
         self._watch_lights()
         self._watch_media()
         self._watch_pihole()
+        self._watch_synology()
         self.render_all()
         self.log(f"showing page '{self.page.name}' with {len(self.page.keys)} keys")
         if self.config.deck.follow_focus:
@@ -865,7 +870,8 @@ class Controller:
         if face is not None and face.ring is not None:
             face = replace(face, ring=round(face.ring * 100) / 100)
         return (mark, active, face, self._key_dot(key), self._key_weather(key), self._key_system(key),
-                self._key_lights(key), self._key_playing_signature(key), self._key_pihole(key))
+                self._key_lights(key), self._key_playing_signature(key), self._key_pihole(key),
+                self._key_synology(key))
 
     def _key_pihole(self, key):
         """<summary>
@@ -880,6 +886,20 @@ class Controller:
         if key is None or key.action is None or key.action.type != "pihole":
             return None
         return self.pihole.state(key.action.params["url"])
+
+    def _key_synology(self, key):
+        """<summary>
+        The NAS reading a key draws or wears, or None for a key with no
+        synology action.
+        </summary>
+        <param name="key">The key to judge, or None for an empty position.</param>
+        <returns>The latest reading for a key whose plain action is synology;
+        otherwise None.</returns>
+        <remarks>As <see cref="_key_pihole"/>: in the signature whether or
+        not the key has a picture, since the lamp follows the reading.</remarks>"""
+        if key is None or key.action is None or key.action.type != "synology":
+            return None
+        return self.synology.state(key.action.params["url"])
 
     def _key_player(self, key) -> tuple[str, str | None] | None:
         """<summary>
@@ -996,6 +1016,9 @@ class Controller:
             elif action.type == "pihole":
                 reading = self.pihole.state(action.params["url"])
                 up = None if reading is None else reading.blocking
+            elif action.type == "synology":
+                reading = self.synology.state(action.params["url"])
+                up = None if reading is None else reading.healthy
             else:
                 continue
             if up is None:
@@ -1132,6 +1155,10 @@ class Controller:
         elif key is not None and key.image is None and key.action is not None and key.action.type == "pihole":
             drawn = tiles.pihole_tile(self.pihole.state(key.action.params["url"]), size,
                                       tiles.key_background(key, config.deck.background), labelled=bool(key.label))
+        elif key is not None and key.image is None and key.action is not None and key.action.type == "synology":
+            drawn = tiles.synology_tile(self.synology.state(key.action.params["url"]), size,
+                                        key.action.params.get("show", "space"), key.action.params.get("volume"),
+                                        tiles.key_background(key, config.deck.background), labelled=bool(key.label))
         if drawn is not None:
             tile = drawn
             if key.label:
@@ -1990,6 +2017,21 @@ class Controller:
                         boxes.append((p["url"], p.get("token_file"), bool(p.get("insecure")), p["every_ms"]))
         self.pihole.watch(boxes)
 
+    def _watch_synology(self) -> None:
+        """<summary>
+        Hand the Synology monitor every box a synology key on any page names.
+        </summary>
+        <remarks>As <see cref="_watch_pihole"/>: every page, at start and
+        after a reload, so a key's reading is known when its page comes up.</remarks>"""
+        boxes = []
+        for page in self.config.pages:
+            for key in page.keys.values():
+                for action in key.actions():
+                    if action is not None and action.type == "synology":
+                        p = action.params
+                        boxes.append((p["url"], p.get("account"), p.get("token_file"), bool(p.get("insecure")), p["every_ms"]))
+        self.synology.watch(boxes)
+
     def _night_brightness(self, now: float) -> None:
         """<summary>
         Dim the deck after sunset and brighten it after sunrise, when the
@@ -2208,6 +2250,7 @@ class Controller:
         self.kodi_media.stop()
         self.art.stop()
         self.pihole.stop()
+        self.synology.stop()
 
     def reload(self, config: Config) -> None:
         """<summary>
@@ -2263,6 +2306,7 @@ class Controller:
         self._watch_lights()
         self._watch_media()
         self._watch_pihole()
+        self._watch_synology()
         self._strip_signatures = [None] * layout.ROWS
         self.animator.clear_all()
         self._flashes.clear()

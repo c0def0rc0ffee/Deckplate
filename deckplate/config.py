@@ -61,7 +61,7 @@ PLAYING_LABELS = ("none", "band", "scroll")
 ACTION_TYPES = ("hotkey", "sequence", "chord", "hold", "boost", "repeat",
                 "text", "launch", "url", "request", "page", "brightness", "sleep", "multi",
                 "toggle", "volume", "audio_output", "window", "timer", "stopwatch", "counter",
-                "stay_awake", "dnd", "status", "kodi", "weather", "system", "wled", "pihole")
+                "stay_awake", "dnd", "status", "kodi", "weather", "system", "wled", "pihole", "synology")
 # The toggling desktop actions: like a hold they run until pressed again,
 # so they cannot be a step of another action either.
 DESKTOP_TOGGLES = ("stay_awake", "dnd")
@@ -1802,6 +1802,34 @@ def _parse_action(table: Any, where: str, nested: bool = False) -> Action:
         params["do"] = do
         params["seconds"] = _int(table, "seconds", where, pihole_module.DEFAULT_PAUSE_S, *pihole_module.PAUSE_RANGE)
         params["every_ms"] = _int(table, "every_ms", where, pihole_module.DEFAULT_EVERY_MS, *STATUS_EVERY_RANGE)
+    elif kind == "synology":
+        # The key draws free space, load or temperature from a Synology NAS
+        # and wears its health as the lamp; the press opens DSM.
+        if nested:
+            raise ConfigError(f"{where}: a synology action cannot be a step of another action")
+        from . import synology as synology_module
+        url = _str(table, "url", where, required=True) or ""
+        if not url.startswith(("http://", "https://")):
+            raise ConfigError(f"{where}: 'url' must start with http:// or https://")
+        params["url"] = url
+        # Not required at load, like the credentials file: a key being set up
+        # on the page has neither yet, and the sign in says what is missing.
+        params["account"] = _str(table, "account", where)
+        params["token_file"] = _str(table, "token_file", where) or None
+        insecure = table.get("insecure", False)
+        if not isinstance(insecure, bool):
+            raise ConfigError(f"{where}: 'insecure' must be true or false")
+        params["insecure"] = insecure
+        show = _str(table, "show", where, "space") or "space"
+        if show not in synology_module.SHOWS:
+            raise ConfigError(f"{where}: 'show' must be one of {', '.join(synology_module.SHOWS)}")
+        params["show"] = show
+        params["volume"] = _str(table, "volume", where) or None
+        do = _str(table, "do", where, "open") or "open"
+        if do not in synology_module.DOINGS:
+            raise ConfigError(f"{where}: 'do' must be one of {', '.join(synology_module.DOINGS)}")
+        params["do"] = do
+        params["every_ms"] = _int(table, "every_ms", where, synology_module.DEFAULT_EVERY_MS, *STATUS_EVERY_RANGE)
     elif kind == "weather":
         # The key draws the reading itself; the press opens a site, the
         # runner's default for the coordinates when none is written.

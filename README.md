@@ -299,6 +299,22 @@ a step of a multi action.
   alone; the configuration page writes it for you. `insecure = true`
   accepts the box's own certificate over https, and `every_ms` sets how
   often it is asked.
+- `synology` watches a Synology NAS over DSM's web API:
+  `{ type = "synology", url = "http://nas.local:5000/", account = "deck", token_file = "~/.deckplate-tokens/synology" }`.
+  With `show = "space"`, the default, the key draws the free space large
+  with a gauge of what is used under it, for every volume together or for
+  the one `volume = "volume_1"` names, and the figure and gauge turn red
+  past nine tenths full; `show = "load"` draws the processor and memory
+  loads as two gauges, and `show = "system"` the model, the system
+  temperature, the uptime and the hottest disk. Whatever it shows, the key
+  wears a lamp that is green while every volume and disk reports normal
+  and there is no temperature warning, red when DSM is reporting trouble
+  and grey while the box cannot be reached; a key with a picture keeps it
+  and wears only the lamp. The press opens DSM. The credentials file holds
+  the account's password alone and the configuration page writes it for
+  you; the account cannot have two step verification, so make one for the
+  deck if yours does. `insecure = true` accepts the box's own certificate
+  over https, and `every_ms` (30 s by default) sets how often it is asked.
 - `kodi` sends Kodi a remote control action over its JSON RPC:
   `{ type = "kodi", do = "play_pause" }`, with `do` one of play_pause,
   pause, play, stop, next, previous, up, down, left, right, select, back,
@@ -770,6 +786,7 @@ restart; everything else reloads live.
 | `deckplate/web/` | the configuration page: one HTML file, one stylesheet, one script, no build step |
 | `deckplate/gui.py` | the window around the page (pywebview), with the browser fallback |
 | `deckplate/tray.py` | the daemon's icon in the system tray (pystray): open the window, or quit |
+| `deckplate/synology.py` | a Synology NAS over DSM's web API: sign in, volumes, load and temperature, polled on a thread |
 | `deckplate/cli.py` | the command line |
 | `examples/` | complete example configurations, drawn in the README |
 | `tools/make_icons.py` | draws the shipped icon themes, stills and animated |

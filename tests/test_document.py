@@ -583,3 +583,30 @@ def test_the_tray_setting_and_page_stamps_round_trip_through_the_document():
     assert again.tray == c.tray and again.pages == c.pages
     # The default is materialised, as every other setting the page draws a control for.
     assert cfg.document_from_config(cfg.parse('[[pages]]\nname = "A"', Path("/base")))["tray"] == {"enabled": True}
+
+
+def test_a_synology_key_round_trips_and_its_faults_are_named():
+    """<summary>The synology action's fields survive the save loop with their
+    defaults filled in, and a bad address, a missing account, an unknown view
+    or doing, and nesting are refused.</summary>"""
+    import pytest
+    page = lambda action: {"pages": [{"name": "A", "keys": [{"row": 0, "column": 0, "action": action}]}]}
+    c = cfg.parse(cfg.to_toml(page({"type": "synology", "url": "http://nas.test:5000/", "account": "deck", "token_file": "~/t"})), Path("/base"))
+    action = c.pages[0].keys[(0, 0)].action
+    assert action.type == "synology"
+    assert action.params == {"url": "http://nas.test:5000/", "account": "deck", "token_file": "~/t", "insecure": False,
+                             "show": "space", "volume": None, "do": "open", "every_ms": 30000}
+    assert 'account = "deck"' in cfg.to_toml(cfg.document_from_config(c))
+    back = cfg.document_from_config(c)["pages"][0]["keys"][0]["action"]
+    assert back == dict(action.params, type="synology")
+    again = cfg.parse(cfg.to_toml(page(dict(back, show="load", volume="volume_1"))), Path("/base")).pages[0].keys[(0, 0)].action
+    assert again.params["show"] == "load" and again.params["volume"] == "volume_1"
+    bare = cfg.parse(cfg.to_toml(page({"type": "synology", "url": "http://nas.test:5000/"})), Path("/base"))
+    assert bare.pages[0].keys[(0, 0)].action.params["account"] is None  # still being set up on the page
+    assert "account" not in cfg.to_toml(cfg.document_from_config(bare))
+    for action, message in (({"type": "synology", "url": "nas.test", "account": "deck"}, "http"),
+                            ({"type": "synology", "url": "http://nas.test:5000/", "account": "deck", "show": "films"}, "'show'"),
+                            ({"type": "synology", "url": "http://nas.test:5000/", "account": "deck", "do": "reboot"}, "'do'"),
+                            ({"type": "multi", "steps": [{"type": "synology", "url": "http://nas.test:5000/", "account": "deck"}]}, "step")):
+        with pytest.raises(cfg.ConfigError, match=message):
+            cfg.parse(cfg.to_toml(page(action)), Path("/base"))

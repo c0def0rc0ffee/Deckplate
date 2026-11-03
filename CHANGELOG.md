@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- A `synology` key for a Synology NAS: the free space of every volume, or
+  one named volume, drawn large with a gauge that turns red past nine
+  tenths full, or the processor and memory loads, or the model,
+  temperature and uptime; a lamp that is green while every volume and
+  disk is normal and red when DSM reports trouble; and a press that opens
+  DSM. Signs in to DSM's web API with an account and a password file the
+  configuration page writes, asks `SYNO.API.Info` where the APIs live
+  rather than assuming, and polls on a thread of its own.
 - The configuration page's editor slides in and out on the right, and a
   new pages list slides in and out on the left, each from its own button
   in the header and only when clicked; the page remembers which are open.

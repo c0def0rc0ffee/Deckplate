@@ -32,6 +32,7 @@ from .config import AnimationConfig, KeyConfig, StripTile
 from .media import NowPlaying
 from .lights import LightState
 from .pihole import PiholeReading
+from .synology import SynologyReading
 from .system import SystemReading
 from .weather import Observation
 
@@ -1141,6 +1142,138 @@ def pihole_tile(reading: PiholeReading | None, size: int,
     font = images.load_font(_fit_font_size(counts, size - 8, int(room * 0.13)))
     draw.text((size / 2, room * 0.74), counts, fill=MUTED, font=font, anchor="mm")
     return tile
+
+
+def human_bytes(value: int) -> str:
+    """<summary>
+    A byte count the way DSM shows one: 3.4 TB, 512 GB, 900 MB.
+    </summary>
+    <param name="value">Bytes; anything negative reads as zero.</param>
+    <returns>A number with at most one decimal and a unit.</returns>
+    <remarks>Steps of 1024, labelled TB rather than TiB, because that is
+    the figure DSM's own storage page shows and a key that disagreed with
+    it would look wrong even when it was right.</remarks>
+    """
+    amount = float(max(0, value))
+    units = ("B", "KB", "MB", "GB", "TB", "PB")
+    index = 0
+    while amount >= 1024 and index < len(units) - 1:
+        amount /= 1024
+        index += 1
+    if index == 0:
+        return f"{int(amount)} B"
+    text = f"{amount:.1f}" if amount < 100 else f"{amount:.0f}"
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return f"{text} {units[index]}"
+
+
+def uptime_text(seconds: int) -> str:
+    """<summary>An uptime in the two largest units that apply: 3 d 4 h, 5 h 10 m, 12 m.</summary>
+    <param name="seconds">Seconds since the box started.</param>"""
+    seconds = max(0, int(seconds))
+    days, rest = divmod(seconds, 86_400)
+    hours, rest = divmod(rest, 3_600)
+    minutes = rest // 60
+    if days:
+        return f"up {days} d {hours} h"
+    if hours:
+        return f"up {hours} h {minutes} m"
+    return f"up {minutes} m"
+
+
+# The empty part of a gauge, a shade lighter than the navy behind it.
+GAUGE_TRACK = (60, 72, 86)
+
+
+def _bar(draw: ImageDraw.ImageDraw, x0: float, y0: float, x1: float, y1: float, fraction: float | None,
+         colour: tuple[int, int, int]) -> None:
+    """<summary>A thin horizontal gauge: a muted track with a share of it filled.</summary>
+    <param name="fraction">0 to 1 of the track to fill, or None for an empty track.</param>"""
+    draw.rounded_rectangle([x0, y0, x1, y1], radius=(y1 - y0) / 2, fill=GAUGE_TRACK)
+    if fraction:
+        width = max(0.0, min(1.0, fraction)) * (x1 - x0)
+        if width >= (y1 - y0):
+            draw.rounded_rectangle([x0, y0, x0 + width, y1], radius=(y1 - y0) / 2, fill=colour)
+
+
+def synology_tile(reading: SynologyReading | None, size: int, show: str = "space", volume: str | None = None,
+                  background: tuple[int, int, int] = images.BACKGROUND, labelled: bool = False) -> Image.Image:
+    """<summary>
+    A Synology NAS on a key: free space with a gauge, the processor and
+    memory loads, or the temperature and uptime, by the key's choice.
+    </summary>
+    <param name="reading">The latest reading, or None when unknown or unreachable.</param>
+    <param name="size">The tile size in pixels.</param>
+    <param name="show">"space", "load" or "system".</param>
+    <param name="volume">For "space", one volume's DSM name, or None for all of them together.</param>
+    <param name="background">RGB tuple behind everything.</param>
+    <param name="labelled">True when a label band will go along the bottom,
+    which squeezes everything into the space above it.</param>
+    <returns>An upright tile, always.</returns>
+    <remarks>
+    Free space gets the big type because it is the figure the key exists
+    for; the gauge under it fills with what is used and turns red past
+    nine tenths, as does the caption, so a nearly full volume is seen
+    across the room. No reading draws a quiet "no nas", as the weather
+    tile says it has none, and a volume the box does not have says so by
+    name. The lamp in the corner is the controller's and goes on top.
+    </remarks>
+    """
+    tile = images.solid(background, size)
+    draw = ImageDraw.Draw(tile)
+    room = size * (0.74 if labelled else 1.0)
+    small = images.load_font(int(room * 0.11))
+    if reading is None:
+        draw.text((size / 2, room * 0.5), "no nas", fill=MUTED, font=images.load_font(int(size * 0.14)), anchor="mm")
+        return tile
+    if show == "load":
+        for index, (name, value) in enumerate((("CPU", reading.cpu), ("RAM", reading.memory))):
+            top = room * (0.14 + index * 0.42)
+            figure = "?" if value is None else f"{value:.0f}%"
+            colour = ALERT if value is not None and value >= 90 else images.FOREGROUND
+            draw.text((8, top), name, fill=MUTED, font=small, anchor="lm")
+            draw.text((size - 8, top), figure, fill=colour, font=images.load_font(int(room * 0.16)), anchor="rm")
+            _bar(draw, 8, top + room * 0.12, size - 8, top + room * 0.19, None if value is None else value / 100, colour)
+        return tile
+    if show == "system":
+        name = reading.model or "Synology"
+        draw.text((size / 2, room * 0.14), name, fill=MUTED, font=images.load_font(_fit_font_size(name, size - 8, int(room * 0.12))), anchor="mm")
+        if reading.temperature is None:
+            draw.text((size / 2, room * 0.42), "no temp", fill=MUTED, font=images.load_font(int(room * 0.14)), anchor="mm")
+        else:
+            draw.text((size / 2, room * 0.42), f"{reading.temperature}\u00b0", fill=ALERT if reading.temperature_warn else images.FOREGROUND,
+                      font=images.load_font(int(room * 0.3)), anchor="mm")
+        if reading.uptime is not None:
+            draw.text((size / 2, room * 0.68), uptime_text(reading.uptime), fill=MUTED, font=small, anchor="mm")
+        if reading.disk_temp is not None:
+            draw.text((size / 2, room * 0.84), f"disks {reading.disk_temp}\u00b0", fill=MUTED, font=small, anchor="mm")
+        return tile
+    space = reading.space(volume)
+    if space is None:
+        words = f"no {volume_label(volume)}" if volume else "no volumes"
+        draw.text((size / 2, room * 0.5), words, fill=MUTED, font=images.load_font(_fit_font_size(words, size - 8, int(size * 0.14))), anchor="mm")
+        return tile
+    free, total = space
+    used = 1 - free / total if total else 0.0
+    colour = ALERT if used >= 0.9 else images.FOREGROUND
+    big = human_bytes(free)
+    draw.text((size / 2, room * 0.27), big, fill=colour, font=images.load_font(_fit_font_size(big, size - 8, int(room * 0.26))), anchor="mm")
+    caption = f"free of {human_bytes(total)}"
+    draw.text((size / 2, room * 0.5), caption, fill=ALERT if used >= 0.9 else MUTED,
+              font=images.load_font(_fit_font_size(caption, size - 8, int(room * 0.11))), anchor="mm")
+    _bar(draw, 8, room * 0.62, size - 8, room * 0.69, used, colour)
+    where = volume_label(volume) if volume else ("all volumes" if len(reading.volumes) > 1 else volume_label(reading.volumes[0].id))
+    draw.text((size / 2, room * 0.84), where, fill=MUTED, font=images.load_font(_fit_font_size(where, size - 8, int(room * 0.11))), anchor="mm")
+    return tile
+
+
+def volume_label(name: str | None) -> str:
+    """<summary>DSM's ``volume_1`` as the words its pages use: Volume 1.</summary>
+    <param name="name">The volume's id, or None.</param>"""
+    if not name:
+        return ""
+    return name.replace("_", " ").strip().capitalize()
 
 
 def draw_icon(draw: ImageDraw.ImageDraw, icon: str, cx: float, cy: float, r: float) -> None:

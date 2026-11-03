@@ -158,6 +158,10 @@ tiles = ["clock", "date", "weather"]
 #              password alone)  do = "toggle" (pauses blocking for seconds = 300, resumes on
 #              the next press) | "open" (the admin page); draws today's figures and wears a
 #              lamp, green while blocking is on
+#   synology   url = "http://nas.local:5000/"  account = "deck"  token_file = "~/.deckplate-tokens/synology"
+#              (the password alone)  show = "space" (free space, volume = "volume_1" for one volume) |
+#              "load" (processor and memory) | "system" (temperature and uptime); wears a lamp,
+#              green while every volume and disk is normal; the press opens DSM
 #   kodi       do = "play_pause" | "pause" | "play" | "stop" | "next" | "previous" | "up" |
 #              "down" | "left" | "right" | "select" | "back" | "home" | "info" | "context" |
 #              "osd" | "volume_up" | "volume_down" | "mute", or method = "..." with

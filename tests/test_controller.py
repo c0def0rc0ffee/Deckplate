@@ -2781,3 +2781,57 @@ def test_the_reload_hook_is_called_with_the_new_config(setup):
     controller.on_reload = None
     controller.reload(fresh)
     assert seen == [fresh]
+
+
+def test_a_synology_key_is_watched_draws_the_reading_and_wears_the_health_lamp(setup):
+    """<summary>
+    A synology key's box is handed to the monitor with its account, file,
+    certificate setting and interval; the key draws the reading once it is
+    in, wears a green lamp while every volume is normal, red once one is
+    not, and grey before the first answer; a key with a picture keeps the
+    picture and wears only the lamp; and the view is the key's own.
+    </summary>
+    """
+    from deckplate import tiles as tiles_module
+    from deckplate.synology import SynologyMonitor, SynologyReading, Volume
+    controller, deck, clock, urls, path = setup
+    well = SynologyReading((Volume("volume_1", "normal", 8_000_000_000_000, 5_000_000_000_000),), True, 38, 12, 45, 46, False, 300000, "DS923+")
+    answers = {"http://nas.test:5000/": well}
+    watched = []
+
+    def prober(url, account, token_file, insecure):
+        watched.append((url, account, token_file, insecure))
+        return answers[url]
+
+    monitor = SynologyMonitor(prober=prober, monotonic=lambda: clock.mono, log=lambda t: None, threaded=False)
+    controller.synology = monitor
+    controller.reload(cfg.parse(TEXT + """
+[[pages.keys]]
+row = 0
+column = 1
+label = "NAS"
+action = { type = "synology", url = "http://nas.test:5000/", account = "deck", token_file = "~/s", insecure = true, every_ms = 15000 }
+
+[[pages.keys]]
+row = 0
+column = 2
+image = "images/shield.png"
+action = { type = "synology", url = "http://nas.test:5000/", account = "deck", show = "load" }
+""", path.parent, path))
+    controller.switch_page("Second")
+    plain, pictured = controller.page.keys[(0, 1)], controller.page.keys[(0, 2)]
+    size = controller.deck.image_size
+    assert controller._key_dot(plain) == tiles_module.DOT_UNKNOWN
+    before = controller._draw_key(0, 1, size, set())[0]
+    monitor.poll_once()
+    assert watched == [("http://nas.test:5000/", "deck", "~/s", True)]
+    assert controller._key_dot(plain) == tiles_module.DOT_UP and controller._key_dot(pictured) == tiles_module.DOT_UP
+    after = controller._draw_key(0, 1, size, set())[0]
+    assert before.tobytes() != after.tobytes()
+    cx, cy = size - round(size * tiles_module.DOT_INSET), round(size * tiles_module.DOT_INSET)
+    assert after.getpixel((cx, cy)) == tiles_module.DOT_UP
+    answers["http://nas.test:5000/"] = SynologyReading((Volume("volume_1", "degraded", 8_000_000_000_000, 5_000_000_000_000),))
+    clock.mono += 16
+    monitor.poll_once()
+    assert controller._key_dot(plain) == tiles_module.DOT_DOWN
+    assert controller._draw_key(0, 1, size, set())[0].tobytes() != after.tobytes()

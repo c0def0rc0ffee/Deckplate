@@ -1823,6 +1823,7 @@
       case "wled": return { type, url: "http://", do: "toggle", every_ms: 10000 };
       case "kodi": return { type, do: "play_pause" };
       case "pihole": return { type, url: "http://", do: "toggle", seconds: 300, every_ms: 10000, insecure: false };
+      case "synology": return { type, url: "http://", show: "space", do: "open", every_ms: 30000, insecure: false };
       case "weather": return { type };
       case "system": return { type };
     }
@@ -1913,6 +1914,8 @@
       icon: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 00-3.5 10.9c.8.6 1.5 1.6 1.5 2.6h4c0-1 .7-2 1.5-2.6A6 6 0 0012 3z"/>' },
     pihole: { label: "Pi-hole", help: "Shows today's queries and the share blocked; the press pauses blocking for a while and resumes it.", nested: false,
       icon: '<path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/>' },
+    synology: { label: "Synology NAS", help: "Shows free space, the load or the temperature of a Synology NAS; the press opens DSM.", nested: false,
+      icon: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7.5h8M8 11.5h8M8 15.5h4"/><circle cx="16" cy="16.5" r="0.9"/>' },
     kodi: { label: "Media centre", help: "Sends play, pause, stop or a remote control key to Kodi.",
       icon: '<rect x="7" y="2.5" width="10" height="19" rx="3"/><path d="M12 7v4M10 9h4M12 15h.01M10 18h4"/>' },
   };
@@ -1923,7 +1926,7 @@
    * enough failure to be worth saying out loud here.</remarks> */
   const ACTION_GROUPS = [
     { title: "Keys and text", types: ["hotkey", "sequence", "chord", "text", "hold", "boost", "repeat"] },
-    { title: "Programs and the web", types: ["launch", "url", "request", "status", "weather", "system", "kodi", "wled", "pihole"] },
+    { title: "Programs and the web", types: ["launch", "url", "request", "status", "weather", "system", "kodi", "wled", "pihole", "synology"] },
     { title: "Sound and windows", types: ["volume", "audio_output", "window"] },
     { title: "The desktop", types: ["stay_awake", "dnd"] },
     { title: "Keys that remember", types: ["toggle", "timer", "stopwatch", "counter"] },
@@ -2426,6 +2429,55 @@
         box.append(el("div", { class: "field" }, [el("label", { class: "check", for: "pihole_insecure" }, [insecure, el("span", { text: "Accept a certificate that does not verify" })]),
           el("div", { class: "help", text: "For a box reached over https with its own certificate." })]));
         box.append(millis("every_ms", "Ask every", { min: 5000, max: 3600000, step: 5000, fallback: 10000 }));
+        break;
+      }
+      case "synology": {
+        const url = el("input", { type: "text", value: action.url || "", placeholder: "http://nas.local:5000/" });
+        url.addEventListener("input", () => change(d => { getAction().url = url.value.trim(); }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { text: "DSM address" }), url,
+          el("div", { class: "help", text: "The address DSM is opened at, port and all. The key draws the reading and wears a lamp that is green while every volume and disk is normal and red when DSM is reporting trouble; give it no picture, or the picture wins and only the lamp shows." })]));
+        const account = el("input", { type: "text", value: action.account || "", placeholder: "an account without two step verification", autocomplete: "off" });
+        account.addEventListener("input", () => change(d => {
+          const a = getAction();
+          if (account.value.trim()) a.account = account.value.trim(); else delete a.account;
+        }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { text: "Account" }), account,
+          el("div", { class: "help", text: "A DSM user. One with two step verification cannot sign in from a key; make a separate one for the deck if need be." })]));
+        const tokenFile = el("input", { type: "text", value: action.token_file || "", placeholder: "~/.deckplate-tokens/synology" });
+        tokenFile.addEventListener("input", () => change(d => {
+          const a = getAction();
+          if (tokenFile.value.trim()) a.token_file = tokenFile.value.trim(); else delete a.token_file;
+        }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { text: "Password file" }), tokenFile,
+          el("div", { class: "help", text: "Holds the account's password and nothing else." })]));
+        box.append(passwordFields(() => tokenFile.value.trim(), () => "~/.deckplate-tokens/synology", path => {
+          tokenFile.value = path;
+          change(d => { getAction().token_file = path; }, { silent: true });
+        }));
+        const show = el("select", {}, [
+          el("option", { value: "space", text: "Free space, with a gauge" }),
+          el("option", { value: "load", text: "Processor and memory load" }),
+          el("option", { value: "system", text: "Temperature and uptime" }),
+        ]);
+        show.value = action.show || "space";
+        const volume = el("input", { type: "text", value: action.volume || "", placeholder: "Leave empty for every volume together" });
+        const volumeField = el("div", { class: "field" }, [el("label", { text: "Volume" }), volume,
+          el("div", { class: "help", text: "DSM's name for it, such as volume_1." })]);
+        const showVolume = () => { volumeField.hidden = show.value !== "space"; };
+        show.addEventListener("change", () => { showVolume(); change(d => { getAction().show = show.value; }, { silent: true }); });
+        volume.addEventListener("input", () => change(d => {
+          const a = getAction();
+          if (volume.value.trim()) a.volume = volume.value.trim(); else delete a.volume;
+        }, { silent: true }));
+        showVolume();
+        box.append(el("div", { class: "field" }, [el("label", { text: "Shows" }), show]), volumeField);
+        const insecure = el("input", { type: "checkbox", id: "synology_insecure" });
+        insecure.checked = !!action.insecure;
+        insecure.addEventListener("change", () => change(d => { getAction().insecure = insecure.checked; }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { class: "check", for: "synology_insecure" }, [insecure, el("span", { text: "Accept a certificate that does not verify" })]),
+          el("div", { class: "help", text: "For a box reached over https with its own certificate." })]));
+        box.append(millis("every_ms", "Ask every", { min: 5000, max: 3600000, step: 5000, fallback: 30000 }));
+        box.append(el("p", { class: "muted", text: "The press opens DSM in the browser." }));
         break;
       }
       case "weather": {
