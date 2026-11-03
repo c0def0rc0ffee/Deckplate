@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- The configuration page's editor slides in and out on the right, and a
+  new pages list slides in and out on the left, each from its own button
+  in the header and only when clicked; the page remembers which are open.
+  The pages list has every page with its key count and when it was last
+  edited, a search that finds pages by name and keys by label, action or
+  the page they switch to, with a click on a key taking the deck to its
+  page and selecting it, and a sort by deck order, name, last edited or
+  last shown. A page now carries a `changed` stamp, written by the page on
+  every edit of that page and checked by the daemon as a date and time,
+  which is what last edited sorts by.
+- A Deckplate icon in the system tray while the daemon runs, with Open,
+  which starts the configuration window as the desktop icon does, and
+  Quit, which stops the daemon cleanly. On by default under a new `[tray]`
+  table and turned off there or under Tray icon in Settings, which the
+  daemon follows at the next save without a restart. Needs the `pystray`
+  package, listed with `pywebview`, and on Linux a tray to sit in; without
+  either the daemon logs one line and runs as before.
 - A `pihole` key for a Pi-hole 6: today's share blocked large on the face
   with the queries and blocked counts, a lamp that is green while blocking
   is on and red while paused, and a press that pauses blocking for a while

@@ -52,3 +52,35 @@ def test_menu_and_picker_are_styled():
     css = (WEB / "app.css").read_text(encoding="utf-8")
     for selector in (".menu {", ".menu-item {", ".slot-grid {", ".slot {", ".slot.free", ".slot.same"):
         assert selector in css, selector
+
+
+def test_the_side_panes_have_their_toggles_and_their_slide():
+    """<summary>The pages list and the editor each sit in a column the stylesheet
+    slides shut, with a toggle in the header for each.</summary>
+    <remarks>The ids are app.js's contract with the markup and the classes
+    are the stylesheet's; a rename on any side leaves a pane that cannot be
+    opened or one that snaps instead of sliding, with nothing thrown.</remarks>"""
+    html = (WEB / "index.html").read_text(encoding="utf-8")
+    for marker in ('id="pagesBtn"', 'id="editorBtn"', 'id="pagesCol"', 'id="editorCol"', 'id="pagesPane"',
+                   'id="pagesSearch"', 'id="pagesSort"', 'id="pageMenu"', 'id="pagesAdd"',
+                   '<main class="pages-closed booting">', 'value="edited"', 'value="shown"'):
+        assert marker in html, marker
+    css = (WEB / "app.css").read_text(encoding="utf-8")
+    for selector in ("--swoosh:", "transition: width var(--swoosh)", "main.pages-closed .pages-col",
+                     "main.editor-closed .editor-col", "transform: translateX(-100%)", "transform: translateX(100%)",
+                     "prefers-reduced-motion", "main.booting", "button.toggle.attention::after",
+                     ".page-entry {", ".page-key {", ".page-menu mark"):
+        assert selector in css, selector
+    js = (WEB / "app.js").read_text(encoding="utf-8")
+    for marker in ('function setPane(name, open)', 'setPane("pages", !panes.pages)', 'setPane("editor", !panes.editor)',
+                   "function renderPageMenu()", "function sortedPages()", "function stampChanged(before)",
+                   "function goToKey(pageName, row, column)", 'remembered.get("pane.editor", true)',
+                   'toLocaleString("en-GB"'):
+        assert marker in js, marker
+
+
+def test_the_settings_window_offers_the_tray_tick():
+    """<summary>The tray icon is turned on and off from Settings and written as tray.enabled.</summary>"""
+    js = (WEB / "app.js").read_text(encoding="utf-8")
+    assert 'el("h3", { text: "Tray icon" })' in js
+    assert "d.tray.enabled = tray.checked" in js

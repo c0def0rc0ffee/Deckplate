@@ -37,6 +37,7 @@ import re
 import shutil
 import sys
 import tomllib
+from datetime import datetime
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -412,6 +413,10 @@ class Page:
     its own. Scaled to cover the grid at the deck's key pitch so it reads as
     continuous through the gaps; without a measured pitch the keys are treated
     as touching.</param>
+    <param name="changed">When the configuration page last edited this page,
+    as ISO 8601 text, or None for a page it has never touched. Written by
+    the page so its list can be sorted by what was worked on last; the
+    daemon reads it, checks it is a date and time, and never sets it.</param>
     <remarks>
     Page names are unique across a config and are how a page action names its
     target, so renaming a page breaks every key that jumps to it. That is
@@ -429,6 +434,7 @@ class Page:
     keys: dict[tuple[int, int], KeyConfig]
     match_window: str | None = None
     wallpaper: Path | None = None
+    changed: str | None = None
 
 
 @dataclass(frozen=True)
@@ -623,6 +629,24 @@ class KodiSettings:
 
 
 @dataclass(frozen=True)
+class TraySettings:
+    """<summary>
+    The daemon's icon in the system tray, from [tray].
+    </summary>
+    <param name="enabled">Whether the daemon puts an icon in the tray while it
+    runs. On by default; a machine with no tray, or without the pystray
+    package, simply logs that and runs without one.</param>
+    <remarks>
+    The icon is a way to reach the daemon with no terminal: open the
+    configuration window or quit. It is a setting rather than a flag because
+    the configuration page turns it on and off, and the daemon follows a
+    reload, so there is nothing to restart.
+    </remarks>"""
+
+    enabled: bool = True
+
+
+@dataclass(frozen=True)
 class ServerSettings:
     """<summary>
     The local HTTP server that serves the configuration page.
@@ -671,6 +695,7 @@ class Config:
     server: ServerSettings = ServerSettings()
     strip_visible: tuple[int, int] = STRIP_VISIBLE_DEFAULT
     kodi: KodiSettings = KodiSettings()
+    tray: TraySettings = TraySettings()
 
     def page_named(self, name: str) -> Page | None:
         """<summary>
@@ -760,8 +785,9 @@ def parse(text: str, base_dir: str | Path, path: Path | None = None) -> Config:
     pages = _parse_pages(data.get("pages"), base_dir)
     server = _parse_server(_table(data, "server", {}))
     kodi = _parse_kodi(_table(data, "kodi", {}))
+    tray = _parse_tray(_table(data, "tray", {}))
     return Config(deck=deck, weather=weather, strip=strip, pages=pages, base_dir=base_dir,
-                  path=path, server=server, strip_visible=visible, kodi=kodi)
+                  path=path, server=server, strip_visible=visible, kodi=kodi, tray=tray)
 
 
 # Parsing helpers. Every error names the place in the file it came from.
@@ -1092,6 +1118,21 @@ def _parse_kodi(table: dict) -> KodiSettings:
     )
 
 
+def _parse_tray(table: dict) -> TraySettings:
+    """<summary>
+    Build the tray icon settings from the [tray] table.
+    </summary>
+    <param name="table">The [tray] table, or an empty dict when absent.</param>
+    <returns>Validated TraySettings.</returns>
+    <remarks>An absent table means the icon is wanted: the setting exists so
+    it can be turned off, not so it has to be turned on.</remarks>
+    <exception cref="ConfigError">'enabled' is not true or false.</exception>"""
+    enabled = table.get("enabled", True)
+    if not isinstance(enabled, bool):
+        raise ConfigError("[tray]: 'enabled' must be true or false")
+    return TraySettings(enabled=enabled)
+
+
 def _parse_weather(table: dict) -> WeatherSettings:
     """<summary>
     Build the weather tile settings from the [weather] table.
@@ -1231,7 +1272,8 @@ def _parse_pages(raw: Any, base_dir: Path) -> tuple[Page, ...]:
         wallpaper = _str(table, "wallpaper", where)
         pages.append(Page(name=name, keys=_parse_keys(table.get("keys", []), f"page '{name}'", base_dir),
                           match_window=_pattern(table, "match_window", where),
-                          wallpaper=_resolve(wallpaper, base_dir) if wallpaper else None))
+                          wallpaper=_resolve(wallpaper, base_dir) if wallpaper else None,
+                          changed=_changed(table, where)))
 
     for page in pages:
         for key in page.keys.values():
@@ -1239,6 +1281,33 @@ def _parse_pages(raw: Any, base_dir: Path) -> tuple[Page, ...]:
             for action in (key.action, key.action_long, key.action_double):
                 _check_page_targets(action, names, where)
     return tuple(pages)
+
+
+def _changed(table: dict, where: str) -> str | None:
+    """<summary>
+    A page's ``changed`` stamp, checked to be a date and time.
+    </summary>
+    <param name="table">The page's table.</param>
+    <param name="where">Where in the file, for the error.</param>
+    <returns>The stamp exactly as written, or None when the page has none.</returns>
+    <remarks>
+    Kept as the text it was written as rather than parsed into a datetime,
+    because the page compares stamps as text and writes them back as text,
+    and a round trip through a datetime would change the form of a stamp
+    that was written with a different offset. Only the check that it is a
+    date and time at all is done here, so a mangled value is reported at
+    load instead of breaking the sort on the page.
+    </remarks>
+    <exception cref="ConfigError">The value is not text or is not an ISO 8601
+    date and time.</exception>"""
+    value = _str(table, "changed", where)
+    if not value:
+        return None
+    try:
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as err:
+        raise ConfigError(f"{where}: 'changed' must be an ISO 8601 date and time, not {value!r}") from err
+    return value
 
 
 def _pattern(table: dict, key: str, where: str) -> str | None:
@@ -2084,7 +2153,8 @@ def document_from_config(config: Config) -> dict:
                 "playing": _playing_document(key.playing),
             })
         pages.append({"name": page.name, "keys": keys, "match_window": page.match_window,
-                      "wallpaper": _relative(page.wallpaper, config.base_dir)})
+                      "wallpaper": _relative(page.wallpaper, config.base_dir),
+                      "changed": page.changed})
     strip: list[Any] = []
     for tile in config.strip:
         if tile.kind == "image":
@@ -2131,6 +2201,9 @@ def document_from_config(config: Config) -> dict:
             "bind": config.server.bind,
             "port": config.server.port,
             "token": config.server.token,
+        },
+        "tray": {
+            "enabled": config.tray.enabled,
         },
         "weather": {
             "latitude": config.weather.latitude,
@@ -2285,7 +2358,7 @@ def to_toml(document: dict) -> str:
     lines = ["# Deckplate configuration, written by the configuration page.",
              "# Positions are row and column from the top left. See README.md for the fields.",
              ""]
-    for section in ("deck", "server", "weather", "kodi"):
+    for section in ("deck", "server", "weather", "kodi", "tray"):
         table = document.get(section)
         if isinstance(table, dict) and table:
             lines.append(f"[{section}]")
@@ -2315,6 +2388,8 @@ def to_toml(document: dict) -> str:
             lines.append(f"match_window = {_toml_value(page['match_window'])}")
         if page.get("wallpaper"):
             lines.append(f"wallpaper = {_toml_value(page['wallpaper'])}")
+        if page.get("changed"):
+            lines.append(f"changed = {_toml_value(page['changed'])}")
         lines.append("")
         keys = page.get("keys") or []
         if not isinstance(keys, list):

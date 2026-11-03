@@ -136,6 +136,39 @@
   let capturing = null;    // hotkey capture callback while active
 
   /**
+   * <summary>What this browser remembers between visits: the panes, the sort, the search.</summary>
+   * <remarks>
+   * Conveniences for whoever sits at this window, not settings of the deck,
+   * so they live in the browser's own storage rather than in the config. Every
+   * read and write is wrapped because storage can be off or full, or throw in
+   * a private window, and the page has to work exactly the same without it.
+   * </remarks>
+   */
+  const remembered = {
+    get(key, fallback) {
+      try { const value = localStorage.getItem("deckplate." + key); return value === null ? fallback : JSON.parse(value); }
+      catch (e) { return fallback; }
+    },
+    set(key, value) {
+      try { localStorage.setItem("deckplate." + key, JSON.stringify(value)); } catch (e) { /* storage off: nothing to do */ }
+    },
+  };
+  /** <summary>Which side panes are open. The editor starts open, the pages list shut.</summary> */
+  let panes = { pages: remembered.get("pane.pages", false) === true, editor: remembered.get("pane.editor", true) !== false };
+  /** <summary>The pages list's order and filter.</summary> */
+  let pagesSort = remembered.get("pages.sort", "deck");
+  let pagesSearch = "";
+  /**
+   * <summary>When each page was last showing on the deck, by name, as ISO text.</summary>
+   * <remarks>Noted here from the daemon's page events rather than kept by the
+   * daemon, since it is only for ordering this list. The daemon's own record
+   * of a page is its "changed" stamp, which says when it was last edited.</remarks>
+   */
+  let shownAt = remembered.get("pages.shown", {}) || {};
+  /** <summary>A key to select once the daemon has switched to its page, from a click in the list.</summary> */
+  let pendingSelect = null;
+
+  /**
    * <summary>Which page is showing, clamped to one that still exists.</summary>
    * <remarks>The daemon's index can outlive the page it pointed at: deleting
    * the last page leaves it pointing past the end until the next config event
@@ -366,9 +399,40 @@
     undoStack.push(JSON.stringify(doc));
     if (undoStack.length > UNDO_LIMIT) undoStack.shift();
     $("#undoBtn").disabled = false;
+    const before = new Map(doc.pages.map(page => [page, pageSignature(page)]));
     mutator(doc);
+    stampChanged(before);
     if (!(options && options.silent)) renderAll();
     scheduleSave();
+  }
+
+  /**
+   * <summary>A page as text, its own stamp left out, for telling whether an edit touched it.</summary>
+   * <param name="page">A page of the document.</param>
+   * <returns>JSON of everything on the page except "changed".</returns>
+   */
+  const pageSignature = page => JSON.stringify(page, (key, value) => (key === "changed" ? undefined : value));
+
+  /**
+   * <summary>Write the time on every page an edit just changed.</summary>
+   * <param name="before">Each page object as it was before the mutator ran,
+   * keyed by the object itself.</param>
+   * <remarks>
+   * Pages are compared by identity and then by content, so a page the mutator
+   * edited in place and a page it created both get the stamp, while a page
+   * that was only moved along the row of tabs does not: reordering is not an
+   * edit of the page. The stamp is what "Last edited" in the pages list sorts
+   * by, and it is saved with the page so the order survives a restart. Whole
+   * seconds in UTC, which the daemon checks as ISO 8601 and the list shows in
+   * local time.
+   * </remarks>
+   */
+  function stampChanged(before) {
+    const now = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+    for (const page of doc.pages) {
+      const was = before.get(page);
+      if (was === undefined || was !== pageSignature(page)) page.changed = now;
+    }
   }
 
   function scheduleSave() {
@@ -1092,6 +1156,7 @@
     selected = same ? null : { row, column };
     applySelection();
     renderEditor();
+    markEditorAttention();
   }
 
   /** <summary>Back to nothing selected, which is where the page settings live.</summary> */
@@ -1100,6 +1165,7 @@
     selected = null;
     applySelection();
     renderEditor();
+    markEditorAttention();
   }
 
   // ---- Rendering: editor ---------------------------------------------------
@@ -1113,10 +1179,174 @@
   function renderAll() {
     renderHeader();
     renderTabs();
+    renderPageMenu();
     renderEditor();
     renderSettings();
     updateCropOverlay();
     fitDeck();  // the tabs can wrap to another line, which moves the deck down
+  }
+
+  // ---- The side panes and the pages list --------------------------------
+
+  /**
+   * <summary>Open or close one of the two side panes, with the slide.</summary>
+   * <param name="name">"pages" or "editor".</param>
+   * <param name="open">True to show it.</param>
+   * <remarks>
+   * Only ever on a click: nothing opens a pane by itself, which is why the
+   * editor's button carries a dot while a key is selected behind a closed
+   * editor. The state is a class on main and the stylesheet does the moving;
+   * the deck resizes to the room left through its own ResizeObserver, frame
+   * by frame as the column changes, so nothing here has to wait for the end.
+   * </remarks>
+   */
+  function setPane(name, open) {
+    panes[name] = open;
+    remembered.set("pane." + name, open);
+    document.querySelector("main").classList.toggle(name + "-closed", !open);
+    const button = $(name === "pages" ? "#pagesBtn" : "#editorBtn");
+    if (button) button.setAttribute("aria-pressed", open ? "true" : "false");
+    markEditorAttention();
+  }
+
+  /** <summary>The dot on the editor's button: a key is selected but the editor is away.</summary> */
+  function markEditorAttention() {
+    const button = $("#editorBtn");
+    if (button) button.classList.toggle("attention", !!selected && !panes.editor);
+  }
+
+  /**
+   * <summary>Note that the page the daemon is showing is showing now.</summary>
+   * <remarks>Called on the first state and on every page event, so "Last
+   * shown" in the list follows the deck whether the switch came from this
+   * page, a key, or the focused window.</remarks>
+   */
+  function noteShown() {
+    if (!state || !state.page) return;
+    shownAt[state.page] = new Date().toISOString();
+    remembered.set("pages.shown", shownAt);
+  }
+
+  /**
+   * <summary>Whether a key answers the search, by anything the list could show for it.</summary>
+   * <param name="key">A key of a page.</param>
+   * <param name="query">Lower case search text, not empty.</param>
+   * <returns>True when its labels, its description, an action's name or a page it switches to contain the text.</returns>
+   */
+  function keyMatches(key, query) {
+    const words = [key.label, key.label_active, keyDescription(key)];
+    for (const action of [key.action, key.action_long, key.action_double]) {
+      if (!action) continue;
+      if (ACTION_META[action.type]) words.push(ACTION_META[action.type].label);
+      words.push(action.type, action.page, action.url, action.command, action.keys, action.text);
+    }
+    return words.some(word => typeof word === "string" && word.toLowerCase().includes(query));
+  }
+
+  /**
+   * <summary>Text with the part that matched the search wrapped in mark.</summary>
+   * <param name="text">What to show.</param>
+   * <param name="query">Lower case search text, or empty for none.</param>
+   * <returns>Nodes to append.</returns>
+   */
+  function highlight(text, query) {
+    const at = query ? text.toLowerCase().indexOf(query) : -1;
+    if (at < 0) return [document.createTextNode(text)];
+    return [document.createTextNode(text.slice(0, at)), el("mark", { text: text.slice(at, at + query.length) }),
+            document.createTextNode(text.slice(at + query.length))];
+  }
+
+  /** <summary>An ISO stamp as a date and time for this country, or "" for none.</summary> */
+  function whenText(iso) {
+    if (!iso) return "";
+    const date = new Date(iso);
+    if (isNaN(date)) return "";
+    return date.toLocaleString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  }
+
+  /**
+   * <summary>The pages in the order the sort asks for, each with its place in the deck.</summary>
+   * <returns>Entries of page and index.</returns>
+   * <remarks>Ties, and pages with no stamp at all, fall back to deck order,
+   * so the list is stable rather than shuffling as stamps appear.</remarks>
+   */
+  function sortedPages() {
+    const entries = doc.pages.map((page, index) => ({ page, index }));
+    const stamp = (text) => text || "";
+    const orders = {
+      deck: (a, b) => a.index - b.index,
+      name: (a, b) => a.page.name.localeCompare(b.page.name, "en-GB", { sensitivity: "base" }) || a.index - b.index,
+      edited: (a, b) => stamp(b.page.changed).localeCompare(stamp(a.page.changed)) || a.index - b.index,
+      shown: (a, b) => stamp(shownAt[b.page.name]).localeCompare(stamp(shownAt[a.page.name])) || a.index - b.index,
+    };
+    return entries.sort(orders[pagesSort] || orders.deck);
+  }
+
+  /**
+   * <summary>Switch the deck to a page and then select one of its keys.</summary>
+   * <param name="pageName">The page the key is on.</param>
+   * <param name="row">The key's row.</param>
+   * <param name="column">Its column.</param>
+   * <remarks>Which page is showing is the daemon's to change, and its answer
+   * comes back as a page event, so the selection waits for that event unless
+   * the page is already the one showing.</remarks>
+   */
+  function goToKey(pageName, row, column) {
+    if (currentPage().name === pageName) {
+      selected = { row, column };
+      applySelection();
+      renderEditor();
+      markEditorAttention();
+      return;
+    }
+    pendingSelect = { page: pageName, row, column };
+    apiPost("/api/page", { page: pageName }).catch(err => { pendingSelect = null; showError(err); });
+  }
+
+  /**
+   * <summary>Rebuild the pages list from the document, the search and the sort.</summary>
+   * <remarks>
+   * With no search every page is listed and no keys are. With one, a page is
+   * listed when its name matches or when any of its keys does, and the keys
+   * that match are listed under it; a page with neither is left out. The
+   * showing page is marked whatever the order, and clicking an entry switches
+   * the deck to it through the daemon exactly as a tab does.
+   * </remarks>
+   */
+  function renderPageMenu() {
+    const menu = $("#pageMenu");
+    if (!menu || !doc) return;
+    menu.innerHTML = "";
+    const query = pagesSearch.trim().toLowerCase();
+    let shown = 0;
+    for (const { page, index } of sortedPages()) {
+      const nameHit = !query || page.name.toLowerCase().includes(query);
+      const keyHits = query ? page.keys.filter(key => keyMatches(key, query)) : [];
+      if (!nameHit && !keyHits.length) continue;
+      shown += 1;
+      const parts = [page.keys.length + (page.keys.length === 1 ? " key" : " keys")];
+      if (pagesSort === "shown" && shownAt[page.name]) parts.push("shown " + whenText(shownAt[page.name]));
+      else if (page.changed) parts.push("edited " + whenText(page.changed));
+      const entry = el("button", {
+        class: "page-entry" + (index === pageIndex() ? " active" : ""), type: "button", role: "listitem",
+        title: "Click to show, double click to rename",
+        onclick: () => apiPost("/api/page", { page: page.name }).catch(showError),
+        ondblclick: () => renamePage(index),
+      }, [el("span", {}, highlight(page.name, query)), el("span", { class: "page-meta", text: parts.join(" \u00b7 ") })]);
+      menu.append(entry);
+      if (keyHits.length) {
+        const keys = el("div", { class: "page-keys" });
+        for (const key of keyHits.sort((a, b) => a.row - b.row || a.column - b.column)) {
+          keys.append(el("button", {
+            class: "page-key", type: "button", title: "Show the page and select this key",
+            onclick: () => goToKey(page.name, key.row, key.column),
+          }, [el("span", { class: "pos", text: (key.row + 1) + "," + (key.column + 1) }),
+              el("span", {}, highlight(keyDescription(key), query))]));
+        }
+        menu.append(keys);
+      }
+    }
+    if (!shown) menu.append(el("div", { class: "empty", text: query ? "Nothing matches." : "No pages." }));
   }
 
   /**
@@ -3255,6 +3485,20 @@
       }),
     ]));
 
+    // The tray icon. The daemon follows the saved config, so the tick works
+    // without a restart; whether the machine can show one is the daemon's
+    // log's business.
+    root.append(el("div", {}, [
+      el("h3", { text: "Tray icon" }),
+      (() => {
+        const tray = el("input", { type: "checkbox", id: "trayEnabled" });
+        tray.checked = !doc.tray || doc.tray.enabled !== false;
+        tray.addEventListener("change", () => change(d => { d.tray = d.tray || {}; d.tray.enabled = tray.checked; }, { silent: true }));
+        return el("label", { class: "check", for: "trayEnabled" }, [tray, el("span", { text: "Show a Deckplate icon in the system tray while the daemon runs" })]);
+      })(),
+      el("p", { class: "muted", text: "The icon opens this window or quits the daemon. It needs the pystray package, and on Linux a tray to sit in; the daemon says in its log when it cannot show one." }),
+    ]));
+
     root.append(el("div", {}, [
       el("h3", { text: "Local API" }),
       el("p", { class: "muted", html: "Listening on <span class='kbd'>" + doc.server.bind + ":" + doc.server.port + "</span>. Change <span class='kbd'>[server]</span> in the config file and restart the daemon to alter it." }),
@@ -3303,9 +3547,11 @@
         case "hello":
           state = data.state;
           noteAnimated(state.animated);
+          noteShown();
           fitDeck();
           renderHeader();
           renderTabs();
+          renderPageMenu();
           refreshTiles();
           updateCropOverlay();
           break;
@@ -3319,7 +3565,15 @@
         case "page":
           state.page = data.page;
           state.page_index = data.page_index;
+          noteShown();
+          if (pendingSelect && pendingSelect.page === data.page) {
+            selected = { row: pendingSelect.row, column: pendingSelect.column };
+            pendingSelect = null;
+            applySelection();
+            markEditorAttention();
+          }
           renderTabs();
+          renderPageMenu();
           renderEditor();
           break;
         case "brightness":
@@ -3341,6 +3595,7 @@
           if (ours) {
             renderHeader();
             renderTabs();
+            renderPageMenu();
           } else {
             await loadDocument();
             renderAll();
@@ -3441,6 +3696,23 @@
     $("#undoBtn").addEventListener("click", undo);
     $("#settingsBtn").addEventListener("click", openSettings);
 
+    // The side panes come up as they were left, without being seen to slide
+    // there: "booting" holds the transitions off until the first paint is done.
+    const main = document.querySelector("main");
+    setPane("pages", panes.pages);
+    setPane("editor", panes.editor);
+    requestAnimationFrame(() => requestAnimationFrame(() => main.classList.remove("booting")));
+    $("#pagesBtn").addEventListener("click", () => setPane("pages", !panes.pages));
+    $("#editorBtn").addEventListener("click", () => setPane("editor", !panes.editor));
+    const search = $("#pagesSearch");
+    search.addEventListener("input", () => { pagesSearch = search.value; renderPageMenu(); });
+    search.addEventListener("keydown", e => { if (e.key === "Escape" && search.value) { e.preventDefault(); e.stopPropagation(); search.value = ""; pagesSearch = ""; renderPageMenu(); } });
+    const sort = $("#pagesSort");
+    sort.value = pagesSort;
+    if (sort.value !== pagesSort) { pagesSort = "deck"; sort.value = pagesSort; }
+    sort.addEventListener("change", () => { pagesSort = sort.value; remembered.set("pages.sort", pagesSort); renderPageMenu(); });
+    $("#pagesAdd").addEventListener("click", addPage);
+
     // Two more ways back to nothing selected, so the page settings and the
     // wallpaper are always one obvious move away: click the empty space around
     // the keys, or press Escape.
@@ -3475,6 +3747,7 @@
     try {
       state = await apiGet("/api/state");
       noteAnimated(state.animated);
+      noteShown();
     } catch (err) {
       setStatus("deck not connected", "bad");
     }

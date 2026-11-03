@@ -50,6 +50,7 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+import threading
 import time
 from datetime import datetime
 
@@ -628,6 +629,14 @@ def cmd_run(args: argparse.Namespace) -> int:
     replug, which is the trap here: the local variable is the live config
     from that point on, not the one read from disk at startup.
 
+    The tray icon is started after the server, if ``[tray]`` wants it and
+    the machine can show one, and the controller is given its ``follow`` as
+    the reload hook so the tick on the page turns it on and off live. Its
+    Quit sets ``stopping``, a flag rather than a stop, because it fires on
+    the icon's own thread: the deck loop reads the flag on its next pass and
+    comes out, the waits between reconnect attempts are on the same flag,
+    and the icon is removed in the ``finally`` with the server.
+
     ``--seconds`` exists for tests and for a supervised first run. The
     remaining time is recomputed each time round so a reconnect cannot extend
     the run past its deadline.
@@ -663,6 +672,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     resolve_conflicts(policy, interactive=sys.stdin is not None and sys.stdin.isatty())
 
     from . import server as api
+    from . import tray as tray_icon
 
     holder = api.ControllerHolder()
     api_server = None
@@ -673,9 +683,14 @@ def cmd_run(args: argparse.Namespace) -> int:
         except OSError as err:
             say(f"api not started: {err}")
 
+    # The tray icon, when wanted and possible, and the flag its Quit sets.
+    stopping = threading.Event()
+    tray = tray_icon.Tray(open_page=lambda: tray_icon.open_page(log=say), quit=stopping.set, log=say)
+    tray.follow(config)
+
     deadline = None if args.seconds is None else time.monotonic() + args.seconds
     try:
-        while True:
+        while not stopping.is_set():
             remaining = None if deadline is None else max(0.0, deadline - time.monotonic())
             if remaining is not None and remaining <= 0:
                 return 0
@@ -683,29 +698,32 @@ def cmd_run(args: argparse.Namespace) -> int:
                 deck = Deck.open()
             except DeviceNotFound as err:
                 say(f"{err}; retrying in {RECONNECT_SECONDS}s")
-                time.sleep(RECONNECT_SECONDS)
+                stopping.wait(RECONNECT_SECONDS)
                 continue
             say(f"opened {deck.spec.name} ({deck.spec.usb_id})")
             if deck.is_fake:
                 say("NO HARDWARE: driving a fake deck in memory because device.FAKE_DECK_WHEN_ABSENT is on")
-            controller = Controller(deck, config, log=say)
+            controller = Controller(deck, config, log=say, on_reload=tray.follow)
             holder.controller = controller
             try:
                 controller.start()
-                controller.run(seconds=remaining)
+                controller.run(seconds=remaining, stop=stopping.is_set)
                 if remaining is not None:
                     return 0
             except (OSError, DeviceNotFound) as err:
                 say(f"deck lost: {err}; reconnecting in {RECONNECT_SECONDS}s")
-                time.sleep(RECONNECT_SECONDS)
+                stopping.wait(RECONNECT_SECONDS)
             finally:
                 holder.controller = None
                 config = controller.config  # keep a reloaded config across reconnects
                 deck.close()
+        say("stopped from the tray")
+        return 0
     except KeyboardInterrupt:
         say("stopping")
         return 0
     finally:
+        tray.stop()
         if api_server is not None:
             api_server.stop()
 

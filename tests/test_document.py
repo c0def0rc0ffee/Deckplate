@@ -562,3 +562,24 @@ def test_a_pihole_key_round_trips_and_its_faults_are_named():
                             ({"type": "multi", "steps": [{"type": "pihole", "url": "http://pi.hole/"}]}, "step")):
         with pytest.raises(cfg.ConfigError, match=message):
             cfg.parse(cfg.to_toml(page(action)), Path("/base"))
+
+
+def test_the_tray_setting_and_page_stamps_round_trip_through_the_document():
+    """<summary>The page receives [tray] and each page's changed stamp, and both come back out as TOML.</summary>
+    <remarks>The tray table is written even when it holds the default, so
+    the page always has a value for its tick; a page with no stamp gets
+    None in the document and no line in the file.</remarks>"""
+    text = ('[tray]\nenabled = false\n\n[[pages]]\nname = "Main"\nchanged = "2026-11-03T19:31:00Z"\n\n'
+            '[[pages]]\nname = "Second"\n')
+    c = cfg.parse(text, Path("/base"))
+    doc = cfg.document_from_config(c)
+    assert doc["tray"] == {"enabled": False}
+    assert doc["pages"][0]["changed"] == "2026-11-03T19:31:00Z" and doc["pages"][1]["changed"] is None
+    out = cfg.to_toml(doc)
+    assert "[tray]\nenabled = false\n" in out
+    assert 'name = "Main"\nchanged = "2026-11-03T19:31:00Z"\n' in out
+    assert out.count("changed =") == 1
+    again = cfg.parse(out, Path("/base"))
+    assert again.tray == c.tray and again.pages == c.pages
+    # The default is materialised, as every other setting the page draws a control for.
+    assert cfg.document_from_config(cfg.parse('[[pages]]\nname = "A"', Path("/base")))["tray"] == {"enabled": True}

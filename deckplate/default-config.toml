@@ -51,6 +51,12 @@ background = "#141c28"
 # flags on the run command override this for one run.
 official_software = "ask"
 
+[tray]
+# A Deckplate icon in the system tray while the daemon runs, with Open, for
+# the configuration window, and Quit on it. Needs the pystray package, and
+# on Linux a tray to sit in. Turned off here or under Settings on the page.
+enabled = true
+
 [server]
 # The local channel the configuration page uses. Only this machine can reach
 # it unless bind is changed, and then a token is required on every request.

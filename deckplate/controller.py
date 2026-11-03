@@ -371,7 +371,8 @@ class Controller:
                  lights: LightsMonitor | None = None,
                  kodi_media: KodiPlayingMonitor | None = None,
                  art: ArtCache | None = None,
-                 pihole: PiholeMonitor | None = None) -> None:
+                 pihole: PiholeMonitor | None = None,
+                 on_reload: Callable[[Config], None] | None = None) -> None:
         """<summary>
         Wire a deck to a config, without drawing anything yet.
         </summary>
@@ -404,6 +405,11 @@ class Controller:
         <param name="pihole">The monitor behind pihole keys, likewise.</param>
         <param name="system">The machine reader for the strip. Made here if
         not given; read only while a panel shows it.</param>
+        <param name="on_reload">Called with the new config at the end of
+        every <see cref="reload"/>, on the deck loop, after the deck has
+        been redrawn from it. The daemon hands in the tray icon's follow,
+        so a setting that lives outside the controller still takes effect
+        at the next save. None does nothing.</param>
         <remarks>
         Nothing is sent to the deck from here. That matters for the tests and
         for the configuration page, both of which build a controller before
@@ -426,6 +432,7 @@ class Controller:
         self.runner.lights = self.lights
         self.pihole = pihole or PiholeMonitor(monotonic=monotonic, log=log)
         self.runner.pihole = self.pihole
+        self.on_reload = on_reload
         # Whether the night brightness is in force, None until first checked.
         self._night: bool | None = None
         self._last_night_check: float | None = None
@@ -2262,6 +2269,8 @@ class Controller:
         self.render_all()
         self.hub.publish({"type": "config", "page": self.page.name})
         self.log("config reloaded")
+        if self.on_reload is not None:
+            self.on_reload(config)
 
     def reload_from_disk(self) -> None:
         """<summary>

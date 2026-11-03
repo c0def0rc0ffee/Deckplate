@@ -43,6 +43,14 @@
   </remarks>
 -->
 <header class="top">
+  <!--
+    <summary>Shows and hides the pages list on the left.</summary>
+    <remarks>
+    First in the header so it sits over the pane it opens. aria-pressed is
+    the open state, kept by app.js, which also remembers it between visits.
+    </remarks>
+  -->
+  <button id="pagesBtn" class="ghost icon toggle" type="button" title="Pages list" aria-label="Show or hide the pages list" aria-pressed="false"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="14" y2="18"/></svg></button>
   <div class="brand">
     <img class="logo" src="/static/logo.svg" alt="" width="34" height="34">
     <h1>Deckplate</h1>
@@ -78,6 +86,16 @@
     <button id="sleepBtn" class="ghost" type="button">Sleep</button>
     <button id="undoBtn" class="ghost" type="button" disabled>Undo</button>
     <button id="settingsBtn" class="ghost icon" type="button" title="Settings" aria-label="Settings"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+    <!--
+      <summary>Shows and hides the editor on the right.</summary>
+      <remarks>
+      Last in the cluster, so it is the thing that ends flush with the right
+      hand padding, over the pane it opens. app.js marks it with a dot while
+      a key is selected and the editor is hidden, since a click on a key
+      otherwise looks ignored.
+      </remarks>
+    -->
+    <button id="editorBtn" class="ghost icon toggle" type="button" title="Editor" aria-label="Show or hide the editor" aria-pressed="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="15" y1="4" x2="15" y2="20"/></svg></button>
   </div>
 </header>
 
@@ -90,7 +108,34 @@
   which area.
   </remarks>
 -->
-<main>
+<main class="pages-closed booting">
+  <!--
+    <summary>The pages list: every page, searched, sorted, and down to its keys.</summary>
+    <remarks>
+    Two boxes, the outer one the grid column and the inner one the pane.
+    The column is what the stylesheet animates to nothing when the list is
+    hidden, and the pane keeps its full width inside it the whole time, so
+    the list slides out of view rather than squashing as it goes. The list
+    itself is built by app.js from the document; the search and the sort
+    are the only markup, and their ids are a contract with app.js.
+    </remarks>
+  -->
+  <div class="pages-col" id="pagesCol">
+    <aside class="pages-pane" id="pagesPane" aria-label="Pages">
+      <div class="pages-tools">
+        <input type="search" id="pagesSearch" placeholder="Search pages and keys" aria-label="Search pages and keys" autocomplete="off">
+        <select id="pagesSort" aria-label="Sort pages">
+          <option value="deck">Deck order</option>
+          <option value="name">Name</option>
+          <option value="edited">Last edited</option>
+          <option value="shown">Last shown</option>
+        </select>
+      </div>
+      <div class="page-menu" id="pageMenu" role="list"></div>
+      <button type="button" id="pagesAdd" class="ghost small">+ page</button>
+    </aside>
+  </div>
+
   <!--
     <summary>Page tabs, a direct child of the layout grid.</summary>
     <remarks>
@@ -127,9 +172,16 @@
     instead, which is where the wallpaper lives.
     </remarks>
   -->
-  <aside class="editor" id="editor">
-    <p class="muted">Select a key.</p>
-  </aside>
+  <!--
+    <summary>The editor's grid column, animated to nothing when the editor is hidden.</summary>
+    <remarks>The same two box arrangement as the pages list, mirrored: the
+    editor keeps its width inside and slides off to the right.</remarks>
+  -->
+  <div class="editor-col" id="editorCol">
+    <aside class="editor" id="editor">
+      <p class="muted">Select a key.</p>
+    </aside>
+  </div>
 </main>
 
 <!--

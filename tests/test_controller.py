@@ -2763,3 +2763,21 @@ action = { type = "pihole", url = "http://pi.hole/" }
     monitor.update("http://pi.hole/", False, 300)
     assert controller._key_dot(plain) == tiles_module.DOT_DOWN
     assert controller._draw_key(0, 1, size, set())[0].tobytes() != after.tobytes()
+
+
+def test_the_reload_hook_is_called_with_the_new_config(setup):
+    """<summary>A reload ends by handing the new config to the hook the daemon gave, after the redraw.</summary>
+    <remarks>The daemon passes the tray icon's follow here, which is how the
+    tick on the configuration page shows or removes the icon without a
+    restart. The hook is optional and a controller built without one, as
+    every other test here is, must reload exactly as before.</remarks>"""
+    controller, deck, clock, urls, path = setup
+    controller.start()
+    seen = []
+    controller.on_reload = seen.append
+    fresh = cfg.load(path)
+    controller.reload(fresh)
+    assert seen == [fresh]
+    controller.on_reload = None
+    controller.reload(fresh)
+    assert seen == [fresh]

@@ -1431,3 +1431,27 @@ def test_wind_units_follow_the_units_unless_set():
     assert again.weather == config.weather
     with pytest.raises(cfg.ConfigError, match="wind_units"):
         cfg.parse(MINIMAL + '\n[weather]\nwind_units = "knots"\n', "/base")
+
+
+def test_the_tray_table_is_read_and_checked():
+    """<summary>[tray] is on by default, can be turned off, and refuses anything but true or false.</summary>"""
+    assert cfg.parse('[[pages]]\nname = "A"', Path("/base")).tray.enabled is True
+    assert cfg.parse('[tray]\nenabled = false\n[[pages]]\nname = "A"', Path("/base")).tray.enabled is False
+    with pytest.raises(cfg.ConfigError, match=r"\[tray\].*true or false"):
+        cfg.parse('[tray]\nenabled = "yes"\n[[pages]]\nname = "A"', Path("/base"))
+
+
+def test_a_page_changed_stamp_is_kept_as_written_and_checked():
+    """<summary>A page's changed stamp is optional, kept exactly, and must be a date and time.</summary>
+    <remarks>Kept as text rather than parsed, because the page sorts and
+    rewrites the stamps as text and a round trip through a datetime would
+    change the form of one written with an offset.</remarks>"""
+    text = '[[pages]]\nname = "A"\nchanged = "2026-11-03T19:31:00Z"\n[[pages]]\nname = "B"\n'
+    pages = cfg.parse(text, Path("/base")).pages
+    assert pages[0].changed == "2026-11-03T19:31:00Z" and pages[1].changed is None
+    offset = cfg.parse('[[pages]]\nname = "A"\nchanged = "2026-11-03T19:31:00+01:00"', Path("/base"))
+    assert offset.pages[0].changed == "2026-11-03T19:31:00+01:00"
+    with pytest.raises(cfg.ConfigError, match=r"\[\[pages\]\] #1: 'changed' must be an ISO 8601 date and time"):
+        cfg.parse('[[pages]]\nname = "A"\nchanged = "yesterday"', Path("/base"))
+    with pytest.raises(cfg.ConfigError):
+        cfg.parse('[[pages]]\nname = "A"\nchanged = 5', Path("/base"))

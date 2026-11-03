@@ -663,18 +663,40 @@ icon tool once wrote into the images folder under its old `sc-<id>.png`
 name is recognised by that name (the theme's manifest declares the prefix),
 kept out of the dropdown and the pictures list, and left on disk; a key that
 still names one draws it as before.
-Pages are tabs; double click one to rename or delete it. A panel showing the
+Pages are tabs; double click one to rename or delete it. The list button at
+the left of the header slides in a pages list: every page with how many keys
+it has and when it was last edited, a search box that finds pages by name and
+keys by label, action or the page they switch to (a key in the results shows
+its page and selects it), and a sort by deck order, name, last edited or last
+shown. The button at the right of the header slides the editor in and out the
+same way. Neither moves by itself: a key clicked while the editor is away
+puts a dot on its button instead. The page remembers which are open.
+A panel showing the
 weather has the weather place (with a search) and units in its own editor.
 The cog in the header opens the settings window for what applies to the
 whole deck: brightness at start, idle sleep, the deck wide background, the
 strip panels' visible area, the pictures folder with what uses each picture
-and a Delete for the unused ones, and where the API listens. Every change
+and a Delete for the unused ones, the tray icon, and where the API listens. Every change
 saves a moment after you make it and the deck updates at once; Undo (or
 Ctrl+Z outside a text field) steps back.
 
 One thing to know: the page rewrites the config file from its own copy, so
 comments you added by hand are not kept. The file stays hand editable
 between visits and the daemon still reloads it live.
+
+While the daemon runs it puts a Deckplate icon in the system tray, with Open,
+which starts the configuration window exactly as the desktop icon does, and
+Quit, which stops the daemon. It is on by default under `[tray]` in the config
+and the tick under Tray icon in Settings turns it off or on without a restart.
+It needs the `pystray` package, installed with `pywebview` above, and on a
+Linux desktop with an indicator tray the typelib it sits in:
+
+```bash
+sudo apt install gir1.2-ayatanaappindicator3-0.1
+```
+
+Without a tray, or without pystray, the daemon says so once in its log and
+runs as before.
 
 ## The local API
 
@@ -747,6 +769,7 @@ restart; everything else reloads live.
 | `deckplate/server.py` | the local HTTP API and event stream for the configuration page |
 | `deckplate/web/` | the configuration page: one HTML file, one stylesheet, one script, no build step |
 | `deckplate/gui.py` | the window around the page (pywebview), with the browser fallback |
+| `deckplate/tray.py` | the daemon's icon in the system tray (pystray): open the window, or quit |
 | `deckplate/cli.py` | the command line |
 | `examples/` | complete example configurations, drawn in the README |
 | `tools/make_icons.py` | draws the shipped icon themes, stills and animated |
