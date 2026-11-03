@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Any key may carry a `lamp`: an address it watches, with the status key's
+  `every_ms`, `insecure` and `expect` and a kodi key's `token_file`, and
+  wears the green, red or grey lamp for it whatever its action is, so the
+  page key that leads to the Kodi page shows whether the Kodi in the other
+  room is there. A fold on every key on the configuration page.
+- A `playing` strip panel can show what a Kodi player is playing:
+  `{ kind = "playing", source = "kodi", url = "...", token_file = "..." }`,
+  asked every few seconds on a thread of its own so a player that is off
+  never holds the deck up. A source choice on the panel's editor on the
+  configuration page.
 - Right click a key on the configuration page to move it or copy it to
   another page: a window offers the page and its fifteen positions, a
   free one takes the key, and a taken one asks whether to replace what

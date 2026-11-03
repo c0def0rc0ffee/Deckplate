@@ -195,6 +195,19 @@
   -->
   <div id="keyMark"></div>
   <!--
+    <summary>A lamp of the key's own, folded away unless it has one.</summary>
+    <remarks>
+    An address the key watches for the lamp in its corner, whatever its
+    action is: the page key that leads to the Kodi page can show whether the
+    player in the other room is there. The fields are the status key's, with
+    the kodi key's credentials file beside them, and app.js builds them all.
+    </remarks>
+  -->
+  <details class="lamp">
+    <summary>A lamp in the corner</summary>
+    <div id="keyLamp"></div>
+  </details>
+  <!--
     <summary>The long press and double press actions, folded away by default.</summary>
     <remarks>
     Behind a fold because most keys never get one, and unfolded the panel would
@@ -256,6 +269,7 @@
   </div>
   <div id="stripAnimationField" hidden></div>
   <div id="stripWeatherField" hidden></div>
+  <div id="stripSourceField" hidden></div>
   <div id="stripBackground"></div>
   <p class="muted">The strip is shared by every page.</p>
 </template>

@@ -446,3 +446,46 @@ def test_new_action_types_and_active_face_round_trip_through_the_document():
     back = cfg.document_from_config(c)["pages"][0]["keys"]
     assert [key["action"] for key in back] == actions
     assert all(key["image_active"] == "images/on.png" and key["label_active"] == "On" for key in back)
+
+
+def test_a_lamp_and_a_kodi_playing_panel_round_trip_through_the_document():
+    """<summary>
+    A key's lamp and a playing panel that names a Kodi player survive the
+    save loop whole, and a plain playing panel stays the bare word.
+    </summary>
+    <remarks>The lamp is the one way a key that is not a status or kodi key
+    gets the lamp, and the panel's source is the one way the strip reaches
+    another machine, so losing either would quietly turn them off.</remarks>
+    """
+    lamp = {"url": "http://p.test/jsonrpc", "every_ms": 30000, "insecure": True, "expect": "", "token_file": "~/t"}
+    strip = ["clock", {"kind": "playing", "source": "kodi", "url": "http://p.test/jsonrpc", "token_file": "~/t"}, "playing"]
+    doc = {"strip": strip, "pages": [{"name": "A", "keys": [
+        {"row": 0, "column": 0, "label": "Kodi", "action": {"type": "page", "page": "A"}, "lamp": lamp}]}]}
+    c = cfg.parse(cfg.to_toml(doc), Path("/base"))
+    assert c.pages[0].keys[(0, 0)].lamp == cfg.LampSettings("http://p.test/jsonrpc", 30000, True, "", "~/t")
+    assert c.strip[1].source == "kodi" and c.strip[1].url == "http://p.test/jsonrpc" and c.strip[1].token_file == "~/t"
+    assert c.strip[2].source == "local" and c.strip[2].url is None
+    back = cfg.document_from_config(c)
+    assert back["pages"][0]["keys"][0]["lamp"] == lamp
+    assert back["strip"] == strip
+    bare = cfg.document_from_config(cfg.parse(cfg.to_toml({"pages": [{"name": "A", "keys": [
+        {"row": 0, "column": 0, "label": "x"}]}]}), Path("/base")))
+    assert bare["pages"][0]["keys"][0]["lamp"] is None
+
+
+def test_a_bad_lamp_or_playing_source_is_refused():
+    """<summary>A lamp without an http address, a source that is not known,
+    a source on a panel that is not a playing one, and a Kodi source without
+    an address are all refused at load with the field named.</summary>"""
+    import pytest
+    page = lambda key: {"pages": [{"name": "A", "keys": [dict({"row": 0, "column": 0}, **key)]}]}
+    with pytest.raises(cfg.ConfigError, match="lamp.*http"):
+        cfg.parse(cfg.to_toml(page({"lamp": {"url": "player"}})), Path("/base"))
+    with pytest.raises(cfg.ConfigError, match="lamp.*insecure"):
+        cfg.parse(cfg.to_toml(page({"lamp": {"url": "http://p.test/", "insecure": "yes"}})), Path("/base"))
+    with pytest.raises(cfg.ConfigError, match="source"):
+        cfg.parse(cfg.to_toml({"strip": ["clock", {"kind": "playing", "source": "tape"}, "date"], "pages": []}), Path("/base"))
+    with pytest.raises(cfg.ConfigError, match="only a playing tile"):
+        cfg.parse(cfg.to_toml({"strip": ["clock", {"kind": "clock", "source": "kodi", "url": "http://p.test/"}, "date"], "pages": []}), Path("/base"))
+    with pytest.raises(cfg.ConfigError, match="url"):
+        cfg.parse(cfg.to_toml({"strip": ["clock", {"kind": "playing", "source": "kodi"}, "date"], "pages": []}), Path("/base"))

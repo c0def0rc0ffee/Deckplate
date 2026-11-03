@@ -126,7 +126,11 @@ The config is documented by its own comments. In short:
   path; the password never goes in the config.
 - `[strip]` the three right hand panels: `clock`, `date`, `weather`,
   `playing` (what the desktop's media player is playing, read over the
-  session bus), `system` (processor temperature, load and memory, read from
+  session bus, or what a Kodi player is playing when written as
+  `{ kind = "playing", source = "kodi", url = "http://player:8080/jsonrpc" }`
+  with an optional `token_file`, the same two a kodi key carries for a
+  player in another room; that player is asked every few seconds on a
+  thread of its own), `system` (processor temperature, load and memory, read from
   the kernel), `blank` or a picture path. The panels show less than the 95 pixel picture they
   are sent, so `visible_width` and `visible_height` say how much: clock,
   date and weather are drawn to fit that area, and a picture given as
@@ -294,6 +298,18 @@ a step of a multi action.
   the `[kodi]` credentials are not sent to it. Such a key wears the same
   lamp as a status key, green while that player answers, so the keys for
   the player in the other room can be told from the local ones at a glance.
+
+### A lamp on any key
+
+A key may carry
+`lamp = { url = "http://player:8080/jsonrpc", token_file = "~/.deckplate-tokens/kodi-other" }`
+and wears the status lamp for that address, green while it answers and red
+while it does not, whatever its action is. It takes the same `every_ms`,
+`insecure` and `expect` as a status key. The page key that leads to the
+Kodi page can show whether the Kodi in the other room is there, without
+being a kodi key itself. A lamp set this way wins over the one a status or
+remote kodi action would bring. On the configuration page it is the "A
+lamp in the corner" fold on every key.
 
 ### The other face of a key
 

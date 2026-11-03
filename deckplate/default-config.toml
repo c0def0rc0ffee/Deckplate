@@ -76,8 +76,10 @@ refresh_minutes = 10
 # Check yours with:  deckplate calibrate-strip
 visible_width = 78
 visible_height = 78
-# Top to bottom: clock, date, weather, playing (the media player's track),
-# system (processor temperature, load and memory), blank, a picture path,
+# Top to bottom: clock, date, weather, playing (the media player's track, or
+# a Kodi player's with { kind = "playing", source = "kodi", url = "http://player:8080/jsonrpc" }
+# and an optional token_file), system (processor temperature, load and
+# memory), blank, a picture path,
 # { image = "images/logo.png", fit = true }, or an animation such as
 # { animation = { kind = "wave", colour = "#5c9bde", speed = 1.0 } }
 tiles = ["clock", "date", "weather"]
@@ -122,6 +124,9 @@ tiles = ["clock", "date", "weather"]
 #   stopwatch  press to start and pause;  holding the key resets it, and
 #              reset = true puts a reset on another gesture as well
 #   counter    step = 1 (negative counts down);  reset = true resets
+#   A key may carry lamp = { url = "http://player:8080/jsonrpc", token_file = "..." }
+#   and wears the status lamp for that address whatever it does when pressed;
+#   every_ms, insecure and expect as on a status key.
 #   A key may carry image_active and label_active, shown while its toggle is on,
 #   its hold or repeat runs, its timer counts, or the sound is muted by it.
 #   stay_awake keeps the machine awake until pressed again: the screensaver inhibit

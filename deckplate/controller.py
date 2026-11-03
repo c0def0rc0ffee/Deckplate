@@ -36,7 +36,7 @@ from typing import Callable
 from . import animations, audio, focus, holds, images, layout, live, sun, tiles
 from .actions import ActionRunner
 from .config import MARK_DEFAULT_FLASH_MS, POSITIONAL_ACTIONS, Action, Config, load
-from .media import MediaService
+from .media import KodiPlayingMonitor, MediaService, fetch_kodi
 from .presses import Actions, PressRouter
 from .protocol import KeyEvent
 from .lights import LightsMonitor
@@ -367,7 +367,8 @@ class Controller:
                  status: StatusMonitor | None = None,
                  media: MediaService | None = None,
                  system: SystemService | None = None,
-                 lights: LightsMonitor | None = None) -> None:
+                 lights: LightsMonitor | None = None,
+                 kodi_media: KodiPlayingMonitor | None = None) -> None:
         """<summary>
         Wire a deck to a config, without drawing anything yet.
         </summary>
@@ -392,6 +393,9 @@ class Controller:
         <param name="lights">The monitor behind wled keys, likewise.</param>
         <param name="media">The now playing reader for the strip. Made here if
         not given; asked only while a panel shows it.</param>
+        <param name="kodi_media">The monitor behind a playing panel that
+        names a Kodi player. Made here if not given; it polls nothing until
+        such a panel is configured.</param>
         <param name="system">The machine reader for the strip. Made here if
         not given; read only while a panel shows it.</param>
         <remarks>
@@ -409,6 +413,7 @@ class Controller:
         self.weather = weather or WeatherService(config.weather, monotonic=monotonic, log=log)
         self.status = status or StatusMonitor(monotonic=monotonic, log=log)
         self.media = media or MediaService(monotonic=monotonic, log=log)
+        self.kodi_media = kodi_media or KodiPlayingMonitor(prober=self._probe_kodi_playing, monotonic=monotonic, log=log)
         self.system = system or SystemService(monotonic=monotonic)
         self.lights = lights or LightsMonitor(monotonic=monotonic, log=log)
         self.runner.lights = self.lights
@@ -493,6 +498,7 @@ class Controller:
         self._refresh_readings()
         self._watch_status()
         self._watch_lights()
+        self._watch_media()
         self.render_all()
         self.log(f"showing page '{self.page.name}' with {len(self.page.keys)} keys")
         if self.config.deck.follow_focus:
@@ -853,18 +859,25 @@ class Controller:
         before the first answer; None for a key with no status action, or
         one that swaps its picture instead.</returns>
         <remarks>
-        A status key that carries an active picture or label has chosen to
-        show its state by swapping the whole face, so it gets no lamp on
-        top: one indicator per key. A kodi key with its own ``url`` is a
-        player in another room, and it always wears the lamp, so the keys
-        for the player across the house can be told from the ones for this
-        machine at a glance; a kodi key without one is local and wears
-        none. The first such action among the three gestures is the one
-        shown.
+        A key with a ``lamp`` of its own wears that, whatever its actions
+        are: it is how a page key that leads to the Kodi page shows whether
+        the player in the other room is there. Otherwise a status key that
+        carries an active picture or label has chosen to show its state by
+        swapping the whole face, so it gets no lamp on top: one indicator
+        per key. A kodi key with its own ``url`` is a player in another
+        room, and it always wears the lamp, so the keys for the player
+        across the house can be told from the ones for this machine at a
+        glance; a kodi key without one is local and wears none. The first
+        such action among the three gestures is the one shown.
         </remarks>
         """
         if key is None:
             return None
+        if key.lamp is not None:
+            up = self.status.ok(key.lamp.url)
+            if up is None:
+                return tiles.DOT_UNKNOWN
+            return tiles.DOT_UP if up else tiles.DOT_DOWN
         for action in key.actions():
             if action is None:
                 continue
@@ -1059,7 +1072,7 @@ class Controller:
             return frames[0], frames, fps
         image = tiles.strip_tile(tile, now, observation, size,
                                  config.weather.location_name, visible,
-                                 default_bg, playing=self.media.reading, system=self.system.reading)
+                                 default_bg, playing=self._playing_reading(tile), system=self.system.reading)
         return image, None, 0
 
     def _scaled_visible(self, visible, size: int):
@@ -1135,7 +1148,7 @@ class Controller:
         observation = self.weather.observation
         sent = False
         for row, tile in enumerate(self.config.strip):
-            signature = tiles.strip_signature(tile, now, observation, self.media.reading, self.system.reading)
+            signature = tiles.strip_signature(tile, now, observation, self._playing_reading(tile), self.system.reading)
             if not force and signature == self._strip_signatures[row]:
                 continue
             image, frames, fps = self._draw_strip(row, self.deck.image_size, now, observation)
@@ -1707,16 +1720,55 @@ class Controller:
         system key on the page showing counts like a system panel.</remarks>
         """
         kinds = {tile.kind for tile in self.config.strip}
-        if "playing" in kinds:
+        if any(tile.kind == "playing" and tile.source == "local" for tile in self.config.strip):
             self.media.refresh_if_due()
         if "system" in kinds or any(key.action is not None and key.action.type == "system"
                                     for key in self.page.keys.values()):
             self.system.refresh_if_due()
 
+    def _playing_reading(self, tile):
+        """<summary>
+        The now playing reading a strip tile draws: the desktop's players,
+        or the Kodi player the tile names.
+        </summary>
+        <param name="tile">The strip tile.</param>
+        <returns>The reading, or None when nothing is playing or the tile is
+        not a playing tile.</returns>"""
+        if tile.kind != "playing":
+            return None
+        if tile.source == "kodi":
+            return self.kodi_media.reading(tile.url)
+        return self.media.reading
+
+    def _probe_kodi_playing(self, url: str, token_file: str | None):
+        """<summary>
+        Ask one Kodi player what it is playing, through the runner's own
+        request function and credentials reader.
+        </summary>
+        <param name="url">The player's JSON RPC address.</param>
+        <param name="token_file">Its credentials file, or None.</param>
+        <returns>The reading, or None when nothing is playing.</returns>
+        <remarks>Goes through the runner so a test that swaps the runner's
+        sender sees these requests too, and so the [kodi] timeout governs
+        a panel as it governs a press. Runs on the monitor's thread, never
+        the deck's loop.</remarks>"""
+        return fetch_kodi(url, token_file, self.runner.send_json, self.runner.read_token, self.config.kodi.timeout_s)
+
+    def _watch_media(self) -> None:
+        """<summary>
+        Hand the Kodi playing monitor every player a playing panel names.
+        </summary>
+        <remarks>Called at start and after a reload, like the status and
+        lights monitors. A panel reading the desktop's players is not a
+        watch: that reading is taken on the loop itself.</remarks>"""
+        self.kodi_media.watch([(tile.url, tile.token_file) for tile in self.config.strip
+                               if tile.kind == "playing" and tile.source == "kodi" and tile.url])
+
     def _watch_status(self) -> None:
         """<summary>
         Hand the status monitor every address a status key on any page
-        names, and every player a kodi key names for itself.
+        names, every player a kodi key names for itself, and every lamp a
+        key carries of its own.
         </summary>
         <remarks>Every page, not only the one showing, so a key's state is
         already known when its page comes up. Called at start and after a
@@ -1729,6 +1781,9 @@ class Controller:
         watches = []
         for page in self.config.pages:
             for key in page.keys.values():
+                if key.lamp is not None:
+                    lamp = key.lamp
+                    watches.append(Watch(lamp.url, lamp.every_ms, lamp.insecure, lamp.expect, lamp.token_file))
                 for action in key.actions():
                     if action is None:
                         continue
@@ -1969,6 +2024,7 @@ class Controller:
         self.watcher.stop()
         self.status.stop()
         self.lights.stop()
+        self.kodi_media.stop()
 
     def reload(self, config: Config) -> None:
         """<summary>
@@ -2022,6 +2078,7 @@ class Controller:
         self.runner.weather = config.weather
         self._watch_status()
         self._watch_lights()
+        self._watch_media()
         self._strip_signatures = [None] * layout.ROWS
         self.animator.clear_all()
         self._flashes.clear()

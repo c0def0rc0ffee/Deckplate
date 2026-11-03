@@ -176,7 +176,7 @@
    */
   function dropEmptyKey(page, key) {
     if (!key.image && !key.label && !key.action && !key.action_long && !key.action_double
-        && !key.animation && !key.background && !key.image_active && !key.label_active) {
+        && !key.animation && !key.background && !key.image_active && !key.label_active && !key.lamp) {
       page.keys = page.keys.filter(k => k !== key);
     }
   }
@@ -1203,6 +1203,8 @@
       "The colour behind the label, around a picture, and under an animation. Default follows the deck wide colour in Settings."));
 
     tpl.querySelector("#keyMark").append(markFields());
+    tpl.querySelector("#keyLamp").append(lampFields(key));
+    if (key.lamp) tpl.querySelector("details.lamp").open = true;
 
     // The plain action and the two second actions are edited the same way and
     // differ only in which field of the key they write to.
@@ -1291,7 +1293,7 @@
       let e = d.strip[row];
       if (typeof e === "string") e = d.strip[row] = { kind: e };
       if (value) e.background = value; else delete e.background;
-      if (e.kind && !e.background) d.strip[row] = e.kind;  // back to the plain form
+      if (e.kind && !e.background && !e.source) d.strip[row] = e.kind;  // back to the plain form
     }, { silent: true });
     const kindSelect = tpl.querySelector("#stripKind");
     kindSelect.value = kind;
@@ -1323,6 +1325,11 @@
       weatherField.hidden = false;
       weatherField.append(weatherFields());
     }
+    if (kind === "playing") {
+      const sourceField = tpl.querySelector("#stripSourceField");
+      sourceField.hidden = false;
+      sourceField.append(playingSourceFields(row));
+    }
     const pictureField = tpl.querySelector("#stripPictureField");
     if (kind === "image") {
       pictureField.hidden = false;
@@ -1337,6 +1344,118 @@
       pictureField.append(el("div", { class: "help", text: "Off: the picture fills the whole panel and its edges are cut off, which suits some pictures. On: it is scaled to fit inside the part the panel shows, with a border around it." }));
     }
     editor.append(tpl);
+  }
+
+  /**
+   * <summary>Where a playing panel reads from: this machine's players, or a Kodi player.</summary>
+   * <param name="row">Which strip panel.</param>
+   * <returns>The fields.</returns>
+   * <remarks>
+   * The panel's entry in the document is a bare "playing" until a source is
+   * chosen, and becomes an object carrying source, url and token_file once a
+   * Kodi player is named; back on this machine the three are dropped and the
+   * entry folds back to the word. The daemon refuses a Kodi source with no
+   * address, so the header says not saved until one is typed, as it does for
+   * a status key.
+   * </remarks>
+   */
+  function playingSourceFields(row) {
+    const entry = typeof doc.strip[row] === "object" ? doc.strip[row] : {};
+    const source = entry.source === "kodi" ? "kodi" : "local";
+    const edit = mutate => change(d => {
+      let e = d.strip[row];
+      if (typeof e === "string") e = d.strip[row] = { kind: e };
+      mutate(e);
+      if (e.source !== "kodi") { delete e.source; delete e.url; delete e.token_file; }
+      if (e.kind && !e.background && !e.source) d.strip[row] = e.kind;
+    }, { silent: true });
+    const pick = el("select", {}, [
+      el("option", { value: "local", text: "This machine's media player" }),
+      el("option", { value: "kodi", text: "A Kodi player" }),
+    ]);
+    pick.value = source;
+    const url = el("input", { type: "text", value: entry.url || "", placeholder: "http://player:8080/jsonrpc" });
+    url.addEventListener("input", () => edit(e => { e.url = url.value.trim(); }));
+    const tokenFile = el("input", { type: "text", value: entry.token_file || "", placeholder: "~/.deckplate-tokens/kodi-other" });
+    tokenFile.addEventListener("input", () => edit(e => {
+      if (tokenFile.value.trim()) e.token_file = tokenFile.value.trim(); else delete e.token_file;
+    }));
+    const kodiBox = el("div", {}, [
+      el("div", { class: "field" }, [el("label", { text: "Player address" }), url,
+        el("div", { class: "help", text: "The player's JSON RPC address, as on a kodi key for another room. Asked every few seconds on a thread of its own, so a player that is off never holds the deck up." })]),
+      el("div", { class: "field" }, [el("label", { text: "Its credentials file" }), tokenFile]),
+      credentialsFields(() => tokenFile.value.trim(), () => kodiTokenPath(url.value.trim()), path => {
+        tokenFile.value = path;
+        edit(e => { e.token_file = path; });
+      }),
+    ]);
+    kodiBox.hidden = source !== "kodi";
+    pick.addEventListener("change", () => {
+      kodiBox.hidden = pick.value !== "kodi";
+      edit(e => {
+        if (pick.value === "kodi") {
+          e.source = "kodi";
+          e.url = url.value.trim();
+          if (tokenFile.value.trim()) e.token_file = tokenFile.value.trim();
+        } else {
+          e.source = "local";
+        }
+      });
+    });
+    return el("div", {}, [el("div", { class: "field" }, [el("label", { text: "Shows what is playing on" }), pick]), kodiBox]);
+  }
+
+  /**
+   * <summary>A lamp of the key's own: the address it watches and how.</summary>
+   * <param name="key">The key as read at build time, for the starting values.</param>
+   * <returns>The fields.</returns>
+   * <remarks>
+   * The lamp exists while the address does: clearing the address takes the
+   * lamp off the key, which is also what makes a fresh fold harmless. Every
+   * edit looks the key up again through <see cref="ensureKey"/>, as the rest
+   * of the editor does. The interval is edited in seconds and stored in
+   * milliseconds, in the status key's range.
+   * </remarks>
+   */
+  function lampFields(key) {
+    const lamp = key.lamp || {};
+    const edit = mutate => change(d => {
+      const k = ensureKey(currentPage(), selected.row, selected.column);
+      const next = Object.assign({ url: "", every_ms: 60000, insecure: false, expect: "" }, k.lamp || {});
+      mutate(next);
+      next.url = (next.url || "").trim();
+      if (!next.token_file) delete next.token_file;
+      k.lamp = next.url ? next : null;
+      dropEmptyKey(currentPage(), k);
+    }, { silent: true });
+    const url = el("input", { type: "text", value: lamp.url || "", placeholder: "http://player:8080/jsonrpc" });
+    url.addEventListener("input", () => edit(l => { l.url = url.value; }));
+    const seconds = el("input", { type: "number", min: 5, max: 3600, step: 5, value: Math.round((lamp.every_ms || 60000) / 1000) });
+    seconds.addEventListener("input", () => edit(l => {
+      l.every_ms = Math.max(5, Math.min(3600, parseInt(seconds.value, 10) || 60)) * 1000;
+    }));
+    const expect = el("input", { type: "text", value: lamp.expect || "", placeholder: "Leave empty for any answer" });
+    expect.addEventListener("input", () => edit(l => { l.expect = expect.value; }));
+    const insecure = el("input", { type: "checkbox", id: "lampInsecure" });
+    insecure.checked = !!lamp.insecure;
+    insecure.addEventListener("change", () => edit(l => { l.insecure = insecure.checked; }));
+    const tokenFile = el("input", { type: "text", value: lamp.token_file || "", placeholder: "~/.deckplate-tokens/kodi-other" });
+    tokenFile.addEventListener("input", () => edit(l => {
+      if (tokenFile.value.trim()) l.token_file = tokenFile.value.trim(); else delete l.token_file;
+    }));
+    return el("div", {}, [
+      el("div", { class: "field" }, [el("label", { text: "Address to watch" }), url,
+        el("div", { class: "help", text: "Green while the address answers, red while it does not, whatever the key does when pressed. For the key that opens the Kodi page, give the player's JSON RPC address and its credentials file. Clear the address to take the lamp off." })]),
+      el("div", { class: "field" }, [el("label", { text: "Ask every (seconds)" }), seconds]),
+      el("div", { class: "field" }, [el("label", { text: "Text the page must contain" }), expect]),
+      el("div", { class: "field" }, [el("label", { class: "check", for: "lampInsecure" }, [insecure, el("span", { text: "Accept a certificate that does not verify" })])]),
+      el("div", { class: "field" }, [el("label", { text: "Credentials file" }), tokenFile,
+        el("div", { class: "help", text: "Sent as the Authorization header, as a kodi key sends it. Leave empty for an address that asks for none." })]),
+      credentialsFields(() => tokenFile.value.trim(), () => kodiTokenPath(url.value.trim()), path => {
+        tokenFile.value = path;
+        edit(l => { l.token_file = path; });
+      }),
+    ]);
   }
 
   /**

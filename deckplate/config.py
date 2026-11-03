@@ -48,6 +48,9 @@ ROWS = 3
 KEY_COLUMNS = 5
 STRIP_ROWS = 3
 STRIP_TILE_KINDS = ("clock", "date", "weather", "playing", "system", "blank")
+# Where a playing panel reads from: the desktop's own players over the
+# session bus, or a Kodi player at an address of its own.
+PLAYING_SOURCES = ("local", "kodi")
 ACTION_TYPES = ("hotkey", "sequence", "chord", "hold", "boost", "repeat",
                 "text", "launch", "url", "request", "page", "brightness", "sleep", "multi",
                 "toggle", "volume", "audio_output", "window", "timer", "stopwatch", "counter",
@@ -264,6 +267,34 @@ class MarkSettings:
 
 
 @dataclass(frozen=True)
+class LampSettings:
+    """<summary>
+    An address a key keeps an eye on, to wear the status lamp for it.
+    </summary>
+    <param name="url">The address to ask.</param>
+    <param name="every_ms">How often to ask.</param>
+    <param name="insecure">True to accept a certificate that does not verify.</param>
+    <param name="expect">Text that must appear in the body, or "" for any
+    answer below 400.</param>
+    <param name="token_file">A credentials file whose contents go in the
+    Authorization header, or None for no header.</param>
+    <remarks>
+    A status key and a remote kodi key wear the lamp for the address they
+    act on. A lamp on any other key, a page key that leads to the remote
+    player's page say, watches an address the key does nothing else with,
+    so the key that opens the Kodi page can show whether that Kodi is there
+    without being a kodi key itself. The fields are the status action's,
+    with the kodi key's credentials file beside them.
+    </remarks>"""
+
+    url: str
+    every_ms: int = 60_000
+    insecure: bool = False
+    expect: str = ""
+    token_file: str | None = None
+
+
+@dataclass(frozen=True)
 class KeyConfig:
     """<summary>
     One key on one page.
@@ -292,6 +323,10 @@ class KeyConfig:
     is running, a timer or stopwatch that is going, a mute key while the
     sound is muted, an output key while that output is in use. Either may be
     left unset, in which case the ordinary picture or label stays.
+
+    ``lamp`` gives any key the status lamp for an address of the key's own
+    choosing; see <see cref="LampSettings"/>. It wins over the lamp a
+    status or remote kodi action would otherwise bring.
     </remarks>
     """
 
@@ -307,6 +342,7 @@ class KeyConfig:
     mark: MarkSettings = field(default_factory=MarkSettings)
     image_active: Path | None = None
     label_active: str | None = None
+    lamp: LampSettings | None = None
 
     def actions(self) -> tuple[Action | None, Action | None, Action | None]:
         """<summary>
@@ -373,6 +409,12 @@ class StripTile:
     ``fit`` shrinks the picture to sit inside the visible area instead of
     filling it. The strip shows less of a picture than a key does, and the
     edges are cut off, so a picture with anything near its border wants this.
+
+    A playing tile reads the desktop's own players unless ``source`` is
+    "kodi", and then ``url`` is that player's JSON RPC address and
+    ``token_file`` its optional credentials file, the same two a kodi key
+    carries for a player in another room. The other kinds leave all three
+    at their defaults.
     </remarks>"""
 
     kind: str
@@ -380,6 +422,9 @@ class StripTile:
     fit: bool = False
     animation: AnimationConfig | None = None
     background: str | None = None
+    source: str = "local"
+    url: str | None = None
+    token_file: str | None = None
 
 
 # The three strip panels show less of the picture than the keys do: the
@@ -1082,7 +1127,19 @@ def _parse_strip(table: dict, base_dir: Path) -> tuple[StripTile, ...]:
             kind = entry["kind"]
             if kind not in STRIP_TILE_KINDS:
                 raise ConfigError(f"{where}: unknown kind '{kind}'")
-            tiles.append(StripTile(kind=kind, background=_colour(entry, "background", where)))
+            source = _str(entry, "source", where, "local") or "local"
+            if source not in PLAYING_SOURCES:
+                raise ConfigError(f"{where}: 'source' must be one of {', '.join(PLAYING_SOURCES)}")
+            if source != "local" and kind != "playing":
+                raise ConfigError(f"{where}: only a playing tile takes a 'source'")
+            url = token_file = None
+            if source == "kodi":
+                url = _str(entry, "url", where, required=True) or ""
+                if not url.startswith(("http://", "https://")):
+                    raise ConfigError(f"{where}: 'url' must start with http:// or https://")
+                token_file = _str(entry, "token_file", where) or None
+            tiles.append(StripTile(kind=kind, background=_colour(entry, "background", where),
+                                   source=source, url=url, token_file=token_file))
         else:
             raise ConfigError(f"{where}: must be one of {', '.join(STRIP_TILE_KINDS)} or an image path")
     return tuple(tiles)
@@ -1228,8 +1285,43 @@ def _parse_keys(raw: Any, where: str, base_dir: Path) -> dict[tuple[int, int], K
             action_double=action_for("action_double", "double press action"),
             image_active=_resolve(image_active, base_dir) if image_active else None,
             label_active=_str(table, "label_active", here),
+            lamp=_parse_lamp(table.get("lamp"), here),
         )
     return keys
+
+
+def _parse_lamp(table: Any, where: str) -> LampSettings | None:
+    """<summary>
+    Build a key's lamp from its ``lamp`` table, or None when it has none.
+    </summary>
+    <param name="table">The table from the file, or None.</param>
+    <param name="where">How to name the key in an error.</param>
+    <returns>The settings, or None.</returns>
+    <remarks>The same checks as a status action's fields, so a lamp and a
+    status key refuse the same mistakes in the same words.</remarks>
+    <exception cref="ConfigError">Not a table, no address, an address that is
+    not http or https, or a field of the wrong type.</exception>"""
+    if table is None:
+        return None
+    here = f"{where} lamp"
+    if not isinstance(table, dict):
+        raise ConfigError(f"{here}: must be a table")
+    url = _str(table, "url", here, required=True) or ""
+    if not url.startswith(("http://", "https://")):
+        raise ConfigError(f"{here}: 'url' must start with http:// or https://")
+    insecure = table.get("insecure", False)
+    if not isinstance(insecure, bool):
+        raise ConfigError(f"{here}: 'insecure' must be true or false")
+    expect = table.get("expect", "")
+    if not isinstance(expect, str):
+        raise ConfigError(f"{here}: 'expect' must be text")
+    return LampSettings(
+        url=url,
+        every_ms=_int(table, "every_ms", here, STATUS_EVERY_RANGE[0] * 12, *STATUS_EVERY_RANGE),
+        insecure=insecure,
+        expect=expect,
+        token_file=_str(table, "token_file", here) or None,
+    )
 
 
 def _parse_action(table: Any, where: str, nested: bool = False) -> Action:
@@ -1788,6 +1880,18 @@ def _action_document(action: Action | None) -> dict | None:
     return doc
 
 
+def _lamp_document(lamp: LampSettings | None) -> dict | None:
+    """<summary>A key's lamp as the page's JSON, or None for no lamp.</summary>
+    <param name="lamp">The settings, or None.</param>
+    <returns>A dict with every field, the credentials file only when set.</returns>"""
+    if lamp is None:
+        return None
+    document: dict[str, Any] = {"url": lamp.url, "every_ms": lamp.every_ms, "insecure": lamp.insecure, "expect": lamp.expect}
+    if lamp.token_file:
+        document["token_file"] = lamp.token_file
+    return document
+
+
 def _animation_document(animation: AnimationConfig | None) -> dict | None:
     """
     <summary>
@@ -1843,6 +1947,7 @@ def document_from_config(config: Config) -> dict:
                 "mark": _mark_document(key.mark),
                 "image_active": _relative(key.image_active, config.base_dir),
                 "label_active": key.label_active,
+                "lamp": _lamp_document(key.lamp),
             })
         pages.append({"name": page.name, "keys": keys, "match_window": page.match_window,
                       "wallpaper": _relative(page.wallpaper, config.base_dir)})
@@ -1852,8 +1957,13 @@ def document_from_config(config: Config) -> dict:
             entry: Any = {"image": _relative(tile.image, config.base_dir), "fit": tile.fit}
         elif tile.kind == "animation":
             entry = {"animation": _animation_document(tile.animation)}
-        elif tile.background:
+        elif tile.background or tile.source != "local":
             entry = {"kind": tile.kind}
+            if tile.source != "local":
+                entry["source"] = tile.source
+                entry["url"] = tile.url
+                if tile.token_file:
+                    entry["token_file"] = tile.token_file
         else:
             entry = tile.kind
         if tile.background and isinstance(entry, dict):
@@ -2078,7 +2188,7 @@ def to_toml(document: dict) -> str:
                 raise ConfigError("each key must be an object")
             lines.append("[[pages.keys]]")
             for field in ("row", "column", "image", "label", "image_active", "label_active",
-                          "background", "mark", "action", "action_long", "action_double", "animation"):
+                          "background", "mark", "lamp", "action", "action_long", "action_double", "animation"):
                 if key.get(field) is not None:
                     lines.append(f"{field} = {_toml_value(key[field])}")
             lines.append("")

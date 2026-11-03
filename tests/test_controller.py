@@ -2419,3 +2419,91 @@ action = { type = "wled", url = "http://lamp.test/", every_ms = 5000 }
     assert active is False
     controller.reload(cfg.parse(TEXT, path.parent, path))
     assert monitor.state("http://lamp.test/") is None
+
+
+def test_a_key_with_its_own_lamp_is_watched_and_wears_it(setup):
+    """<summary>
+    A page key carrying a lamp is handed to the status monitor with the
+    lamp's interval and credentials file, wears the lamp from the answer,
+    and keeps it over the one its action would bring.
+    </summary>
+    """
+    from deckplate import tiles as tiles_module
+    from deckplate.status import StatusMonitor
+    controller, deck, clock, urls, path = setup
+    answers = {"http://p.test/jsonrpc": True}
+    watched = []
+
+    def prober(watch):
+        watched.append((watch.url, watch.every_ms, watch.token_file))
+        return answers[watch.url]
+
+    monitor = StatusMonitor(prober=prober, monotonic=lambda: clock.mono, log=lambda t: None, threaded=False)
+    controller.status = monitor
+    controller.reload(cfg.parse(TEXT + """
+[[pages.keys]]
+row = 0
+column = 1
+label = "Kodi"
+action = { type = "page", page = "Main" }
+lamp = { url = "http://p.test/jsonrpc", every_ms = 30000, token_file = "~/tokens/kodi-other" }
+""", path.parent, path))
+    controller.switch_page("Second")
+    key = controller.page.keys[(0, 1)]
+    assert controller._key_dot(key) == tiles_module.DOT_UNKNOWN
+    monitor.poll_once()
+    assert watched == [("http://p.test/jsonrpc", 30000, "~/tokens/kodi-other")]
+    assert controller._key_dot(key) == tiles_module.DOT_UP
+    size = controller.deck.image_size
+    image, _frames, _fps = controller._draw_key(0, 1, size, set())
+    cx, cy = size - round(size * tiles_module.DOT_INSET), round(size * tiles_module.DOT_INSET)
+    assert image.getpixel((cx, cy)) == tiles_module.DOT_UP
+    answers["http://p.test/jsonrpc"] = False
+    clock.advance(31)
+    monitor.poll_once()
+    assert controller._key_dot(key) == tiles_module.DOT_DOWN
+
+
+def test_a_playing_panel_can_read_a_kodi_player_through_its_monitor(setup):
+    """<summary>
+    A playing panel that names a Kodi player is handed to the Kodi playing
+    monitor with its credentials file, draws that monitor's reading rather
+    than the desktop's, and the panel's signature follows the reading; the
+    probe behind the monitor goes through the runner's own sender.
+    </summary>
+    """
+    from deckplate import media as media_module
+    controller, deck, clock, urls, path = setup
+    track = media_module.NowPlaying("Song", "Band", "Playing", "kodi")
+    watched = []
+
+    def prober(url, token_file):
+        watched.append((url, token_file))
+        return track
+
+    monitor = media_module.KodiPlayingMonitor(prober=prober, monotonic=lambda: clock.mono, log=lambda t: None, threaded=False)
+    controller.kodi_media = monitor
+    controller.media.reading = media_module.NowPlaying("Local", "Desk", "Playing", "vlc")
+    controller.reload(cfg.parse(TEXT + """
+[strip]
+tiles = ["clock", { kind = "playing", source = "kodi", url = "http://p.test/jsonrpc", token_file = "~/t" }, "playing"]
+""", path.parent, path))
+    kodi_tile, local_tile = controller.config.strip[1], controller.config.strip[2]
+    assert controller._playing_reading(kodi_tile) is None
+    assert controller._playing_reading(local_tile) == controller.media.reading
+    before = controller._draw_strip(1, controller.deck.image_size)[0]
+    monitor.poll_once()
+    assert watched == [("http://p.test/jsonrpc", "~/t")]
+    assert controller._playing_reading(kodi_tile) == track
+    after = controller._draw_strip(1, controller.deck.image_size)[0]
+    assert before.tobytes() != after.tobytes()
+    sent = []
+    replies = iter([{"result": [{"playerid": 0, "type": "audio"}]},
+                    {"result": {"item": {"title": "Other", "artist": ["B"]}}}, {"result": {"speed": 0}}])
+    controller.runner.send_json = lambda url, headers, body, timeout: sent.append((url, headers, timeout)) or next(replies)
+    controller.runner.read_token = lambda p: "Basic xyz"
+    reading = controller._probe_kodi_playing("http://p.test/jsonrpc", "~/t")
+    assert reading == media_module.NowPlaying("Other", "B", "Paused", "kodi")
+    assert sent[0] == ("http://p.test/jsonrpc", {"Authorization": "Basic xyz"}, controller.config.kodi.timeout_s)
+    controller.reload(cfg.parse(TEXT, path.parent, path))
+    assert monitor.reading("http://p.test/jsonrpc") is None
