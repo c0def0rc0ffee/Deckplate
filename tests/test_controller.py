@@ -2711,3 +2711,55 @@ playing = { source = "kodi", label = "scroll" }
     assert frames is None
     assert image.getpixel((size // 2, 8)) == (0, 200, 0)
     assert image.getpixel((size // 2, size - 4)) != (0, 200, 0)  # the band carries the short name
+
+
+def test_a_pihole_key_is_watched_draws_the_figures_and_wears_the_blocking_lamp(setup):
+    """<summary>
+    A pihole key's box is handed to the Pi-hole monitor with its file,
+    certificate setting and interval; the key draws the figures once the
+    reading is in, wears a green lamp while blocking is on, red while
+    paused and grey before the first answer; and a key with a picture
+    keeps the picture and wears only the lamp.
+    </summary>
+    """
+    from deckplate import tiles as tiles_module
+    from deckplate.pihole import PiholeMonitor, PiholeReading
+    controller, deck, clock, urls, path = setup
+    answers = {"http://pi.hole/": PiholeReading(True, None, 12345, 2345, 19.0, 150000)}
+    watched = []
+
+    def prober(url, token_file, insecure):
+        watched.append((url, token_file, insecure))
+        return answers[url]
+
+    monitor = PiholeMonitor(prober=prober, monotonic=lambda: clock.mono, log=lambda t: None, threaded=False)
+    controller.pihole = monitor
+    controller.runner.pihole = monitor
+    controller.reload(cfg.parse(TEXT + """
+[[pages.keys]]
+row = 0
+column = 1
+label = "Pi-hole"
+action = { type = "pihole", url = "http://pi.hole/", token_file = "~/p", insecure = true, every_ms = 15000 }
+
+[[pages.keys]]
+row = 0
+column = 2
+image = "images/shield.png"
+action = { type = "pihole", url = "http://pi.hole/" }
+""", path.parent, path))
+    controller.switch_page("Second")
+    plain, pictured = controller.page.keys[(0, 1)], controller.page.keys[(0, 2)]
+    size = controller.deck.image_size
+    assert controller._key_dot(plain) == tiles_module.DOT_UNKNOWN
+    before = controller._draw_key(0, 1, size, set())[0]
+    monitor.poll_once()
+    assert watched == [("http://pi.hole/", "~/p", True)]
+    assert controller._key_dot(plain) == tiles_module.DOT_UP and controller._key_dot(pictured) == tiles_module.DOT_UP
+    after = controller._draw_key(0, 1, size, set())[0]
+    assert before.tobytes() != after.tobytes()
+    cx, cy = size - round(size * tiles_module.DOT_INSET), round(size * tiles_module.DOT_INSET)
+    assert after.getpixel((cx, cy)) == tiles_module.DOT_UP
+    monitor.update("http://pi.hole/", False, 300)
+    assert controller._key_dot(plain) == tiles_module.DOT_DOWN
+    assert controller._draw_key(0, 1, size, set())[0].tobytes() != after.tobytes()

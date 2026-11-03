@@ -31,6 +31,7 @@ from . import animations, images
 from .config import AnimationConfig, KeyConfig, StripTile
 from .media import NowPlaying
 from .lights import LightState
+from .pihole import PiholeReading
 from .system import SystemReading
 from .weather import Observation
 
@@ -1081,6 +1082,64 @@ def lights_tile(state: LightState | None, size: int,
     if state is not None:
         draw.rectangle([left, top, left + (right - left) * state.brightness / 255, bottom],
                        fill=images.ACCENT if lit else MUTED)
+    return tile
+
+
+def compact_count(value: int) -> str:
+    """<summary>A count short enough for a key: 950, 12.3k, 1.2M.</summary>
+    <param name="value">The count.</param>
+    <returns>The text.</returns>"""
+    if value < 1000:
+        return str(value)
+    if value < 1_000_000:
+        text = f"{value / 1000:.1f}".rstrip("0").rstrip(".")
+        return text + "k"
+    text = f"{value / 1_000_000:.1f}".rstrip("0").rstrip(".")
+    return text + "M"
+
+
+def pihole_tile(reading: PiholeReading | None, size: int,
+                background: tuple[int, int, int] = images.BACKGROUND, labelled: bool = False) -> Image.Image:
+    """<summary>
+    Pi-hole today: the share blocked large, with the queries and blocked
+    counts under it, and the word paused while blocking is off.
+    </summary>
+    <param name="reading">The latest reading, or None when unknown or unreachable.</param>
+    <param name="size">The tile size in pixels.</param>
+    <param name="background">RGB tuple behind everything.</param>
+    <param name="labelled">True when a label band will go along the bottom,
+    which squeezes everything into the space above it.</param>
+    <returns>An upright tile, always.</returns>
+    <remarks>
+    The percentage is the figure worth a glance, so it gets the big type;
+    the counts are the detail. While blocking is paused the percentage goes
+    muted and the caption says so, with the minutes left when the pause
+    has a timer, because a paused Pi-hole still reports today's share and
+    the number alone would read as all well. No reading draws a quiet "no
+    pi-hole", as the weather tile says it has none. The lamp in the corner
+    is the controller's and goes on top of this.
+    </remarks>
+    """
+    tile = images.solid(background, size)
+    draw = ImageDraw.Draw(tile)
+    room = size * (0.74 if labelled else 1.0)
+    if reading is None:
+        draw.text((size / 2, room * 0.5), "no pi-hole", fill=MUTED, font=images.load_font(int(size * 0.14)), anchor="mm")
+        return tile
+    percent = f"{reading.percent:.0f}%" if reading.percent >= 10 else f"{reading.percent:.1f}%"
+    colour = images.FOREGROUND if reading.blocking else MUTED
+    draw.text((size / 2, room * 0.3), percent, fill=colour, font=images.load_font(int(room * 0.3)), anchor="mm")
+    if reading.blocking:
+        caption = "blocked today"
+    elif reading.timer:
+        caption = f"paused {max(1, round(reading.timer / 60))} min"
+    else:
+        caption = "paused"
+    draw.text((size / 2, room * 0.52), caption, fill=MUTED if reading.blocking else ALERT,
+              font=images.load_font(int(room * 0.11)), anchor="mm")
+    counts = f"{compact_count(reading.queries)} asked, {compact_count(reading.blocked)} out"
+    font = images.load_font(_fit_font_size(counts, size - 8, int(room * 0.13)))
+    draw.text((size / 2, room * 0.74), counts, fill=MUTED, font=font, anchor="mm")
     return tile
 
 

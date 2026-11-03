@@ -543,3 +543,22 @@ def test_a_kodi_key_may_follow_its_own_player_and_the_label_round_trips():
         cfg.parse(cfg.to_toml(page({"label": "x", "playing": {"source": "kodi"}})), Path("/base"))
     with pytest.raises(cfg.ConfigError, match="playing.*label"):
         cfg.parse(cfg.to_toml(page({"playing": {"source": "local", "label": "neon"}})), Path("/base"))
+
+
+def test_a_pihole_key_round_trips_and_its_faults_are_named():
+    """<summary>The pihole action's fields survive the save loop with their
+    defaults filled in, and a bad address, doing or pause length is refused.</summary>"""
+    import pytest
+    page = lambda action: {"pages": [{"name": "A", "keys": [{"row": 0, "column": 0, "action": action}]}]}
+    c = cfg.parse(cfg.to_toml(page({"type": "pihole", "url": "http://pi.hole/", "token_file": "~/t"})), Path("/base"))
+    action = c.pages[0].keys[(0, 0)].action
+    assert action.type == "pihole"
+    assert action.params == {"url": "http://pi.hole/", "token_file": "~/t", "insecure": False, "do": "toggle", "seconds": 300, "every_ms": 10000}
+    back = cfg.document_from_config(c)["pages"][0]["keys"][0]["action"]
+    assert back == dict(action.params, type="pihole")
+    for action, message in (({"type": "pihole", "url": "pi.hole"}, "http"),
+                            ({"type": "pihole", "url": "http://pi.hole/", "do": "flush"}, "'do'"),
+                            ({"type": "pihole", "url": "http://pi.hole/", "seconds": 1}, "seconds"),
+                            ({"type": "multi", "steps": [{"type": "pihole", "url": "http://pi.hole/"}]}, "step")):
+        with pytest.raises(cfg.ConfigError, match=message):
+            cfg.parse(cfg.to_toml(page(action)), Path("/base"))

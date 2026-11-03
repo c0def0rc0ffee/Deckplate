@@ -37,6 +37,7 @@ from . import animations, audio, focus, holds, images, layout, live, sun, tiles
 from .actions import ActionRunner
 from .config import MARK_DEFAULT_FLASH_MS, POSITIONAL_ACTIONS, Action, Config, load
 from .media import ArtCache, KodiPlayingMonitor, MediaService, fetch_kodi
+from .pihole import PiholeMonitor
 from .presses import Actions, PressRouter
 from .protocol import KeyEvent
 from .lights import LightsMonitor
@@ -369,7 +370,8 @@ class Controller:
                  system: SystemService | None = None,
                  lights: LightsMonitor | None = None,
                  kodi_media: KodiPlayingMonitor | None = None,
-                 art: ArtCache | None = None) -> None:
+                 art: ArtCache | None = None,
+                 pihole: PiholeMonitor | None = None) -> None:
         """<summary>
         Wire a deck to a config, without drawing anything yet.
         </summary>
@@ -399,6 +401,7 @@ class Controller:
         such a panel is configured.</param>
         <param name="art">The cache of pictures of what is playing. Made
         here if not given; it fetches nothing until a panel asks.</param>
+        <param name="pihole">The monitor behind pihole keys, likewise.</param>
         <param name="system">The machine reader for the strip. Made here if
         not given; read only while a panel shows it.</param>
         <remarks>
@@ -421,6 +424,8 @@ class Controller:
         self.system = system or SystemService(monotonic=monotonic)
         self.lights = lights or LightsMonitor(monotonic=monotonic, log=log)
         self.runner.lights = self.lights
+        self.pihole = pihole or PiholeMonitor(monotonic=monotonic, log=log)
+        self.runner.pihole = self.pihole
         # Whether the night brightness is in force, None until first checked.
         self._night: bool | None = None
         self._last_night_check: float | None = None
@@ -503,6 +508,7 @@ class Controller:
         self._watch_status()
         self._watch_lights()
         self._watch_media()
+        self._watch_pihole()
         self.render_all()
         self.log(f"showing page '{self.page.name}' with {len(self.page.keys)} keys")
         if self.config.deck.follow_focus:
@@ -852,7 +858,21 @@ class Controller:
         if face is not None and face.ring is not None:
             face = replace(face, ring=round(face.ring * 100) / 100)
         return (mark, active, face, self._key_dot(key), self._key_weather(key), self._key_system(key),
-                self._key_lights(key), self._key_playing_signature(key))
+                self._key_lights(key), self._key_playing_signature(key), self._key_pihole(key))
+
+    def _key_pihole(self, key):
+        """<summary>
+        The Pi-hole reading a key draws or wears, or None for a key with no
+        pihole action.
+        </summary>
+        <param name="key">The key to judge, or None for an empty position.</param>
+        <returns>The latest reading for a key whose plain action is pihole;
+        otherwise None.</returns>
+        <remarks>In the signature whether or not the key has a picture: a
+        key with one wears only the lamp, and the lamp follows the reading.</remarks>"""
+        if key is None or key.action is None or key.action.type != "pihole":
+            return None
+        return self.pihole.state(key.action.params["url"])
 
     def _key_player(self, key) -> tuple[str, str | None] | None:
         """<summary>
@@ -966,6 +986,9 @@ class Controller:
                 up = self.status.ok(action.params["url"])
             elif action.type == "kodi" and action.params.get("url"):
                 up = self.status.ok(action.params["url"])
+            elif action.type == "pihole":
+                reading = self.pihole.state(action.params["url"])
+                up = None if reading is None else reading.blocking
             else:
                 continue
             if up is None:
@@ -1098,6 +1121,9 @@ class Controller:
                                       tiles.key_background(key, config.deck.background), labelled=bool(key.label))
         elif key is not None and key.image is None and key.action is not None and key.action.type == "wled":
             drawn = tiles.lights_tile(self.lights.state(key.action.params["url"]), size,
+                                      tiles.key_background(key, config.deck.background), labelled=bool(key.label))
+        elif key is not None and key.image is None and key.action is not None and key.action.type == "pihole":
+            drawn = tiles.pihole_tile(self.pihole.state(key.action.params["url"]), size,
                                       tiles.key_background(key, config.deck.background), labelled=bool(key.label))
         if drawn is not None:
             tile = drawn
@@ -1942,6 +1968,21 @@ class Controller:
                         devices.append((action.params["url"], action.params["every_ms"]))
         self.lights.watch(devices)
 
+    def _watch_pihole(self) -> None:
+        """<summary>
+        Hand the Pi-hole monitor every box a pihole key on any page names.
+        </summary>
+        <remarks>As <see cref="_watch_lights"/>: every page, at start and
+        after a reload, so a key's reading is known when its page comes up.</remarks>"""
+        boxes = []
+        for page in self.config.pages:
+            for key in page.keys.values():
+                for action in key.actions():
+                    if action is not None and action.type == "pihole":
+                        p = action.params
+                        boxes.append((p["url"], p.get("token_file"), bool(p.get("insecure")), p["every_ms"]))
+        self.pihole.watch(boxes)
+
     def _night_brightness(self, now: float) -> None:
         """<summary>
         Dim the deck after sunset and brighten it after sunrise, when the
@@ -2159,6 +2200,7 @@ class Controller:
         self.lights.stop()
         self.kodi_media.stop()
         self.art.stop()
+        self.pihole.stop()
 
     def reload(self, config: Config) -> None:
         """<summary>
@@ -2213,6 +2255,7 @@ class Controller:
         self._watch_status()
         self._watch_lights()
         self._watch_media()
+        self._watch_pihole()
         self._strip_signatures = [None] * layout.ROWS
         self.animator.clear_all()
         self._flashes.clear()

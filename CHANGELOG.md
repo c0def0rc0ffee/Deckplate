@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- A `pihole` key for a Pi-hole 6: today's share blocked large on the face
+  with the queries and blocked counts, a lamp that is green while blocking
+  is on and red while paused, and a press that pauses blocking for a while
+  and resumes it, or opens the admin page. The box's password lives in a
+  file alone, which the configuration page writes with `raw` on
+  `POST /api/credentials`; the session is signed in and renewed as Pi-hole
+  asks, on a thread of its own.
 - Any key may carry a `lamp`: an address it watches, with the status key's
   `every_ms`, `insecure` and `expect` and a kodi key's `token_file`, and
   wears the green, red or grey lamp for it whatever its action is, so the

@@ -1538,7 +1538,9 @@ class ApiHandler(BaseHTTPRequestHandler):
         The body carries ``path``, ``username`` and ``password``. The file
         gets ``Basic`` and the base64 of ``user:password``, which is what
         <see cref="actions.read_token"/> sends as the whole header value, so
-        the config only ever holds the path. The password goes no further than
+        the config only ever holds the path. With ``raw`` true the file
+        holds the password alone and no username is needed, which is what a
+        Pi-hole key wants: its API takes the bare password in a body. The password goes no further than
         this handler: it is not logged, not kept and not echoed in the reply.
 
         The path must be absolute, or start with ``~``, and must not be inside
@@ -1557,9 +1559,12 @@ class ApiHandler(BaseHTTPRequestHandler):
         if controller is None:
             return
         path, username, password = data.get("path"), data.get("username"), data.get("password")
+        raw = data.get("raw", False)
+        if not isinstance(raw, bool):
+            return self._send_json({"error": "'raw' must be true or false"}, HTTPStatus.BAD_REQUEST)
         if not isinstance(path, str) or not path.strip():
             return self._send_json({"error": "'path' is required"}, HTTPStatus.BAD_REQUEST)
-        if not isinstance(username, str) or not username:
+        if not raw and (not isinstance(username, str) or not username):
             return self._send_json({"error": "'username' is required"}, HTTPStatus.BAD_REQUEST)
         if not isinstance(password, str) or not password:
             return self._send_json({"error": "'password' is required"}, HTTPStatus.BAD_REQUEST)
@@ -1574,7 +1579,10 @@ class ApiHandler(BaseHTTPRequestHandler):
             if resolved == config_dir or config_dir in resolved.parents:
                 return self._send_json({"error": "the credentials file must be outside the config folder"},
                                        HTTPStatus.BAD_REQUEST)
-        value = "Basic " + base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii") + "\n"
+        if raw:
+            value = password + "\n"
+        else:
+            value = "Basic " + base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii") + "\n"
         try:
             target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -1586,7 +1594,7 @@ class ApiHandler(BaseHTTPRequestHandler):
         except OSError as err:
             return self._send_json({"error": f"could not write the credentials file: {err.strerror or err}"},
                                    HTTPStatus.INTERNAL_SERVER_ERROR)
-        self.server.log(f"credentials file written for '{username}'")
+        self.server.log("password file written" if raw else f"credentials file written for '{username}'")
         self._send_json({"ok": True, "path": path})
 
     def _sleep(self) -> None:

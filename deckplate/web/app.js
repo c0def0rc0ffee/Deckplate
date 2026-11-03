@@ -1592,6 +1592,7 @@
       case "status": return { type, url: "https://", every_ms: 60000, insecure: false, expect: "", open: true };
       case "wled": return { type, url: "http://", do: "toggle", every_ms: 10000 };
       case "kodi": return { type, do: "play_pause" };
+      case "pihole": return { type, url: "http://", do: "toggle", seconds: 300, every_ms: 10000, insecure: false };
       case "weather": return { type };
       case "system": return { type };
     }
@@ -1680,6 +1681,8 @@
       icon: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/><path d="M6 13l3-4 3 2 3-5 3 4"/>' },
     wled: { label: "Lights", help: "Shows a WLED light's state and colour on the key; the press toggles it, picks a preset or steps the brightness.", nested: false,
       icon: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 00-3.5 10.9c.8.6 1.5 1.6 1.5 2.6h4c0-1 .7-2 1.5-2.6A6 6 0 0012 3z"/>' },
+    pihole: { label: "Pi-hole", help: "Shows today's queries and the share blocked; the press pauses blocking for a while and resumes it.", nested: false,
+      icon: '<path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/>' },
     kodi: { label: "Media centre", help: "Sends play, pause, stop or a remote control key to Kodi.",
       icon: '<rect x="7" y="2.5" width="10" height="19" rx="3"/><path d="M12 7v4M10 9h4M12 15h.01M10 18h4"/>' },
   };
@@ -1690,7 +1693,7 @@
    * enough failure to be worth saying out loud here.</remarks> */
   const ACTION_GROUPS = [
     { title: "Keys and text", types: ["hotkey", "sequence", "chord", "text", "hold", "boost", "repeat"] },
-    { title: "Programs and the web", types: ["launch", "url", "request", "status", "weather", "system", "kodi", "wled"] },
+    { title: "Programs and the web", types: ["launch", "url", "request", "status", "weather", "system", "kodi", "wled", "pihole"] },
     { title: "Sound and windows", types: ["volume", "audio_output", "window"] },
     { title: "The desktop", types: ["stay_awake", "dnd"] },
     { title: "Keys that remember", types: ["toggle", "timer", "stopwatch", "counter"] },
@@ -2154,6 +2157,44 @@
         step.addEventListener("input", apply);
         show();
         box.append(el("div", { class: "field" }, [el("label", { text: "On press" }), pick]), presetField, stepField);
+        box.append(millis("every_ms", "Ask every", { min: 5000, max: 3600000, step: 5000, fallback: 10000 }));
+        break;
+      }
+      case "pihole": {
+        const url = el("input", { type: "text", value: action.url || "", placeholder: "http://pi.hole/" });
+        url.addEventListener("input", () => change(d => { getAction().url = url.value.trim(); }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { text: "Pi-hole address" }), url,
+          el("div", { class: "help", text: "The box's own address. The key draws today's figures and wears a lamp that is green while blocking is on and red while it is paused; give it no picture, or the picture wins and only the lamp shows." })]));
+        const tokenFile = el("input", { type: "text", value: action.token_file || "", placeholder: "~/.deckplate-tokens/pihole" });
+        tokenFile.addEventListener("input", () => change(d => {
+          const a = getAction();
+          if (tokenFile.value.trim()) a.token_file = tokenFile.value.trim(); else delete a.token_file;
+        }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { text: "Password file" }), tokenFile,
+          el("div", { class: "help", text: "Holds the web password, or an app password made on Pi-hole's settings page, and nothing else." })]));
+        box.append(passwordFields(() => tokenFile.value.trim(), () => "~/.deckplate-tokens/pihole", path => {
+          tokenFile.value = path;
+          change(d => { getAction().token_file = path; }, { silent: true });
+        }));
+        const pick = el("select", {}, [
+          el("option", { value: "toggle", text: "Pause blocking for a while, or resume it" }),
+          el("option", { value: "open", text: "Open the admin page" }),
+        ]);
+        pick.value = action.do || "toggle";
+        const seconds = el("input", { type: "number", min: 10, max: 86400, step: 10, value: action.seconds || 300 });
+        const secondsField = el("div", { class: "field" }, [el("label", { text: "Pause for (seconds)" }), seconds]);
+        const show = () => { secondsField.hidden = pick.value !== "toggle"; };
+        pick.addEventListener("change", () => { show(); change(d => { getAction().do = pick.value; }, { silent: true }); });
+        seconds.addEventListener("input", () => change(d => {
+          getAction().seconds = Math.max(10, Math.min(86400, parseInt(seconds.value, 10) || 300));
+        }, { silent: true }));
+        show();
+        box.append(el("div", { class: "field" }, [el("label", { text: "On press" }), pick]), secondsField);
+        const insecure = el("input", { type: "checkbox", id: "pihole_insecure" });
+        insecure.checked = !!action.insecure;
+        insecure.addEventListener("change", () => change(d => { getAction().insecure = insecure.checked; }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { class: "check", for: "pihole_insecure" }, [insecure, el("span", { text: "Accept a certificate that does not verify" })]),
+          el("div", { class: "help", text: "For a box reached over https with its own certificate." })]));
         box.append(millis("every_ms", "Ask every", { min: 5000, max: 3600000, step: 5000, fallback: 10000 }));
         break;
       }
@@ -2925,6 +2966,39 @@
       el("div", { class: "field" }, [el("label", { text: "Password" }), pass]),
       el("div", { class: "field" }, [el("div", { class: "inline" }, [write, note]),
         el("div", { class: "help", text: "Written once, by the daemon on this machine, to the credentials file above with owner only permissions. The password is never kept in the config." })]),
+    ]);
+  }
+  /**
+   * <summary>A password box and a button that has the daemon write the password alone to a file.</summary>
+   * <param name="currentPath">Returns the path typed in the file field, or "".</param>
+   * <param name="defaultPath">Returns the path to use when none is typed.</param>
+   * <param name="onWritten">Called with the path once the file is written.</param>
+   * <returns>The fields.</returns>
+   * <remarks>The credentials writer's twin for an API that takes the bare
+   * password rather than a Basic header, which is Pi-hole's. The daemon
+   * writes the file with owner only permissions and the password is never
+   * kept in the config.</remarks>
+   */
+  function passwordFields(currentPath, defaultPath, onWritten) {
+    const pass = el("input", { type: "password", autocomplete: "new-password", placeholder: "password" });
+    const write = el("button", { type: "button", class: "ghost small", text: "Write password file" });
+    const note = el("span", { class: "muted", text: "" });
+    write.addEventListener("click", async () => {
+      const path = currentPath() || defaultPath();
+      note.textContent = "writing";
+      try {
+        const reply = await apiPost("/api/credentials", { path, password: pass.value, raw: true });
+        pass.value = "";
+        onWritten(reply.path);
+        note.textContent = "written to " + reply.path;
+      } catch (err) {
+        note.textContent = "not written: " + err.message;
+      }
+    });
+    return el("div", {}, [
+      el("div", { class: "field" }, [el("label", { text: "Password" }), pass]),
+      el("div", { class: "field" }, [el("div", { class: "inline" }, [write, note]),
+        el("div", { class: "help", text: "Written once, by the daemon on this machine, to the password file above with owner only permissions. The password is never kept in the config." })]),
     ]);
   }
   /**

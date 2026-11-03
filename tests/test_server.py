@@ -1101,6 +1101,21 @@ def test_credentials_are_written_as_a_basic_file_readable_by_the_owner_alone(api
     assert status == 200 and target.read_text().startswith("Basic ") and target.read_text() != expected
 
 
+def test_a_raw_credentials_file_holds_the_password_alone(api, tmp_path):
+    """<summary>With ``raw`` true the file is the password and a newline,
+    no username needed, with the same owner only permissions; a username
+    is still required without it.</summary>"""
+    import stat
+    srv, _ = api
+    target = tmp_path.parent / (tmp_path.name + "-tokens") / "pihole"
+    status, _ctype, raw = request(srv, "POST", "/api/credentials", body={"path": str(target), "password": "s3cret", "raw": True})
+    assert status == 200 and json.loads(raw) == {"ok": True, "path": str(target)}
+    assert target.read_text() == "s3cret\n"
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
+    status, _ctype, raw = request(srv, "POST", "/api/credentials", body={"path": str(target), "password": "s3cret", "raw": "yes"})
+    assert status == 400 and "'raw'" in json.loads(raw)["error"]
+
+
 @pytest.mark.parametrize("body, message", [
     ({"username": "a", "password": "b"}, "'path'"),
     ({"path": "tokens/kodi", "username": "a", "password": "b"}, "absolute"),

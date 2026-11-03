@@ -288,6 +288,17 @@ a step of a multi action.
   `preset = 2`), brighter and dimmer (with an optional `step` out of 255,
   32 by default). The reply to a press updates the key at once. Leave the
   key without a picture, or the picture wins and the active face shows on.
+- `pihole` watches a Pi-hole 6: `{ type = "pihole", url = "http://pi.hole/", token_file = "~/.deckplate-tokens/pihole" }`.
+  The key draws today's figures, the share blocked large with the queries
+  and blocked counts under it, and wears a lamp that is green while
+  blocking is on, red while it is paused and grey while the box cannot be
+  reached; a key with a picture keeps it and wears only the lamp. The press
+  pauses blocking for `seconds` (300 by default) and resumes it on the next
+  press, or with `do = "open"` opens the admin page. The credentials file
+  holds the web password, or an app password from Pi-hole's settings page,
+  alone; the configuration page writes it for you. `insecure = true`
+  accepts the box's own certificate over https, and `every_ms` sets how
+  often it is asked.
 - `kodi` sends Kodi a remote control action over its JSON RPC:
   `{ type = "kodi", do = "play_pause" }`, with `do` one of play_pause,
   pause, play, stop, next, previous, up, down, left, right, select, back,

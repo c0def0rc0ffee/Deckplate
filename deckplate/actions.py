@@ -41,6 +41,7 @@ import requests
 from . import audio as audio_module
 from . import awake
 from . import lights as lights_module
+from . import pihole as pihole_module
 from . import desktop as desktop_module
 from . import hotkeys
 from . import kodi as kodi_module
@@ -349,6 +350,7 @@ class ActionRunner:
         self.notifier = notifier
         self.nudge = nudge
         self.lights = lights
+        self.pihole = None  # the controller's Pi-hole monitor, set after construction like lights
         self.log = log
 
     @property
@@ -506,6 +508,8 @@ class ActionRunner:
             self._kodi(params)
         elif action.type == "wled":
             self._wled(params)
+        elif action.type == "pihole":
+            self._pihole(params)
         elif action.type == "weather":
             self.open_url(params.get("url") or weather_site(self.weather))
         elif action.type == "system":
@@ -647,6 +651,31 @@ class ActionRunner:
                 self.lights.update(url, lights_module.parse_state(reply))
             except ValueError:
                 pass
+
+    def _pihole(self, params: dict) -> None:
+        """<summary>
+        Pause a Pi-hole's blocking for a while, resume it, or open its admin page.
+        </summary>
+        <param name="params">A pihole action's params: ``url``, ``token_file``,
+        ``insecure``, ``do`` and ``seconds``.</param>
+        <remarks>A toggle goes by the latest reading: blocking on means
+        pause for ``seconds``, off means resume. With no reading yet the box
+        is asked first, so the first press after a start still does the
+        right thing. The state the box answers with goes to the monitor, so
+        the lamp follows the press at once.</remarks>
+        <exception cref="ValueError">The box refused the password.</exception>
+        <exception cref="requests.RequestException">The box could not be reached.</exception>"""
+        url = params["url"]
+        if params.get("do") == "open":
+            self.open_url(pihole_module.admin_url(url))
+            return
+        session = pihole_module.session_for(url, params.get("token_file"), bool(params.get("insecure")))
+        known = self.pihole.state(url) if self.pihole is not None else None
+        blocking = known.blocking if known is not None else pihole_module.fetch(session).blocking
+        now_blocking, timer = pihole_module.set_blocking(session, not blocking, int(params.get("seconds", pihole_module.DEFAULT_PAUSE_S)))
+        self.log(f"pi-hole blocking {'resumed' if now_blocking else 'paused'}")
+        if self.pihole is not None:
+            self.pihole.update(url, now_blocking, timer)
 
     def _chord(self, params: dict) -> None:
         """<summary>

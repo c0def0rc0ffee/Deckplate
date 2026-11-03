@@ -600,3 +600,16 @@ def test_a_scrolling_caption_slides_a_long_name_and_leaves_a_short_one_still():
     assert all(frame.getpixel((2, SIZE - 2)) != (10, 10, 200) for frame in frames)
     assert tiles.playing_caption(NowPlaying("Song", "Band", "Playing", "x")) == "Song (Band)"
     assert tiles.playing_caption(NowPlaying("", "", "Playing", "vlc")) == "vlc"
+
+
+def test_the_pi_hole_tile_shows_the_share_and_says_when_it_is_paused():
+    """<summary>A reading draws, a paused one differs from a blocking one and
+    from none at all, and counts come out short.</summary>"""
+    from deckplate.pihole import PiholeReading
+    on = PiholeReading(True, None, 12345, 2345, 19.0, 150000)
+    off = PiholeReading(False, 300, 12345, 2345, 19.0, 150000)
+    assert differs_from_blank(tiles.pihole_tile(on, SIZE))
+    assert tiles.pihole_tile(on, SIZE).tobytes() != tiles.pihole_tile(off, SIZE).tobytes()
+    assert tiles.pihole_tile(None, SIZE).tobytes() != tiles.pihole_tile(on, SIZE).tobytes()
+    assert tiles.pihole_tile(on, SIZE, labelled=True).tobytes() != tiles.pihole_tile(on, SIZE).tobytes()
+    assert [tiles.compact_count(n) for n in (950, 1000, 12345, 1_200_000)] == ["950", "1k", "12.3k", "1.2M"]

@@ -60,7 +60,7 @@ PLAYING_LABELS = ("none", "band", "scroll")
 ACTION_TYPES = ("hotkey", "sequence", "chord", "hold", "boost", "repeat",
                 "text", "launch", "url", "request", "page", "brightness", "sleep", "multi",
                 "toggle", "volume", "audio_output", "window", "timer", "stopwatch", "counter",
-                "stay_awake", "dnd", "status", "kodi", "weather", "system", "wled")
+                "stay_awake", "dnd", "status", "kodi", "weather", "system", "wled", "pihole")
 # The toggling desktop actions: like a hold they run until pressed again,
 # so they cannot be a step of another action either.
 DESKTOP_TOGGLES = ("stay_awake", "dnd")
@@ -1712,6 +1712,27 @@ def _parse_action(table: Any, where: str, nested: bool = False) -> Action:
         elif do in ("brighter", "dimmer"):
             params["step"] = _int(table, "step", where, lights_module.STEP_DEFAULT, 1, 254)
         params["every_ms"] = _int(table, "every_ms", where, lights_module.DEFAULT_EVERY_MS, *STATUS_EVERY_RANGE)
+    elif kind == "pihole":
+        # The key draws today's figures and wears the blocking state as its
+        # lamp; the press pauses blocking for a while, or opens the admin page.
+        if nested:
+            raise ConfigError(f"{where}: a pihole action cannot be a step of another action")
+        from . import pihole as pihole_module
+        url = _str(table, "url", where, required=True) or ""
+        if not url.startswith(("http://", "https://")):
+            raise ConfigError(f"{where}: 'url' must start with http:// or https://")
+        params["url"] = url
+        params["token_file"] = _str(table, "token_file", where) or None
+        insecure = table.get("insecure", False)
+        if not isinstance(insecure, bool):
+            raise ConfigError(f"{where}: 'insecure' must be true or false")
+        params["insecure"] = insecure
+        do = _str(table, "do", where, "toggle") or "toggle"
+        if do not in pihole_module.DOINGS:
+            raise ConfigError(f"{where}: 'do' must be one of {', '.join(pihole_module.DOINGS)}")
+        params["do"] = do
+        params["seconds"] = _int(table, "seconds", where, pihole_module.DEFAULT_PAUSE_S, *pihole_module.PAUSE_RANGE)
+        params["every_ms"] = _int(table, "every_ms", where, pihole_module.DEFAULT_EVERY_MS, *STATUS_EVERY_RANGE)
     elif kind == "weather":
         # The key draws the reading itself; the press opens a site, the
         # runner's default for the coordinates when none is written.
