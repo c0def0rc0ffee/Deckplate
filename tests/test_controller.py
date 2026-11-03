@@ -2635,11 +2635,11 @@ playing = { source = "kodi", url = "http://p.test/jsonrpc", token_file = "~/t" }
     assert controller._key_playing_signature(key) == (None, False)
     monitor.poll_once()
     assert watched == [("http://p.test/jsonrpc", "~/t")]
-    assert controller._key_playing_signature(key) == ("http://p.test/image/x", False)
+    assert controller._key_playing_signature(key) == (track["value"], False)
     assert controller._draw_key(0, 1, size, set())[0].tobytes() == plain.tobytes()  # words until the picture lands
     cache.fetch_once()
     assert fetched == [("http://p.test/image/x", "~/t")]
-    assert controller._key_playing_signature(key) == ("http://p.test/image/x", True)
+    assert controller._key_playing_signature(key) == (track["value"], True)
     status.poll_once()
     image = controller._draw_key(0, 1, size, set())[0]
     assert image.getpixel((size // 2, size // 2)) == (0, 0, 250)
@@ -2650,3 +2650,64 @@ playing = { source = "kodi", url = "http://p.test/jsonrpc", token_file = "~/t" }
     monitor.poll_once()
     assert controller._key_playing_signature(key) == (None, False)
     assert controller._draw_key(0, 1, size, set())[0].getpixel((size // 2, size // 2)) != (0, 0, 250)
+
+
+def test_a_kodi_key_follows_its_own_player_and_scrolls_the_name_along_the_bottom(setup):
+    """<summary>
+    A play key with ``playing = { source = "kodi" }`` follows the player its
+    action talks to, the [kodi] one for a plain key and its own address for
+    a remote one, both watched; with a scrolling label a long name comes
+    out as frames over the picture, a short one as a still captioned band.
+    </summary>
+    """
+    from PIL import Image
+    from deckplate import media as media_module
+    controller, deck, clock, urls, path = setup
+    readings = {
+        "http://shared.test/jsonrpc": media_module.NowPlaying("A Very Long Film Title Indeed", "Someone", "Playing", "kodi", art="http://shared.test/image/a"),
+        "http://other.test/jsonrpc": media_module.NowPlaying("Hi", "", "Playing", "kodi", art="http://other.test/image/b", art_token_file="~/o"),
+    }
+    watched = []
+    monitor = media_module.KodiPlayingMonitor(prober=lambda url, token_file: watched.append((url, token_file)) or readings[url],
+                                              monotonic=lambda: clock.mono, log=lambda t: None, threaded=False)
+    cache = media_module.ArtCache(fetcher=lambda url, token_file: Image.new("RGB", (30, 30), (0, 200, 0)),
+                                  monotonic=lambda: clock.mono, log=lambda t: None, threaded=False)
+    controller.kodi_media = monitor
+    controller.art = cache
+    controller.reload(cfg.parse(TEXT + """
+[kodi]
+url = "http://shared.test/jsonrpc"
+token_file = "~/s"
+
+[[pages.keys]]
+row = 0
+column = 1
+label = "Play"
+action = { type = "kodi", do = "play_pause" }
+playing = { source = "kodi", label = "scroll" }
+
+[[pages.keys]]
+row = 0
+column = 2
+label = "Remote"
+action = { type = "kodi", do = "play_pause", url = "http://other.test/jsonrpc", token_file = "~/o" }
+playing = { source = "kodi", label = "scroll" }
+""", path.parent, path))
+    controller.switch_page("Second")
+    shared, remote = controller.page.keys[(0, 1)], controller.page.keys[(0, 2)]
+    assert controller._key_player(shared) == ("http://shared.test/jsonrpc", "~/s")
+    assert controller._key_player(remote) == ("http://other.test/jsonrpc", "~/o")
+    monitor.poll_once()
+    assert sorted(watched) == [("http://other.test/jsonrpc", "~/o"), ("http://shared.test/jsonrpc", "~/s")]
+    controller._draw_key(0, 1, controller.deck.image_size, set())
+    controller._draw_key(0, 2, controller.deck.image_size, set())
+    cache.fetch_once()
+    size = controller.deck.image_size
+    image, frames, fps = controller._draw_key(0, 1, size, set())
+    assert frames is not None and len(frames) > 4 and fps > 0
+    assert frames[0].getpixel((size // 2, 8)) == (0, 200, 0)
+    assert frames[0].tobytes() != frames[len(frames) // 2].tobytes()
+    image, frames, fps = controller._draw_key(0, 2, size, set())
+    assert frames is None
+    assert image.getpixel((size // 2, 8)) == (0, 200, 0)
+    assert image.getpixel((size // 2, size - 4)) != (0, 200, 0)  # the band carries the short name

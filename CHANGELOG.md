@@ -22,8 +22,11 @@
 - Any key may follow a player with `playing`, the same source, `url` and
   `token_file` as the panel, and wears the picture of what that player is
   playing as its whole face while it plays something, with the lamp still
-  in the corner; it looks as it always does the rest of the time. A fold on
-  every key on the configuration page.
+  in the corner; it looks as it always does the rest of the time. A `kodi`
+  key may leave the `url` out and follow the player it talks to, and
+  `label = "band"` or `"scroll"` names what is playing along the bottom,
+  scrolling when it is too long to fit. A fold on every key on the
+  configuration page.
 - Right click a key on the configuration page to move it or copy it to
   another page: a window offers the page and its fifteen positions, a
   free one takes the key, and a taken one asks whether to replace what

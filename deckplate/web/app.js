@@ -1428,26 +1428,36 @@
    */
   function keyPlayingFields(key) {
     const playing = key.playing || {};
+    const hasKodi = ["action", "action_long", "action_double"].some(field => key[field] && key[field].type === "kodi");
     const pick = el("select", {}, [
       el("option", { value: "", text: "Nothing" }),
       el("option", { value: "local", text: "This machine's media player" }),
       el("option", { value: "kodi", text: "A Kodi player" }),
     ]);
-    pick.value = playing.source === "kodi" ? "kodi" : playing.source === "local" ? "local" : "";
+    if (hasKodi) pick.append(el("option", { value: "own", text: "The player this key controls" }));
+    pick.value = playing.source === "kodi" ? (playing.url || !hasKodi ? "kodi" : "own") : playing.source === "local" ? "local" : "";
+    const label = el("select", {}, [
+      el("option", { value: "none", text: "Not named" }),
+      el("option", { value: "band", text: "On a band along the bottom" }),
+      el("option", { value: "scroll", text: "Scrolling along the bottom" }),
+    ]);
+    label.value = ["band", "scroll"].includes(playing.label) ? playing.label : "none";
     const url = el("input", { type: "text", value: playing.url || "", placeholder: "http://player:8080/jsonrpc" });
     const tokenFile = el("input", { type: "text", value: playing.token_file || "", placeholder: "~/.deckplate-tokens/kodi-other" });
     const save = () => change(d => {
       const k = ensureKey(currentPage(), selected.row, selected.column);
       if (!pick.value) { k.playing = null; dropEmptyKey(currentPage(), k); return; }
-      const next = { source: pick.value };
+      const next = { source: pick.value === "own" ? "kodi" : pick.value };
       if (pick.value === "kodi") {
         next.url = url.value.trim();
         if (tokenFile.value.trim()) next.token_file = tokenFile.value.trim();
       }
+      if (label.value !== "none") next.label = label.value;
       k.playing = next;
     }, { silent: true });
     url.addEventListener("input", save);
     tokenFile.addEventListener("input", save);
+    label.addEventListener("change", save);
     const kodiBox = el("div", {}, [
       el("div", { class: "field" }, [el("label", { text: "Player address" }), url,
         el("div", { class: "help", text: "The player's JSON RPC address, as on a kodi key for another room." })]),
@@ -1464,6 +1474,8 @@
       el("div", { class: "field" }, [el("label", { text: "Follows" }), pick,
         el("div", { class: "help", text: "While that player has something on, the key's whole face is the cover or poster of it, with the lamp still in the corner. The rest of the time the key looks as it does now." })]),
       kodiBox,
+      el("div", { class: "field" }, [el("label", { text: "Name of what is playing" }), label,
+        el("div", { class: "help", text: "The title, with the artist or show in brackets, over the picture. Scrolling slides it along when it is too long to fit, and sits still when it fits." })]),
     ]);
   }
 

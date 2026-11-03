@@ -321,12 +321,18 @@ lamp in the corner" fold on every key.
 
 A key may carry `playing = { source = "kodi", url = "http://player:8080/jsonrpc", token_file = "..." }`,
 or `playing = { source = "local" }` for this machine's own players, the
-same three a `playing` strip panel takes. While that player has something
-on and names a picture for it, the key's whole face is that picture, cover
-or poster, with the lamp still in its corner; the rest of the time the key
+same three a `playing` strip panel takes. A `kodi` key may leave the `url`
+out, `playing = { source = "kodi" }`, and follows the player it talks to,
+its own or the one in `[kodi]`. While that player has something on and
+names a picture for it, the key's whole face is that picture, cover or
+poster, with the lamp still in its corner; the rest of the time the key
 looks as it always does. So the page key that leads to the Kodi page shows
-the film's poster while the film runs and its own icon otherwise. On the
-configuration page it is the "Picture of what is playing" fold on every key.
+the film's poster while the film runs and its own icon otherwise, and a
+play key shows what it is playing. Add `label = "band"` for the name on a
+caption band along the bottom, the title with the artist or show in
+brackets, or `label = "scroll"` for the name sliding along the bottom when
+it is too long to fit. On the configuration page it is the "Picture of
+what is playing" fold on every key.
 
 ### The other face of a key
 

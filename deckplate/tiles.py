@@ -895,6 +895,57 @@ def picture_face(art: Image.Image, size: int) -> Image.Image:
     return scaled.crop((left, top, left + size, top + size)).convert("RGB")
 
 
+def playing_caption(reading: NowPlaying) -> str:
+    """<summary>The words that name what is playing, for a band or a scroll.</summary>
+    <param name="reading">The player's state.</param>
+    <returns>The title, with the artist or show in brackets when there is one.</returns>"""
+    title = reading.title or reading.player or "unknown"
+    return f"{title} ({reading.artist})" if reading.artist else title
+
+
+def scrolling_label_frames(tile: Image.Image, text: str, fps: int = 20, speed: float = 40.0) -> tuple[list[Image.Image], int] | None:
+    """<summary>
+    The caption band of <see cref="with_label"/> with its text sliding along,
+    for a name too long to fit; None when the name fits as it is.
+    </summary>
+    <param name="tile">The picture to caption. It is not modified.</param>
+    <param name="text">The caption.</param>
+    <param name="fps">Frames a second the loop plays at.</param>
+    <param name="speed">Pixels a second the text moves, whatever the rate.</param>
+    <returns>(frames, fps), or None to say the caller should use
+    <see cref="with_label"/> and a still.</returns>
+    <remarks>
+    The same band as the still caption, so a key looks the same whether its
+    name fits or scrolls. The travel is the text width plus a whole key, so
+    the text leaves one edge before returning at the other, and the first
+    frame starts the text at the left edge so a still of it still reads.
+    Capped at 600 frames, as the scrolling label animation is.
+    </remarks>
+    """
+    size = tile.width
+    band_height = max(16, int(size * 0.26))
+    font = images.load_font(int(band_height * 0.7))
+    probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+    left, top, right, bottom = probe.textbbox((0, 0), text, font=font)
+    width = right - left
+    if width <= size - 6:
+        return None
+    travel = width + size
+    step = max(1, int(round(speed / max(1, fps))))
+    count = max(4, min(600, travel // step))
+    base = tile.convert("RGBA")
+    y = size - band_height / 2 - (top + bottom) / 2
+    frames = []
+    for i in range(count):
+        overlay = Image.new("RGBA", tile.size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
+        draw.rectangle([0, size - band_height, size, size], fill=BAND)
+        x = size - (i * step + size - 3) % travel
+        draw.text((x - left, y), text, fill=images.FOREGROUND, font=font)
+        frames.append(Image.alpha_composite(base, overlay).convert("RGB"))
+    return frames, fps
+
+
 def _playing_with_art(reading: NowPlaying, size: int, art: Image.Image) -> Image.Image:
     """<summary>The playing tile's other form: the picture, a band, the words.</summary>
     <param name="reading">The player's state.</param>

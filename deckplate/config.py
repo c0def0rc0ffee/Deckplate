@@ -54,6 +54,9 @@ PLAYING_SOURCES = ("local", "kodi")
 # What a key's lamp watches: a web address that answers, or a WLED device
 # whose lights are on.
 LAMP_KINDS = ("web", "wled")
+# How a key that follows a player names what is playing over the picture:
+# not at all, on a band along the bottom, or scrolling along the bottom.
+PLAYING_LABELS = ("none", "band", "scroll")
 ACTION_TYPES = ("hotkey", "sequence", "chord", "hold", "boost", "repeat",
                 "text", "launch", "url", "request", "page", "brightness", "sleep", "multi",
                 "toggle", "volume", "audio_output", "window", "timer", "stopwatch", "counter",
@@ -309,17 +312,23 @@ class PlayingSource:
     </summary>
     <param name="source">"local" for the desktop's own players over the
     session bus, "kodi" for a Kodi player at ``url``.</param>
-    <param name="url">The Kodi player's JSON RPC address; None for local.</param>
+    <param name="url">The Kodi player's JSON RPC address. None for local,
+    and None on a kodi key for the player that key itself talks to, its
+    own ``url`` or the one in [kodi].</param>
     <param name="token_file">The Kodi player's credentials file, or None.</param>
-    <remarks>The same three a playing strip panel takes. While the player
-    has something on and names a picture for it, the key's face is that
-    picture; otherwise the key looks as it always does, so a page key that
-    leads to the Kodi page shows the film poster while the film runs and
-    its own icon the rest of the time.</remarks>"""
+    <param name="label">How what is playing is named over the picture:
+    "none", "band" for a caption band along the bottom, or "scroll" for the
+    name sliding along the bottom when it is too long to fit.</param>
+    <remarks>The same three a playing strip panel takes, and the label.
+    While the player has something on and names a picture for it, the
+    key's face is that picture; otherwise the key looks as it always does,
+    so a page key that leads to the Kodi page shows the film poster while
+    the film runs and its own icon the rest of the time.</remarks>"""
 
     source: str = "local"
     url: str | None = None
     token_file: str | None = None
+    label: str = "none"
 
 
 @dataclass(frozen=True)
@@ -1311,35 +1320,41 @@ def _parse_keys(raw: Any, where: str, base_dir: Path) -> dict[tuple[int, int], K
             raw = table.get(field)
             return _parse_action(raw, f"{here} {label}") if raw is not None else None
 
+        actions = (action_for("action", "action"), action_for("action_long", "long press action"),
+                   action_for("action_double", "double press action"))
+        own_player = any(a is not None and a.type == "kodi" for a in actions)
         keys[(row, column)] = KeyConfig(
             row=row, column=column,
             image=_resolve(image, base_dir) if image else None,
             label=_str(table, "label", here),
-            action=action_for("action", "action"),
+            action=actions[0],
             animation=_parse_animation(animation, here) if animation is not None else None,
             background=_colour(table, "background", here),
             mark=_parse_mark(table.get("mark"), here),
-            action_long=action_for("action_long", "long press action"),
-            action_double=action_for("action_double", "double press action"),
+            action_long=actions[1],
+            action_double=actions[2],
             image_active=_resolve(image_active, base_dir) if image_active else None,
             label_active=_str(table, "label_active", here),
             lamp=_parse_lamp(table.get("lamp"), here),
-            playing=_parse_playing(table.get("playing"), here),
+            playing=_parse_playing(table.get("playing"), here, own_player),
         )
     return keys
 
 
-def _parse_playing(table: Any, where: str) -> PlayingSource | None:
+def _parse_playing(table: Any, where: str, own_player: bool = False) -> PlayingSource | None:
     """<summary>
     Build the player a key follows from its ``playing`` table, or None.
     </summary>
     <param name="table">The table from the file, or None.</param>
     <param name="where">How to name the key in an error.</param>
+    <param name="own_player">True when the key has a kodi action, so a
+    Kodi source may leave the address out and mean that action's player.</param>
     <returns>The source, or None.</returns>
     <remarks>The same checks as a playing strip panel's source, so the two
-    refuse the same mistakes in the same words.</remarks>
-    <exception cref="ConfigError">Not a table, an unknown source, or a Kodi
-    source without an http or https address.</exception>"""
+    refuse the same mistakes in the same words, plus the label.</remarks>
+    <exception cref="ConfigError">Not a table, an unknown source or label,
+    a Kodi source with an address that is not http or https, or one with
+    no address on a key that has no kodi action to borrow it from.</exception>"""
     if table is None:
         return None
     here = f"{where} playing"
@@ -1348,13 +1363,18 @@ def _parse_playing(table: Any, where: str) -> PlayingSource | None:
     source = _str(table, "source", here, "local") or "local"
     if source not in PLAYING_SOURCES:
         raise ConfigError(f"{here}: 'source' must be one of {', '.join(PLAYING_SOURCES)}")
+    label = _str(table, "label", here, "none") or "none"
+    if label not in PLAYING_LABELS:
+        raise ConfigError(f"{here}: 'label' must be one of {', '.join(PLAYING_LABELS)}")
     url = token_file = None
     if source == "kodi":
-        url = _str(table, "url", here, required=True) or ""
-        if not url.startswith(("http://", "https://")):
+        url = _str(table, "url", here) or None
+        if url is None and not own_player:
+            raise ConfigError(f"{here}: needs a 'url', or a kodi action on the key to take the player from")
+        if url is not None and not url.startswith(("http://", "https://")):
             raise ConfigError(f"{here}: 'url' must start with http:// or https://")
         token_file = _str(table, "token_file", here) or None
-    return PlayingSource(source=source, url=url, token_file=token_file)
+    return PlayingSource(source=source, url=url, token_file=token_file, label=label)
 
 
 def _parse_lamp(table: Any, where: str) -> LampSettings | None:
@@ -1975,10 +1995,12 @@ def _playing_document(playing: PlayingSource | None) -> dict | None:
     if playing is None:
         return None
     document: dict[str, Any] = {"source": playing.source}
-    if playing.source == "kodi":
+    if playing.source == "kodi" and playing.url:
         document["url"] = playing.url
         if playing.token_file:
             document["token_file"] = playing.token_file
+    if playing.label != "none":
+        document["label"] = playing.label
     return document
 
 

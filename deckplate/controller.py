@@ -854,6 +854,29 @@ class Controller:
         return (mark, active, face, self._key_dot(key), self._key_weather(key), self._key_system(key),
                 self._key_lights(key), self._key_playing_signature(key))
 
+    def _key_player(self, key) -> tuple[str, str | None] | None:
+        """<summary>
+        The Kodi player a key follows: its address and credentials file.
+        </summary>
+        <param name="key">The key, or None.</param>
+        <returns>(url, token_file), or None when the key follows no Kodi
+        player.</returns>
+        <remarks>The ``playing`` table's own address first. Without one, the
+        key's kodi action lends its player: the address and credentials
+        file on the action, else the [kodi] table's, which is what a plain
+        play or pause key talks to. So a play key follows whatever it
+        plays without the address being written twice.</remarks>"""
+        if key is None or key.playing is None or key.playing.source != "kodi":
+            return None
+        if key.playing.url:
+            return key.playing.url, key.playing.token_file
+        for action in key.actions():
+            if action is not None and action.type == "kodi":
+                if action.params.get("url"):
+                    return action.params["url"], action.params.get("token_file")
+                return self.config.kodi.url, self.config.kodi.token_file
+        return None
+
     def _key_playing_reading(self, key):
         """<summary>
         The now playing reading of the player a key follows, or None.
@@ -864,7 +887,8 @@ class Controller:
         if key is None or key.playing is None:
             return None
         if key.playing.source == "kodi":
-            return self.kodi_media.reading(key.playing.url)
+            player = self._key_player(key)
+            return self.kodi_media.reading(player[0]) if player else None
         return self.media.reading
 
     def _key_playing_art(self, key):
@@ -885,17 +909,19 @@ class Controller:
         What decides the picture a key wears for its player, for the face signature.
         </summary>
         <param name="key">The key, or None.</param>
-        <returns>(the picture's address, whether it has arrived), or None
-        for a key that follows no player.</returns>
-        <remarks>The address rather than the picture, so a new track with a
-        new picture changes the signature the moment it is read, and the
-        arrival flag so the key is drawn again when the picture lands.</remarks>"""
+        <returns>(the reading, whether its picture has arrived), or None
+        for a key that follows no player and (None, False) for one whose
+        player has nothing on.</returns>
+        <remarks>The reading rather than the picture, so a new track changes
+        the signature the moment it is read, its name included for the
+        caption, and the arrival flag so the key is drawn again when the
+        picture lands.</remarks>"""
         if key is None or key.playing is None:
             return None
         reading = self._key_playing_reading(key)
         if reading is None or not reading.art:
             return (None, False)
-        return (reading.art, self.art.image(reading.art, reading.art_token_file) is not None)
+        return (reading, self.art.image(reading.art, reading.art_token_file) is not None)
 
     def _key_dot(self, key) -> tuple[int, int, int] | None:
         """<summary>
@@ -1046,9 +1072,21 @@ class Controller:
         playing_art = self._key_playing_art(key)
         if playing_art is not None:
             # The picture of what the key's player is playing is the whole
-            # face while it plays: no label, no live text, the lamp still on
-            # top from the caller, and the border for a running task kept.
+            # face while it plays: no label of the key's own, no live text,
+            # the lamp still on top from the caller, the border for a
+            # running task kept, and the name of what is playing on a band
+            # or sliding along the bottom when the key asks for it.
             tile = tiles.picture_face(playing_art, size)
+            caption = tiles.playing_caption(self._key_playing_reading(key))
+            if key.playing.label == "scroll":
+                scrolled = tiles.scrolling_label_frames(tile, caption)
+                if scrolled is not None:
+                    frames, fps = scrolled
+                    if mark is not None:
+                        frames = [tiles.with_mark(frame, mark) for frame in frames]
+                    return frames[0], frames, fps
+            if key.playing.label in ("band", "scroll"):
+                tile = tiles.with_label(tile, caption)
             if mark is not None:
                 tile = tiles.with_mark(tile, mark)
             return tile, None, 0
@@ -1851,8 +1889,9 @@ class Controller:
                    if tile.kind == "playing" and tile.source == "kodi" and tile.url]
         for page in self.config.pages:
             for key in page.keys.values():
-                if key.playing is not None and key.playing.source == "kodi" and key.playing.url:
-                    players.append((key.playing.url, key.playing.token_file))
+                player = self._key_player(key)
+                if player is not None:
+                    players.append(player)
         self.kodi_media.watch(players)
 
     def _watch_status(self) -> None:

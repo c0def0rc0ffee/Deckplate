@@ -528,3 +528,18 @@ def test_a_player_a_key_follows_round_trips_and_is_checked():
         cfg.parse(cfg.to_toml({"pages": [{"name": "A", "keys": [{"row": 0, "column": 0, "playing": {"source": "kodi"}}]}]}), Path("/base"))
     with pytest.raises(cfg.ConfigError, match="playing.*source"):
         cfg.parse(cfg.to_toml({"pages": [{"name": "A", "keys": [{"row": 0, "column": 0, "playing": {"source": "tape"}}]}]}), Path("/base"))
+
+
+def test_a_kodi_key_may_follow_its_own_player_and_the_label_round_trips():
+    """<summary>``playing = { source = "kodi" }`` with no address is accepted
+    on a key with a kodi action and refused on one without; the label
+    survives the save loop and an unknown one is refused.</summary>"""
+    import pytest
+    page = lambda key: {"pages": [{"name": "A", "keys": [dict({"row": 0, "column": 0}, **key)]}]}
+    c = cfg.parse(cfg.to_toml(page({"action": {"type": "kodi", "do": "play_pause"}, "playing": {"source": "kodi", "label": "scroll"}})), Path("/base"))
+    assert c.pages[0].keys[(0, 0)].playing == cfg.PlayingSource("kodi", None, None, "scroll")
+    assert cfg.document_from_config(c)["pages"][0]["keys"][0]["playing"] == {"source": "kodi", "label": "scroll"}
+    with pytest.raises(cfg.ConfigError, match="kodi action"):
+        cfg.parse(cfg.to_toml(page({"label": "x", "playing": {"source": "kodi"}})), Path("/base"))
+    with pytest.raises(cfg.ConfigError, match="playing.*label"):
+        cfg.parse(cfg.to_toml(page({"playing": {"source": "local", "label": "neon"}})), Path("/base"))

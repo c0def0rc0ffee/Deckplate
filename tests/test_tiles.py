@@ -583,3 +583,20 @@ def test_the_playing_tile_shows_the_picture_with_the_words_on_a_band():
         != tiles.strip_signature(playing, now, None, playing=reading, playing_art_ready=True)
     panel = tiles.strip_tile(playing, now, None, 95, "", (78, 78), None, playing=reading, playing_art=art)
     assert panel.getpixel((47, 12)) == (10, 200, 10)
+
+
+def test_a_scrolling_caption_slides_a_long_name_and_leaves_a_short_one_still():
+    """<summary>A name that fits gives None, so the still band is used; a
+    long one gives a loop whose frames differ, every one of them carrying
+    the band and keeping the picture above it.</summary>"""
+    from PIL import Image
+    from deckplate.media import NowPlaying
+    picture = Image.new("RGB", (SIZE, SIZE), (10, 10, 200))
+    assert tiles.scrolling_label_frames(picture, "Hi") is None
+    frames, fps = tiles.scrolling_label_frames(picture, "A very long name that cannot fit on one key at all")
+    assert fps == 20 and 4 <= len(frames) <= 600
+    assert frames[0].tobytes() != frames[1].tobytes()
+    assert all(frame.getpixel((SIZE // 2, 4)) == (10, 10, 200) for frame in frames)
+    assert all(frame.getpixel((2, SIZE - 2)) != (10, 10, 200) for frame in frames)
+    assert tiles.playing_caption(NowPlaying("Song", "Band", "Playing", "x")) == "Song (Band)"
+    assert tiles.playing_caption(NowPlaying("", "", "Playing", "vlc")) == "vlc"
