@@ -855,18 +855,28 @@ class Controller:
         <remarks>
         A status key that carries an active picture or label has chosen to
         show its state by swapping the whole face, so it gets no lamp on
-        top: one indicator per key. The first status action among the three
-        gestures is the one shown.
+        top: one indicator per key. A kodi key with its own ``url`` is a
+        player in another room, and it always wears the lamp, so the keys
+        for the player across the house can be told from the ones for this
+        machine at a glance; a kodi key without one is local and wears
+        none. The first such action among the three gestures is the one
+        shown.
         </remarks>
         """
-        if key is None or key.image_active or key.label_active:
+        if key is None:
             return None
         for action in key.actions():
-            if action is not None and action.type == "status":
+            if action is None:
+                continue
+            if action.type == "status" and not (key.image_active or key.label_active):
                 up = self.status.ok(action.params["url"])
-                if up is None:
-                    return tiles.DOT_UNKNOWN
-                return tiles.DOT_UP if up else tiles.DOT_DOWN
+            elif action.type == "kodi" and action.params.get("url"):
+                up = self.status.ok(action.params["url"])
+            else:
+                continue
+            if up is None:
+                return tiles.DOT_UNKNOWN
+            return tiles.DOT_UP if up else tiles.DOT_DOWN
         return None
 
     def _key_weather(self, key):
@@ -1705,19 +1715,28 @@ class Controller:
 
     def _watch_status(self) -> None:
         """<summary>
-        Hand the status monitor every address a status key on any page names.
+        Hand the status monitor every address a status key on any page
+        names, and every player a kodi key names for itself.
         </summary>
         <remarks>Every page, not only the one showing, so a key's state is
         already known when its page comes up. Called at start and after a
-        reload, which is when the set can change.</remarks>
+        reload, which is when the set can change. A remote kodi key is
+        asked on the default interval with its own credentials file, since
+        Kodi answers a plain GET on its JSON RPC address only when the
+        password is right; the [kodi] credentials are never sent to it, as
+        a press never sends them either.</remarks>
         """
         watches = []
         for page in self.config.pages:
             for key in page.keys.values():
                 for action in key.actions():
-                    if action is not None and action.type == "status":
-                        params = action.params
+                    if action is None:
+                        continue
+                    params = action.params
+                    if action.type == "status":
                         watches.append(Watch(params["url"], params["every_ms"], params["insecure"], params["expect"]))
+                    elif action.type == "kodi" and params.get("url"):
+                        watches.append(Watch(params["url"], token_file=params.get("token_file")))
         self.status.watch(watches)
 
     def _watch_lights(self) -> None:

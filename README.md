@@ -291,7 +291,9 @@ a step of a multi action.
   log line, when nothing is playing. Where Kodi is comes from `[kodi]`,
   unless the key carries its own `url`, and then an optional `token_file`,
   for a second Kodi in another room: that key talks to its own player and
-  the `[kodi]` credentials are not sent to it.
+  the `[kodi]` credentials are not sent to it. Such a key wears the same
+  lamp as a status key, green while that player answers, so the keys for
+  the player in the other room can be told from the local ones at a glance.
 
 ### The other face of a key
 

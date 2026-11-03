@@ -7,6 +7,9 @@ A status key is for the home lab: the storage server, the firewall, the
 library managers. Each is asked on a timer whether it answers, and the
 controller reads the latest answer when it draws the key, so the key's
 active face means "up" and its plain face means "down or not yet asked".
+A kodi key that names its own player is watched the same way, with the
+key's credentials sent along, so its lamp says whether that player is
+there before the press finds out.
 
 The asking happens on one thread of its own, never on the deck's loop,
 because a server that has gone away takes the whole timeout to say so and
@@ -32,6 +35,8 @@ from typing import Callable
 import requests
 import urllib3
 
+from .actions import read_token
+
 DEFAULT_EVERY_MS = 60_000
 TIMEOUT_S = 5.0
 
@@ -44,12 +49,17 @@ class Watch:
     <param name="insecure">True to accept a certificate that does not verify,
     which a firewall's own page nearly always has.</param>
     <param name="expect">Text that must appear in the body, or "" for any
-    answer below 400.</param>"""
+    answer below 400.</param>
+    <param name="token_file">A credentials file whose contents go in the
+    Authorization header, read on every ask as a press reads it; None sends
+    no header. A player that wants a password answers 401 without one, which
+    would count as down.</param>"""
 
     url: str
     every_ms: int = DEFAULT_EVERY_MS
     insecure: bool = False
     expect: str = ""
+    token_file: str | None = None
 
 
 def probe(watch: Watch, timeout: float = TIMEOUT_S) -> bool:
@@ -57,13 +67,16 @@ def probe(watch: Watch, timeout: float = TIMEOUT_S) -> bool:
     <param name="watch">What to ask.</param>
     <param name="timeout">Seconds to wait.</param>
     <returns>True when it answers as the watch expects.</returns>
-    <exception cref="requests.RequestException">It could not be reached.</exception>"""
+    <exception cref="requests.RequestException">It could not be reached.</exception>
+    <exception cref="OSError">The watch names a credentials file that cannot be read.</exception>"""
     if watch.insecure:
         # The key asked for an unverified certificate, so the warning urllib3
         # prints for one is noise in the daemon's log, not news.
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-    response = requests.get(watch.url, timeout=timeout, verify=not watch.insecure,
-                            headers={"User-Agent": "deckplate"})
+    headers = {"User-Agent": "deckplate"}
+    if watch.token_file:
+        headers["Authorization"] = read_token(watch.token_file)
+    response = requests.get(watch.url, timeout=timeout, verify=not watch.insecure, headers=headers)
     if watch.expect:
         return watch.expect in response.text
     return response.status_code < 400

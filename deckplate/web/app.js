@@ -1771,7 +1771,7 @@
         }, { silent: true }));
         box.append(el("div", { class: "field" }, [el("label", { text: "Send" }), mode]), doField, methodField);
         box.append(el("div", { class: "field" }, [el("label", { text: "Another player" }), url,
-          el("div", { class: "help", text: "Leave empty for the Kodi in the settings below the pages. Give an address and this key talks to that player instead, with only the credentials file beside it." })]));
+          el("div", { class: "help", text: "Leave empty for the Kodi in the settings below the pages. Give an address and this key talks to that player instead, with only the credentials file beside it, and wears a lamp in its corner that is green while that player answers." })]));
         box.append(el("div", { class: "field" }, [el("label", { text: "Its credentials file" }), tokenFile]));
         box.append(credentialsFields(() => tokenFile.value.trim(), () => kodiTokenPath(url.value.trim()), path => {
           tokenFile.value = path;

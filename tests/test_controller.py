@@ -2211,6 +2211,61 @@ action = { type = "status", url = "http://box.test/" }
     assert controller._face_signature(0, 1, set()) != before
 
 
+def test_a_kodi_key_with_its_own_player_is_watched_and_wears_the_lamp(setup):
+    """<summary>
+    A kodi key that names its own player is handed to the status monitor
+    with its credentials file, draws the lamp from the answer, and keeps
+    the lamp even with an active picture; a kodi key for the local player
+    is neither watched nor lamped, which is how the two are told apart.
+    </summary>
+    """
+    from deckplate import tiles as tiles_module
+    from deckplate.status import StatusMonitor
+    controller, deck, clock, urls, path = setup
+    answers = {"http://player.test/jsonrpc": True}
+    watched = []
+
+    def prober(watch):
+        watched.append((watch.url, watch.token_file))
+        return answers[watch.url]
+
+    monitor = StatusMonitor(prober=prober, monotonic=lambda: clock.mono, log=lambda t: None, threaded=False)
+    controller.status = monitor
+    controller.reload(cfg.parse(TEXT + """
+[[pages.keys]]
+row = 0
+column = 1
+label = "Remote"
+label_active = "Remote lit"
+action = { type = "kodi", do = "play_pause", url = "http://player.test/jsonrpc", token_file = "~/tokens/kodi-other" }
+
+[[pages.keys]]
+row = 0
+column = 2
+label = "Local"
+action = { type = "kodi", do = "play_pause" }
+""", path.parent, path))
+    controller.switch_page("Second")
+    remote = controller.page.keys[(0, 1)]
+    local = controller.page.keys[(0, 2)]
+    assert controller._key_dot(remote) == tiles_module.DOT_UNKNOWN
+    assert controller._key_dot(local) is None
+    monitor.poll_once()
+    assert watched == [("http://player.test/jsonrpc", "~/tokens/kodi-other")]
+    assert controller._key_dot(remote) == tiles_module.DOT_UP
+    assert controller._key_dot(local) is None
+    size = controller.deck.image_size
+    image, _frames, _fps = controller._draw_key(0, 1, size, set())
+    cx, cy = size - round(size * tiles_module.DOT_INSET), round(size * tiles_module.DOT_INSET)
+    assert image.getpixel((cx, cy)) == tiles_module.DOT_UP
+    answers["http://player.test/jsonrpc"] = False
+    clock.advance(61)
+    monitor.poll_once()
+    assert controller._key_dot(remote) == tiles_module.DOT_DOWN
+    controller.reload(cfg.parse(TEXT, path.parent, path))
+    assert monitor.ok("http://player.test/jsonrpc") is None
+
+
 def test_night_brightness_dims_after_sunset_and_restores_at_sunrise(setup, monkeypatch):
     """<summary>
     With a night brightness set the deck dims when the sun goes down and

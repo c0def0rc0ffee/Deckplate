@@ -111,3 +111,30 @@ def test_the_polling_thread_starts_with_the_first_watch_and_stops_cleanly():
     assert seen == ["http://a.test/"]
     monitor.stop()
     assert not monitor._thread.is_alive()
+
+
+def test_a_watch_with_a_credentials_file_sends_it_and_a_bare_one_does_not(monkeypatch, tmp_path):
+    """<summary>
+    The probe reads the watch's credentials file on every ask and sends it
+    as the Authorization header, exactly as a press would, and a watch
+    without one sends no such header.
+    </summary>
+    """
+    from deckplate.status import probe
+    token = tmp_path / "kodi-other"
+    token.write_text("Basic abc123\n", encoding="utf-8")
+    sent = []
+
+    class Reply:
+        """<summary>A 200 with nothing in it.</summary>"""
+        status_code = 200
+        text = ""
+
+    def fake_get(url, timeout, verify, headers):
+        sent.append((url, headers.get("Authorization")))
+        return Reply()
+
+    monkeypatch.setattr("deckplate.status.requests.get", fake_get)
+    assert probe(Watch("http://player.test/jsonrpc", token_file=str(token))) is True
+    assert probe(Watch("http://plain.test/")) is True
+    assert sent == [("http://player.test/jsonrpc", "Basic abc123"), ("http://plain.test/", None)]
