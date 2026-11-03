@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Right click a key on the configuration page to move it or copy it to
+  another page: a window offers the page and its fifteen positions, a
+  free one takes the key, and a taken one asks whether to replace what
+  is there or, for a move, swap the two keys over. One edit, so Undo
+  puts it all back.
 - A `wled` key for WLED lights: the lights' own colour behind a lamp, lit
   or dark, with the brightness as a bar and a percentage, polled on a
   timer; the press toggles them, turns them on or off, picks a preset or

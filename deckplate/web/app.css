@@ -339,6 +339,39 @@ main {
 .tab.dragover { border-color: var(--warn); }
 
 /**
+ * <summary>The right click menu on a key, and the position picker in the move and copy window.</summary>
+ * <remarks>
+ * The menu is fixed at the pointer and sits above the modal level, though
+ * nothing else is open while it shows. The picker is the deck's own five by
+ * three, each position a small button saying in words what it holds, because
+ * the daemon only draws pictures for the page that is showing. The text is
+ * clamped to three lines so a long label widens nothing.
+ * </remarks>
+ */
+.menu {
+  position: fixed; z-index: 60; min-width: 210px;
+  background: var(--card); border: 1px solid var(--rule); border-radius: 10px;
+  padding: 6px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.menu-item {
+  background: transparent; color: var(--ink); font-weight: 500;
+  text-align: left; padding: 7px 10px; border-radius: 6px; width: 100%;
+}
+.menu-item:hover:not(:disabled), .menu-item:focus-visible { background: var(--signal-soft); filter: none; outline: none; }
+.slot-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.slot {
+  display: flex; align-items: center; justify-content: center;
+  height: 54px; padding: 4px; font: inherit; font-size: 11px; line-height: 1.2; text-align: center;
+  background: var(--card2); color: var(--ink);
+  border: 1px solid var(--rule); border-radius: 8px;
+}
+.slot > span { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.slot.free { color: var(--steel); border-style: dashed; background: transparent; }
+.slot.same { border-color: var(--signal); }
+.slot:hover:not(:disabled), .slot:focus-visible { border-color: var(--signal); filter: none; outline: none; background: var(--signal-soft); }
+
+/**
  * <summary>Modals: the backdrop, the box, and the widths the three of them take.</summary>
  * <remarks>
  * One backdrop element holds one box, and closing means removing the backdrop,

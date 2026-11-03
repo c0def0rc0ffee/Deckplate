@@ -624,6 +624,221 @@
     change(d => { d.pages.splice(index, 1); });
   }
 
+  // ---- Moving a key between pages -------------------------------------------
+
+  /** <summary>The open right click menu, so a second one closes the first.</summary> */
+  let keyMenu = null;
+
+  /** <summary>Take the right click menu off the page, if one is up.</summary> */
+  function closeKeyMenu() {
+    if (!keyMenu) return;
+    keyMenu.node.remove();
+    document.removeEventListener("mousedown", keyMenu.onAway, true);
+    document.removeEventListener("keydown", keyMenu.onKey, true);
+    window.removeEventListener("blur", closeKeyMenu);
+    window.removeEventListener("resize", closeKeyMenu);
+    keyMenu = null;
+  }
+
+  /**
+   * <summary>Open the right click menu for a key: move it or copy it to another page.</summary>
+   * <param name="x">Pointer position across the viewport.</param>
+   * <param name="y">Pointer position down the viewport.</param>
+   * <param name="row">Row of the key.</param>
+   * <param name="column">Column of the key.</param>
+   * <remarks>
+   * Drawn by the page rather than the browser, like the dialogs, so it matches
+   * the dark page and offers only what the page can do. It is placed at the
+   * pointer, nudged back inside the viewport when it would spill out, and goes
+   * away on a click anywhere else, on Escape, on a resize, or when the window
+   * loses focus. A move needs a second page to go to, so with one page that
+   * item is disabled and says why; a copy can go to the same page.
+   * </remarks>
+   */
+  function openKeyMenu(x, y, row, column) {
+    closeKeyMenu();
+    const onlyPage = doc.pages.length < 2;
+    const item = (text, enabled, onPick, hint) => {
+      const button = el("button", { type: "button", class: "menu-item", role: "menuitem", text, title: hint || null });
+      button.disabled = !enabled;
+      button.addEventListener("click", () => { closeKeyMenu(); onPick(); });
+      return button;
+    };
+    const node = el("div", { class: "menu", role: "menu" }, [
+      item("Move to another page…", !onlyPage, () => openTransfer("move", row, column), onlyPage ? "Add another page first" : null),
+      item("Copy to a page…", true, () => openTransfer("copy", row, column)),
+    ]);
+    const onAway = e => { if (!node.contains(e.target)) closeKeyMenu(); };
+    const onKey = e => { if (e.key === "Escape") { e.preventDefault(); closeKeyMenu(); } };
+    keyMenu = { node, onAway, onKey };
+    document.addEventListener("mousedown", onAway, true);
+    document.addEventListener("keydown", onKey, true);
+    window.addEventListener("blur", closeKeyMenu);
+    window.addEventListener("resize", closeKeyMenu);
+    node.style.left = x + "px";
+    node.style.top = y + "px";
+    document.body.append(node);
+    // Only once it is in the document is its size known, so the nudge comes last.
+    const box = node.getBoundingClientRect();
+    if (box.right > window.innerWidth) node.style.left = Math.max(0, window.innerWidth - box.width - 4) + "px";
+    if (box.bottom > window.innerHeight) node.style.top = Math.max(0, window.innerHeight - box.height - 4) + "px";
+    const first = node.querySelector("button:not(:disabled)");
+    if (first) first.focus();
+  }
+
+  /**
+   * <summary>A few words saying what is on a key, for the position picker and the replace question.</summary>
+   * <param name="key">A key from the document.</param>
+   * <returns>Its label; failing that the name of its action; failing that
+   * "a picture" or, for a key with only a colour or border, "a key".</returns>
+   */
+  function keyDescription(key) {
+    if (key.label) return key.label;
+    const action = key.action || key.action_long || key.action_double;
+    if (action && ACTION_META[action.type]) return ACTION_META[action.type].label;
+    if (key.image || key.animation) return "a picture";
+    return "a key";
+  }
+
+  /**
+   * <summary>The window that moves or copies a key to a position on a page.</summary>
+   * <param name="mode">"move" or "copy".</param>
+   * <param name="row">Row of the key being moved or copied.</param>
+   * <param name="column">Its column.</param>
+   * <param name="startIndex">The page to offer first, when reopening after a
+   * cancelled replace question. Otherwise the page after this one.</param>
+   * <remarks>
+   * A page to go to and the fifteen positions on it, laid out as the deck is.
+   * A free position takes the key at once. A taken one asks first: replace what
+   * is there, or for a move swap the two keys over, which brings the other key
+   * back to the position this one left. The key's own position is outlined and
+   * focused, since a key usually wants the same place on each page.
+   *
+   * The replace question is a second dialog, and this window closes before it
+   * opens rather than stacking the two, so there is never a question of which
+   * one Escape belongs to. Cancelling the question reopens this window on the
+   * same page. The pictures cannot be shown on the picker: the daemon draws
+   * panels for the page that is showing and no other, so each position says in
+   * words what it holds.
+   * </remarks>
+   */
+  function openTransfer(mode, row, column, startIndex) {
+    const fromIndex = pageIndex();
+    const source = doc.pages[fromIndex];
+    const key = keyAt(source, row, column);
+    if (!key) return;
+    const choices = doc.pages.map((p, i) => i).filter(i => mode === "copy" || i !== fromIndex);
+    if (!choices.length) return;
+    const next = (fromIndex + 1) % doc.pages.length;
+    let toIndex = choices.includes(startIndex) ? startIndex : choices.includes(next) ? next : choices[0];
+
+    const backdrop = el("div", { class: "modal-backdrop" });
+    const box = el("div", { class: "modal", role: "dialog", "aria-modal": "true" });
+    const onKey = e => { if (e.key === "Escape") { e.preventDefault(); finish(); } };
+    const finish = () => { backdrop.remove(); document.removeEventListener("keydown", onKey, true); };
+    box.append(el("h2", { text: mode === "move" ? "Move key" : "Copy key" }));
+    box.append(el("p", { class: "muted", text: "Row " + (row + 1) + ", column " + (column + 1) + " on " + source.name + ": " + keyDescription(key) + "." }));
+
+    const pageSelect = el("select", { id: "transferPage" });
+    for (const i of choices) pageSelect.append(el("option", { value: String(i), text: doc.pages[i].name }));
+    pageSelect.value = String(toIndex);
+    box.append(el("div", { class: "field" }, [el("label", { for: "transferPage", text: "To page" }), pageSelect]));
+
+    const slots = el("div", { class: "slot-grid", role: "group", "aria-label": "Position on the page" });
+    box.append(el("div", { class: "field" }, [
+      el("label", { text: "To position" }), slots,
+      el("div", { class: "help", text: "A free position takes the key. A taken one asks whether to replace" + (mode === "move" ? " or swap" : "") + "." }),
+    ]));
+
+    const choose = async (r, c, there) => {
+      finish();
+      let how = "place";
+      if (there) {
+        const answer = await dialog({
+          title: "Row " + (r + 1) + ", column " + (c + 1) + " on " + doc.pages[toIndex].name + " is taken",
+          message: "It has " + keyDescription(there) + ". Replace it" + (mode === "move" ? ", or swap the two keys over?" : "?") + " Undo puts it back.",
+          confirmText: "Replace",
+          danger: true,
+          extra: mode === "move" ? { text: "Swap" } : null,
+        });
+        if (!answer) { openTransfer(mode, row, column, toIndex); return; }
+        how = answer === "extra" ? "swap" : "replace";
+      }
+      transferKey(mode, { page: fromIndex, row, column }, { page: toIndex, row: r, column: c }, how);
+    };
+    const fillSlots = () => {
+      slots.innerHTML = "";
+      const target = doc.pages[toIndex];
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLUMNS; c++) {
+          const there = keyAt(target, r, c);
+          const itself = toIndex === fromIndex && r === row && c === column;
+          const slot = el("button", {
+            type: "button",
+            class: "slot" + (there ? " taken" : " free") + (r === row && c === column ? " same" : ""),
+            title: "Row " + (r + 1) + ", column " + (c + 1) + (there ? ": " + keyDescription(there) : ": free"),
+          }, [el("span", { text: itself ? "this key" : there ? keyDescription(there) : "free" })]);
+          if (itself) slot.disabled = true;
+          slot.addEventListener("click", () => choose(r, c, there));
+          slots.append(slot);
+        }
+      }
+    };
+    pageSelect.addEventListener("change", () => { toIndex = parseInt(pageSelect.value, 10); fillSlots(); });
+    fillSlots();
+
+    const cancel = el("button", { type: "button", class: "ghost", text: "Cancel" });
+    cancel.addEventListener("click", finish);
+    box.append(el("div", { class: "row modal-buttons" }, [cancel]));
+    document.addEventListener("keydown", onKey, true);
+    backdrop.addEventListener("click", e => { if (e.target === backdrop) finish(); });
+    backdrop.append(box);
+    document.body.append(backdrop);
+    const same = slots.querySelector(".slot.same:not(:disabled)");
+    (same || pageSelect).focus();
+  }
+
+  /**
+   * <summary>Move or copy a key to a position on a page, as one undoable edit.</summary>
+   * <param name="mode">"move" takes the key off its page; "copy" leaves it there.</param>
+   * <param name="from">{page, row, column} of the key, the page by index.</param>
+   * <param name="to">{page, row, column} to put it at.</param>
+   * <param name="how">What becomes of a key already at ``to``: "swap" moves it
+   * to ``from`` (moves only), anything else drops it.</param>
+   * <remarks>
+   * A copy is a deep copy through JSON, so the two keys share nothing and an
+   * edit to one never reaches the other. A moved key is deselected first,
+   * because the editor would otherwise be showing the empty position it left;
+   * a copy leaves the selection alone. The page the key went to is not
+   * switched to: which page shows is the daemon's business, and the next key
+   * to deal with is usually on the page that is open.
+   * </remarks>
+   */
+  function transferKey(mode, from, to, how) {
+    if (mode === "move") deselect();
+    change(d => {
+      const source = d.pages[from.page], target = d.pages[to.page];
+      if (!source || !target) return;
+      const key = keyAt(source, from.row, from.column);
+      if (!key) return;
+      if (source === target && from.row === to.row && from.column === to.column) return;
+      const moving = mode === "move" ? key : JSON.parse(JSON.stringify(key));
+      if (mode === "move") source.keys = source.keys.filter(k => k !== key);
+      const there = keyAt(target, to.row, to.column);
+      if (there) {
+        target.keys = target.keys.filter(k => k !== there);
+        if (how === "swap" && mode === "move") {
+          there.row = from.row;
+          there.column = from.column;
+          source.keys.push(there);
+        }
+      }
+      moving.row = to.row;
+      moving.column = to.column;
+      target.keys.push(moving);
+    });
+  }
+
   /** <summary>Every grid cell by "row,column", so a redraw can reach one without a query.</summary> */
   let cells = {};
   let draggingKey = null;
@@ -657,13 +872,23 @@
         const cell = el("button", {
           class: "cell" + (isStrip ? " strip" : ""),
           type: "button",
-          title: isStrip ? "Strip panel " + (row + 1) : "Row " + (row + 1) + ", column " + (column + 1) + ". Drag to move or swap.",
+          title: isStrip ? "Strip panel " + (row + 1) : "Row " + (row + 1) + ", column " + (column + 1) + ". Drag to move or swap, right click to move or copy it to another page.",
           onclick: () => select(row, column),
         }, [picture]);
         if (isStrip) {
           cell.append(el("div", { class: "crop" }));
         } else {
           cell.draggable = true;
+          // The right button opens the menu that moves or copies the key to
+          // another page. The browser's own menu is suppressed on every key
+          // cell: on an empty one there is nothing to move, and the native
+          // menu is painted from the light desktop theme.
+          cell.addEventListener("contextmenu", e => {
+            e.preventDefault();
+            if (!keyAt(currentPage(), row, column)) return;
+            if (!selected || selected.row !== row || selected.column !== column) select(row, column);
+            openKeyMenu(e.clientX, e.clientY, row, column);
+          });
           cell.addEventListener("dragstart", e => {
             if (!keyAt(currentPage(), row, column)) { e.preventDefault(); return; }
             draggingKey = { row, column };
