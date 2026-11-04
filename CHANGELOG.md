@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The README rewritten shorter: one table of every action type, the
+  page, the pages list and the chooser in fresh screenshots taken over the
+  in memory stand in with sample readings, and a home lab page drawn from
+  the same. No address in any picture is real.
 - A `synology` key for a Synology NAS: the free space of every volume, or
   one named volume, drawn large with a gauge that turns red past nine
   tenths full, or the processor and memory loads, or the model,
