@@ -2,9 +2,9 @@
 
 ## Unreleased
 
-- "Wrist Console", a thirteenth icon theme: every Controls and Desktop
-  icon plus a survival set (the words STATUS, ITEMS, DATA, MAP, RADIO and
-  RADS, a radiation trefoil, a dose meter, still and with its needle
+- "Wrist Console", a thirteenth icon theme: every Controls, Desktop and
+  Space Game icon plus a survival set (the words STATUS, ITEMS, DATA, MAP,
+  RADIO, RADS and ONLINE, a radiation trefoil, a dose meter, still and with its needle
   swinging, health, a syringe, a canteen, a ration tin, a hatch, a gas mask,
   a spanner, a compass, an objective flag, a transmitter, a torch, a rank
   star, figures, and the backpack, power cell, sidearm, rifle and skull from

@@ -224,8 +224,8 @@ Lagoon (the same two sets in warm and cool colour sweeps), Space Game, six
 game flavoured sets that borrow a mood and no name or emblem (Grimdark,
 Wayfarer, Field Command, Rift, Deep Colony, Neon Chrome), and two consoles
 with a lit twin of every icon for toggles: Amber Console, pixel art on an
-old amber terminal, and Wrist Console, the same everyday icons plus a
-survival set (dose meter, radiation, health, canteen, hatch, gas mask,
+old amber terminal, and Wrist Console, the everyday icons, the space sim
+glyphs and a survival set (dose meter, radiation, health, canteen, hatch, gas mask,
 compass, the words STATUS, ITEMS, DATA, MAP and RADIO) drawn smooth in green
 phosphor on a dark tube with scan lines and a glow, as a wrist worn
 computer from a retro future would show them. The whole set is on one sheet in

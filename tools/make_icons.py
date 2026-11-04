@@ -19,8 +19,8 @@ bio tech), "deep-colony" (marines in the dark) and "neon-chrome" (neon street
 tech). None of them uses a real game's name or artwork. Last,
 "amber-console": the controls and desktop glyphs plus a console set, drawn
 as pixel art on an old amber on black terminal, each with a lit inverse
-video face as well; and "wrist-console", the same glyphs plus a survival
-set, drawn smooth in green phosphor on a dark tube with scan lines, lit
+video face as well; and "wrist-console", the same glyphs, the space sim
+glyphs and a survival set, drawn smooth in green phosphor on a dark tube with scan lines, lit
 faces too. A
 plain folder argument writes sc-<name>.png files of the chosen set into it,
 overwriting same named ones. Safe to run anywhere; touches nothing but that
@@ -3428,6 +3428,7 @@ WRIST = {
     "gas-mask": gas_mask, "spanner": spanner, "compass": compass, "objective": objective,
     "transmitter": transmitter, "torch": torch, "rank": rank, "stat-bars": stat_bars,
     "backpack": backpack, "power-cell": battery, "sidearm": sidearm, "rifle": rifle, "skull": skull,
+    "online": online,
 }
 WRIST_LABELS = {
     "status": "Status", "items": "Items", "data": "Data", "map": "Map", "radio": "Radio",
@@ -3436,10 +3437,11 @@ WRIST_LABELS = {
     "gas-mask": "Gas Mask", "spanner": "Workshop", "compass": "Compass", "objective": "Objective",
     "transmitter": "Transmitter", "torch": "Torch", "rank": "Rank", "stat-bars": "Figures",
     "backpack": "Backpack", "power-cell": "Power Cell", "sidearm": "Sidearm", "rifle": "Rifle",
-    "skull": "Danger", "dose-sweep": "Dose Meter Swinging",
+    "skull": "Danger", "online": "Online", "dose-sweep": "Dose Meter Swinging",
 }
-WRIST_ICONS = {**CONTROLS, **DESKTOP, **WRIST}
-WRIST_LABELS = {**CONTROL_LABELS, **DESKTOP_LABELS, **WRIST_LABELS}
+# The space sim glyphs ride along too, so a cockpit setup moves across whole.
+WRIST_ICONS = {**CONTROLS, **DESKTOP, **ICONS, **WRIST}
+WRIST_LABELS = {**CONTROL_LABELS, **DESKTOP_LABELS, **LABELS, **WRIST_LABELS}
 WRIST_ANIMATED = {**CONTROL_ANIMATED, "dose-sweep": dose_sweep}
 
 

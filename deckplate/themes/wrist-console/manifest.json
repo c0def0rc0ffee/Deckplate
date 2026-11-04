@@ -675,6 +675,198 @@
       "label": "Media Centre Lit"
     },
     {
+      "id": "hangar",
+      "label": "Hangar"
+    },
+    {
+      "id": "hangar-lit",
+      "label": "Hangar Lit"
+    },
+    {
+      "id": "landing-gear",
+      "label": "Landing Gear"
+    },
+    {
+      "id": "landing-gear-lit",
+      "label": "Landing Gear Lit"
+    },
+    {
+      "id": "quantum",
+      "label": "Quantum"
+    },
+    {
+      "id": "quantum-lit",
+      "label": "Quantum Lit"
+    },
+    {
+      "id": "power",
+      "label": "Power"
+    },
+    {
+      "id": "power-lit",
+      "label": "Power Lit"
+    },
+    {
+      "id": "engines",
+      "label": "Engines"
+    },
+    {
+      "id": "engines-lit",
+      "label": "Engines Lit"
+    },
+    {
+      "id": "shields",
+      "label": "Shields"
+    },
+    {
+      "id": "shields-lit",
+      "label": "Shields Lit"
+    },
+    {
+      "id": "weapons",
+      "label": "Weapons"
+    },
+    {
+      "id": "weapons-lit",
+      "label": "Weapons Lit"
+    },
+    {
+      "id": "missiles",
+      "label": "Missiles"
+    },
+    {
+      "id": "missiles-lit",
+      "label": "Missiles Lit"
+    },
+    {
+      "id": "scan",
+      "label": "Scan"
+    },
+    {
+      "id": "scan-lit",
+      "label": "Scan Lit"
+    },
+    {
+      "id": "starmap",
+      "label": "Star Map"
+    },
+    {
+      "id": "starmap-lit",
+      "label": "Star Map Lit"
+    },
+    {
+      "id": "mobiglas",
+      "label": "mobiGlas"
+    },
+    {
+      "id": "mobiglas-lit",
+      "label": "mobiGlas Lit"
+    },
+    {
+      "id": "comms",
+      "label": "Comms"
+    },
+    {
+      "id": "comms-lit",
+      "label": "Comms Lit"
+    },
+    {
+      "id": "cargo",
+      "label": "Cargo"
+    },
+    {
+      "id": "cargo-lit",
+      "label": "Cargo Lit"
+    },
+    {
+      "id": "mining",
+      "label": "Mining"
+    },
+    {
+      "id": "mining-lit",
+      "label": "Mining Lit"
+    },
+    {
+      "id": "medical",
+      "label": "Medical"
+    },
+    {
+      "id": "medical-lit",
+      "label": "Medical Lit"
+    },
+    {
+      "id": "exit",
+      "label": "Exit"
+    },
+    {
+      "id": "exit-lit",
+      "label": "Exit Lit"
+    },
+    {
+      "id": "lights",
+      "label": "Lights"
+    },
+    {
+      "id": "lights-lit",
+      "label": "Lights Lit"
+    },
+    {
+      "id": "cruise",
+      "label": "Cruise"
+    },
+    {
+      "id": "cruise-lit",
+      "label": "Cruise Lit"
+    },
+    {
+      "id": "decoupled",
+      "label": "Decoupled"
+    },
+    {
+      "id": "decoupled-lit",
+      "label": "Decoupled Lit"
+    },
+    {
+      "id": "inventory",
+      "label": "Inventory"
+    },
+    {
+      "id": "inventory-lit",
+      "label": "Inventory Lit"
+    },
+    {
+      "id": "helmet",
+      "label": "Helmet"
+    },
+    {
+      "id": "helmet-lit",
+      "label": "Helmet Lit"
+    },
+    {
+      "id": "scan-loop",
+      "label": "Scan Loop"
+    },
+    {
+      "id": "scan-loop-lit",
+      "label": "Scan Loop Lit"
+    },
+    {
+      "id": "landing-lock",
+      "label": "Landing Lock"
+    },
+    {
+      "id": "landing-lock-lit",
+      "label": "Landing Lock Lit"
+    },
+    {
+      "id": "view-change",
+      "label": "View Change"
+    },
+    {
+      "id": "view-change-lit",
+      "label": "View Change Lit"
+    },
+    {
       "id": "status",
       "label": "Status"
     },
@@ -881,6 +1073,14 @@
     {
       "id": "skull-lit",
       "label": "Danger Lit"
+    },
+    {
+      "id": "online",
+      "label": "Online"
+    },
+    {
+      "id": "online-lit",
+      "label": "Online Lit"
     },
     {
       "id": "hourglass-running",
