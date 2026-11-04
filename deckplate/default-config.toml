@@ -94,8 +94,9 @@ tiles = ["clock", "date", "weather"]
 # Pages. Each page is a full set of keys. Keys not listed are left blank.
 # A key can carry an animation instead of a picture, for example
 #   animation = { kind = "pulse", colour = "#4caf7d", speed = 1.0 }
-# with kinds pulse, spinner, wave, rainbow and scroll (the label scrolling).
-# An animated GIF given as the image plays by itself.
+# with kinds pulse, spinner, wave, rainbow and scroll (the label scrolling),
+# or shimmer, which keeps the picture and rolls a band of light down it with
+# the flicker of an old screen. An animated GIF given as the image plays by itself.
 # Action types:
 #   hotkey     keys = "ctrl+alt+t"            same names on both platforms;
 #              ctrl, alt and shift are the left key, alt_r (or ralt, altgr),

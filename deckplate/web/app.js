@@ -317,7 +317,7 @@
   }
 
   const ANIMATION_KINDS = [["", "None"], ["pulse", "Pulse"], ["spinner", "Spinner"], ["wave", "Wave"],
-    ["rainbow", "Rainbow"], ["scroll", "Scrolling label"]];
+    ["rainbow", "Rainbow"], ["scroll", "Scrolling label"], ["shimmer", "Screen shimmer"]];
 
   /**
    * <summary>Kind, colour and speed for one built in animation.</summary>
@@ -329,8 +329,9 @@
    * <remarks>
    * The colour and speed controls are rebuilt whenever the kind changes, and
    * they edit the object ``get`` hands back rather than a copy of it, so an
-   * undo takes their edits with it. Rainbow ignores the colour, and its control
-   * is disabled rather than hidden so the field does not change height.
+   * undo takes their edits with it. Rainbow and the shimmer ignore the colour,
+   * and its control is disabled rather than hidden so the field does not
+   * change height.
    * </remarks>
    */
   function animationField(get, set, labelText, help) {
@@ -357,7 +358,7 @@
         el("div", { class: "inline" }, [el("span", { class: "muted", text: "Colour" }), colour,
           el("span", { class: "muted", text: "Speed" }), speed, out]),
       );
-      if (a.kind === "rainbow") colour.disabled = true;
+      if (a.kind === "rainbow" || a.kind === "shimmer") colour.disabled = true;
     };
     kind.addEventListener("change", () => {
       const previous = get();
@@ -1420,7 +1421,7 @@
         k.animation = value;
         dropEmptyKey(currentPage(), k);
       }),
-      "Animation", "Drawn by the software in place of the picture. The label stays on top."));
+      "Animation", "Drawn by the software in place of the picture, except the screen shimmer, which rolls a band of light down the picture itself. The label stays on top."));
 
     tpl.querySelector("#keyBackground").append(colourField("Background",
       () => (keyAt(currentPage(), selected.row, selected.column) || {}).background || null,

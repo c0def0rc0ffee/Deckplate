@@ -186,9 +186,11 @@ def key_frames(key: KeyConfig | None, size: int, active: bool = False,
     None is the normal answer for most keys and is not an error. Ask here
     first and fall back to the still tile: that is the order the controller
     uses and the only way to tell the two sorts of key apart.
-    A built in animation replaces the picture; an animated picture file plays
-    as it is. The label and the running mark go on every frame, except that a
-    scrolling animation is already made of the label and so is left alone.
+    A built in animation replaces the picture, except the shimmer, which
+    plays over the still tile the key would otherwise show; an animated
+    picture file plays as it is. The label and the running mark go on every
+    frame, except that a scrolling animation is already made of the label
+    and a shimmer already carries it, so both are left alone.
     A picture file that turns out to be unreadable gives None rather than
     raising, which lands the key on the still path and draws the missing
     tile there.
@@ -199,7 +201,11 @@ def key_frames(key: KeyConfig | None, size: int, active: bool = False,
     if key is None:
         return None
     background = key_background(key, default_background)
-    if key.animation is not None:
+    if key.animation is not None and key.animation.kind == "shimmer":
+        still = key_tile(key, size, default_background=default_background)
+        frames = animations.shimmer_frames(still, _animation(key.animation))
+        fps = key.animation.fps
+    elif key.animation is not None:
         frames = animations.frames(_animation(key.animation), size, key.label or "", background)
         fps = key.animation.fps
         if key.label and key.animation.kind != "scroll":

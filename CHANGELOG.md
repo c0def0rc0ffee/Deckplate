@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A `shimmer` animation kind: a soft band of light rolling down the key's
+  own picture with the faint flicker of an old screen, the one animation
+  that plays over the picture rather than in its place, so a Wrist Console
+  key can glow like the screen it is drawn from. Label and lamp stay on
+  top; the colour is ignored, since the light is the picture's own. On the
+  configuration page as Screen shimmer in the Animation list.
 - "Wrist Console", a thirteenth icon theme: every Controls, Desktop and
   Space Game icon plus a survival set (the words STATUS, ITEMS, DATA, MAP,
   RADIO, RADS and ONLINE, a radiation trefoil, a dose meter, still and with its needle

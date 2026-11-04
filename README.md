@@ -20,7 +20,8 @@ which is why its header says "Fake deck". Nothing here is a mock up.
 A key has a picture, a label, or both, and an action for its press. It may
 also carry a second action for a long press and a third for a double press, a
 picture and label to wear while its thing is on, a built in animation (pulse,
-spinner, wave, rainbow, scroll, or an animated GIF), its own background
+spinner, wave, rainbow, scroll, a shimmer rolling down the picture itself,
+or an animated GIF), its own background
 colour, and a page may lay one wallpaper across all fifteen keys.
 
 | Action | What it does |
