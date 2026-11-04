@@ -82,7 +82,7 @@ with a drawing and a line saying what it does, grouped and searchable:
 Keys for the hotkey, sequence, chord and hold actions are captured rather
 than typed: click Capture and press them. Drag a key to move it, drop it on
 another to swap them, and right click it to move or copy it to another page.
-Pictures come from an upload or from the twelve shipped icon themes behind
+Pictures come from an upload or from the thirteen shipped icon themes behind
 "Choose from a theme". Every change saves a moment after you make it and the
 deck updates at once; Undo steps back.
 
@@ -217,14 +217,18 @@ opens no device.
 
 ### Icon themes
 
-Twelve themes ship with the app, every icon drawn in code by
+Thirteen themes ship with the app, every icon drawn in code by
 `tools/make_icons.py` and free to ship: Controls (the actions above, four of
 them animated), Desktop (the everyday desktop and the home lab), Sherbet and
 Lagoon (the same two sets in warm and cool colour sweeps), Space Game, six
 game flavoured sets that borrow a mood and no name or emblem (Grimdark,
-Wayfarer, Field Command, Rift, Deep Colony, Neon Chrome), and Amber Console,
-pixel art on an old amber terminal with a lit twin of every icon for
-toggles. The whole set is on one sheet in
+Wayfarer, Field Command, Rift, Deep Colony, Neon Chrome), and two consoles
+with a lit twin of every icon for toggles: Amber Console, pixel art on an
+old amber terminal, and Wrist Console, the same everyday icons plus a
+survival set (dose meter, radiation, health, canteen, hatch, gas mask,
+compass, the words STATUS, ITEMS, DATA, MAP and RADIO) drawn smooth in green
+phosphor on a dark tube with scan lines and a glow, as a wrist worn
+computer from a retro future would show them. The whole set is on one sheet in
 [docs/images/themes.png](docs/images/themes.png).
 
 ## The local API

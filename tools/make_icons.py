@@ -7,7 +7,7 @@ an icon moves.
     python tools/make_icons.py --set controls --theme deckplate/themes/controls
     python tools/make_icons.py --list
 
-Twelve sets: "space-game", the space sim glyphs; "controls", the pictures
+Thirteen sets: "space-game", the space sim glyphs; "controls", the pictures
 for the deck's own actions (volume, windows, timers, toggles, media);
 "desktop", the standard Linux desktop things (terminal, files, lock, power,
 workspaces and so on); "sherbet" and "lagoon", the controls and desktop
@@ -19,7 +19,9 @@ bio tech), "deep-colony" (marines in the dark) and "neon-chrome" (neon street
 tech). None of them uses a real game's name or artwork. Last,
 "amber-console": the controls and desktop glyphs plus a console set, drawn
 as pixel art on an old amber on black terminal, each with a lit inverse
-video face as well. A
+video face as well; and "wrist-console", the same glyphs plus a survival
+set, drawn smooth in green phosphor on a dark tube with scan lines, lit
+faces too. A
 plain folder argument writes sc-<name>.png files of the chosen set into it,
 overwriting same named ones. Safe to run anywhere; touches nothing but that
 folder.
@@ -2877,6 +2879,7 @@ PIXEL_FONT = {
     "S": ["01111", "10000", "10000", "01110", "00001", "00001", "11110"],
     "T": ["11111", "00100", "00100", "00100", "00100", "00100", "00100"],
     "U": ["10001", "10001", "10001", "10001", "10001", "10001", "01110"],
+    "P": ["11110", "10001", "10001", "11110", "10000", "10000", "10000"],
     "0": ["01110", "10011", "10101", "10101", "10101", "11001", "01110"],
     "9": ["01110", "10001", "10001", "01111", "00001", "00001", "01110"],
 }
@@ -3131,6 +3134,315 @@ AMBER_ANIMATED = {**CONTROL_ANIMATED, "tracker-ping": tracker_ping, "critical-fl
 LIT_SUFFIX = "-lit"
 
 
+# Wrist Console: a wrist worn computer from a retro future, the kind a
+# survivor reads a map and a dose meter on. The look is the whole of the
+# borrowing: one bright green phosphor on a dark curved tube, soft glow,
+# scan lines, a second dimmer tone for the quiet parts, and the selected
+# thing shown in inverse video, a solid green block with the picture cut out
+# of it in black. No screen layout, name, mascot or mark from any game is
+# reproduced; the words on the console icons are ordinary words and the
+# pictures are plain glyphs for the things such a device would show.
+
+
+def radiation(pen: Pen) -> None:
+    """<summary>The trefoil hazard symbol: three blades round a hub, in a ring.</summary>"""
+    pen.circle(50, 50, 36, STEEL, 5)
+    for start in (-90, 30, 150):
+        pen.pie(14, 14, 86, 86, start - 30, start + 30, INK)
+    pen.dot(50, 50, 14, CLEAR)
+    pen.dot(50, 50, 6, INK)
+
+
+def dose_meter(pen: Pen) -> None:
+    """<summary>A handheld dose meter: a boxed dial with its needle and a probe on a lead.</summary>"""
+    pen.rounded(14, 22, 72, 78, 6)
+    pen.arc(43, 60, 20, 200, 340, STEEL, 5)
+    for angle in (200, 235, 270, 305, 340):
+        rad = math.radians(angle)
+        pen.line([(43 + 17 * math.cos(rad), 60 + 17 * math.sin(rad)), (43 + 22 * math.cos(rad), 60 + 22 * math.sin(rad))], STEEL, 4)
+    pen.line([(43, 60), (56, 42)], SIGNAL, 5)
+    pen.dot(43, 60, 4, SIGNAL)
+    pen.line([(72, 40), (82, 40), (82, 86)], STEEL, 5)
+    pen.rounded(76, 60, 88, 90, 3, INK, None, fill=INK)
+
+
+def dose_sweep(pen: Pen, t: float) -> None:
+    """<summary>The dose meter with its needle swinging across the dial.</summary>
+    <param name="t">Loop position.</param>"""
+    pen.rounded(14, 22, 72, 78, 6)
+    pen.arc(43, 60, 20, 200, 340, STEEL, 5)
+    for angle in (200, 235, 270, 305, 340):
+        rad = math.radians(angle)
+        pen.line([(43 + 17 * math.cos(rad), 60 + 17 * math.sin(rad)), (43 + 22 * math.cos(rad), 60 + 22 * math.sin(rad))], STEEL, 4)
+    swing = 205 + 130 * (0.5 - 0.5 * math.cos(t * 2 * math.pi))
+    rad = math.radians(swing)
+    pen.line([(43, 60), (43 + 22 * math.cos(rad), 60 + 22 * math.sin(rad))], SIGNAL, 5)
+    pen.dot(43, 60, 4, SIGNAL)
+    pen.line([(72, 40), (82, 40), (82, 86)], STEEL, 5)
+    pen.rounded(76, 60, 88, 90, 3, INK, None, fill=INK)
+
+
+def health(pen: Pen) -> None:
+    """<summary>A heart with a pulse trace across it.</summary>"""
+    pen.pie(16, 18, 52, 54, 180, 360, INK)
+    pen.pie(48, 18, 84, 54, 180, 360, INK)
+    pen.polygon([(16, 38), (84, 38), (50, 84)], fill=INK, width=None)
+    pen.line([(22, 50), (38, 50), (44, 38), (52, 62), (58, 50), (78, 50)], CLEAR, 6)
+
+
+def syringe(pen: Pen) -> None:
+    """<summary>A syringe at an angle, its plunger drawn back.</summary>"""
+    pen.line([(70, 30), (84, 16)], STEEL, 5)
+    pen.line([(62, 22), (78, 38)], STEEL, 6)
+    pen.polygon([(24, 56), (56, 24), (76, 44), (44, 76)], fill=INK, width=None)
+    pen.line([(16, 76), (34, 58)], STEEL, 10)
+    pen.line([(12, 88), (24, 76)], INK, 6)
+    pen.line([(38, 46), (46, 54)], CLEAR, 4)
+    pen.line([(48, 36), (56, 44)], CLEAR, 4)
+
+
+def canteen(pen: Pen) -> None:
+    """<summary>A canteen on its strap, with the cap on.</summary>"""
+    pen.rounded(40, 14, 60, 28, 3, STEEL, None, fill=STEEL)
+    pen.line([(44, 28), (56, 28)], CLEAR, 2)
+    pen.rounded(18, 30, 82, 86, 22, INK, None, fill=INK)
+    pen.line([(30, 56), (70, 56)], CLEAR, 4)
+    pen.rounded(30, 62, 70, 76, 4, SIGNAL, None, fill=SIGNAL)
+
+
+def ration(pen: Pen) -> None:
+    """<summary>A ration tin with its label band and ring pull.</summary>"""
+    pen.rounded(22, 24, 78, 86, 6, INK, None, fill=INK)
+    pen.ellipse(22, 14, 78, 34, STEEL, None, fill=STEEL)
+    pen.ellipse(44, 20, 56, 28, CLEAR, 3)
+    pen.rounded(22, 48, 78, 68, 0, SIGNAL, None, fill=SIGNAL)
+    pen.line([(32, 58), (68, 58)], CLEAR, 4)
+
+
+def hatch(pen: Pen) -> None:
+    """<summary>A round hatch with its locking wheel.</summary>"""
+    pen.circle(50, 50, 38, INK, 7)
+    pen.circle(50, 50, 28, STEEL, 4)
+    pen.circle(50, 50, 10, SIGNAL, 6)
+    for angle in range(0, 360, 60):
+        rad = math.radians(angle)
+        pen.line([(50 + 10 * math.cos(rad), 50 + 10 * math.sin(rad)), (50 + 26 * math.cos(rad), 50 + 26 * math.sin(rad))], SIGNAL, 6)
+    for angle in (45, 135, 225, 315):
+        rad = math.radians(angle)
+        pen.dot(50 + 34 * math.cos(rad), 50 + 34 * math.sin(rad), 3, CLEAR)
+
+
+def gas_mask(pen: Pen) -> None:
+    """<summary>A gas mask: two round eyepieces over a filter canister.</summary>"""
+    pen.rounded(20, 18, 80, 82, 26, INK, None, fill=INK)
+    pen.circle(37, 42, 10, CLEAR, None, fill=CLEAR)
+    pen.circle(63, 42, 10, CLEAR, None, fill=CLEAR)
+    pen.circle(37, 42, 6, SIGNAL, 4)
+    pen.circle(63, 42, 6, SIGNAL, 4)
+    pen.rounded(38, 62, 62, 90, 6, STEEL, None, fill=STEEL)
+    for y in (70, 78):
+        pen.line([(44, y), (56, y)], CLEAR, 3)
+
+
+def spanner(pen: Pen) -> None:
+    """<summary>A spanner at an angle: the workshop.</summary>"""
+    pen.line([(28, 72), (62, 38)], INK, 12)
+    pen.circle(70, 30, 16, INK, None, fill=INK)
+    pen.polygon([(70, 30), (84, 16), (92, 24), (78, 38)], fill=CLEAR, width=None)
+    pen.circle(26, 74, 9, INK, None, fill=INK)
+    pen.dot(26, 74, 3, SIGNAL)
+
+
+def compass(pen: Pen) -> None:
+    """<summary>A compass rose with its north needle lit.</summary>"""
+    pen.circle(50, 50, 36, INK, 6)
+    for angle in range(0, 360, 90):
+        rad = math.radians(angle)
+        pen.line([(50 + 30 * math.cos(rad), 50 + 30 * math.sin(rad)), (50 + 36 * math.cos(rad), 50 + 36 * math.sin(rad))], STEEL, 4)
+    pen.polygon([(50, 20), (58, 50), (50, 56), (42, 50)], fill=SIGNAL, width=None)
+    pen.polygon([(50, 80), (58, 50), (50, 44), (42, 50)], fill=STEEL, width=None)
+    pen.dot(50, 50, 4, INK)
+
+
+def objective(pen: Pen) -> None:
+    """<summary>A flag on its pole, marking the place to go.</summary>"""
+    pen.line([(28, 14), (28, 88)], INK, 7)
+    pen.polygon([(32, 16), (80, 16), (68, 36), (80, 56), (32, 56)], fill=SIGNAL, width=None)
+    pen.line([(20, 88), (36, 88)], STEEL, 6)
+
+
+def transmitter(pen: Pen) -> None:
+    """<summary>A lattice mast with its signal spreading: the radio.</summary>"""
+    signal(pen)
+
+
+def torch(pen: Pen) -> None:
+    """<summary>A hand torch, lit.</summary>"""
+    pen.polygon([(20, 30), (44, 38), (44, 62), (20, 70)], fill=INK, width=None)
+    pen.rounded(44, 42, 82, 58, 4, INK, None, fill=INK)
+    pen.line([(60, 44), (60, 56)], CLEAR, 3)
+    for y, reach in ((36, 9), (50, 14), (64, 9)):
+        pen.line([(16 - reach, y), (16, y)], SIGNAL, 5)
+
+
+def rank(pen: Pen) -> None:
+    """<summary>A star in a ring: a rank gained.</summary>"""
+    pen.circle(50, 50, 36, STEEL, 5)
+    _star(pen, 50, 52, 26, INK)
+
+
+def stat_bars(pen: Pen) -> None:
+    """<summary>Three horizontal bars of different length: the figures.</summary>"""
+    for y, length in ((26, 60), (50, 42), (74, 70)):
+        pen.rounded(16, y - 7, 84, y + 7, 4, STEEL, 4)
+        pen.rounded(16, y - 7, 16 + length, y + 7, 4, SIGNAL, None, fill=SIGNAL)
+
+
+def status_word(pen: Pen) -> None:
+    """<summary>The word STATUS as a console option.</summary>"""
+    _panel_word(pen, "STATUS")
+
+
+def items_word(pen: Pen) -> None:
+    """<summary>The word ITEMS as a console option.</summary>"""
+    _panel_word(pen, "ITEMS")
+
+
+def data_word(pen: Pen) -> None:
+    """<summary>The word DATA as a console option.</summary>"""
+    _panel_word(pen, "DATA")
+
+
+def map_word(pen: Pen) -> None:
+    """<summary>The word MAP as a console option.</summary>"""
+    _panel_word(pen, "MAP")
+
+
+def radio_word(pen: Pen) -> None:
+    """<summary>The word RADIO as a console option.</summary>"""
+    _panel_word(pen, "RADIO")
+
+
+def rads_word(pen: Pen) -> None:
+    """<summary>The word RADS as a console option.</summary>"""
+    _panel_word(pen, "RADS")
+
+
+class Tube(Console):
+    """<summary>
+    The Wrist Console style: smooth glyphs shown in green phosphor on a
+    dark curved tube, with a glow, scan lines and a dimmer second tone,
+    either normal or lit in inverse video.
+    </summary>
+    <remarks>
+    A <see cref="Console"/> in how it is handled, so every still gets its
+    lit twin and the manifest lists them in pairs, but the glyphs are drawn
+    on an ordinary <see cref="Pen"/> and shrunk smooth rather than put on
+    the coarse pixel grid: this screen is a tube, not a dot matrix. The flat
+    palette becomes brightness: INK, WARM and RED at full phosphor, SIGNAL a
+    little under it, STEEL dim, which keeps a knob apart from its switch
+    without a second colour. The edges fall away a little, as a tube's do.
+    </remarks>
+    """
+
+    LEVELS = ((INK, 255), (WARM, 255), (RED, 230), (SIGNAL, 196), (STEEL, 118))
+
+    def __init__(self, green: tuple, black: tuple, glow: float = 0.5, pitch: int = 4,
+                 lines: int = 96, fall: int = 110) -> None:
+        """<summary>A tube style from its two colours.</summary>
+        <param name="green">The phosphor colour, RGB.</param>
+        <param name="black">The dark tube, RGB.</param>
+        <param name="glow">How bright the phosphor halo is, 0 to 1.</param>
+        <param name="pitch">Pixels from one scan line to the next at output size.</param>
+        <param name="lines">How dark the scan lines are, 0 to 255.</param>
+        <param name="fall">How dark the corners fall to, 0 to 255.</param>"""
+        super().__init__(amber=green, black=black, glow=glow)
+        self.pitch = pitch
+        self.lines = lines
+        self.fall = fall
+
+    def draw(self, glyph, lit: bool = False, t: float | None = None) -> Image.Image:
+        """<summary>
+        Draw one glyph as a finished key face.
+        </summary>
+        <param name="glyph">A glyph function, taking a Pen, and the loop
+        position too when <paramref name="t"/> is given.</param>
+        <param name="lit">True for the inverse video face.</param>
+        <param name="t">The loop position of an animated glyph, or None.</param>
+        <returns>A SIZE square RGBA image, opaque.</returns>
+        """
+        pen = Pen()
+        asked = glyph(pen) if t is None else glyph(pen, t)
+        return self.face(self.brightness(pen.image), lit or bool(asked))
+
+    def brightness(self, image: Image.Image) -> Image.Image:
+        """<summary>
+        How bright each pixel of a glyph glows, from its flat palette colour.
+        </summary>
+        <param name="image">The Pen's oversized, hard edged drawing.</param>
+        <returns>An L image at output size, 255 for full phosphor, with the
+        edges smoothed by the shrink.</returns>
+        <remarks>A colour outside the palette, which no glyph in the file
+        uses, would glow at full brightness, so nothing can go missing.</remarks>
+        """
+        level = image.getchannel("A").point(lambda a: 255 if a >= 128 else 0)
+        for colour, value in self.LEVELS:
+            mask = _exact(image, colour)
+            if mask.getbbox() is not None:
+                level.paste(value, (0, 0), mask)
+        return level.resize((SIZE, SIZE), Image.Resampling.LANCZOS)
+
+    def face(self, pixels: Image.Image, lit: bool) -> Image.Image:
+        """<summary>
+        Turn a brightness map into the tube's face.
+        </summary>
+        <param name="pixels">An L image SIZE square, 255 where the phosphor is lit.</param>
+        <param name="lit">True for the inverse video face.</param>
+        <returns>A SIZE square RGBA image, opaque.</returns>
+        <remarks>
+        The glow goes under the lit parts, the phosphor over it, the corners
+        fall away towards the tube's dark, and the scan lines go over
+        everything so they show on the lit face too.
+        </remarks>
+        """
+        shown = ImageChops.invert(pixels) if lit else pixels
+        out = Image.new("RGBA", (SIZE, SIZE), tuple(self.black) + (255,))
+        halo = shown.filter(ImageFilter.GaussianBlur(SIZE / UNITS * 3.0)).point(lambda v: round(v * self.glow))
+        out.alpha_composite(_solid(out.size, self.amber, halo))
+        out.alpha_composite(_solid(out.size, self.amber, shown))
+        corner = Image.radial_gradient("L").resize((SIZE, SIZE), Image.Resampling.BILINEAR)
+        corner = corner.point(lambda v: round(max(0, v - 90) * self.fall / 165))
+        out.alpha_composite(_solid(out.size, self.black, corner))
+        column = Image.new("L", (1, SIZE))
+        column.putdata([self.lines if (y % self.pitch) == self.pitch - 1 else 0 for y in range(SIZE)])
+        out.alpha_composite(_solid(out.size, (0, 0, 0), column.resize((SIZE, SIZE), Image.Resampling.NEAREST)))
+        return out
+
+
+TUBE = Tube(green=(96, 255, 128), black=(5, 16, 9))
+
+WRIST = {
+    "status": status_word, "items": items_word, "data": data_word, "map": map_word,
+    "radio": radio_word, "rads": rads_word, "radiation": radiation, "dose-meter": dose_meter,
+    "health": health, "syringe": syringe, "canteen": canteen, "ration": ration, "hatch": hatch,
+    "gas-mask": gas_mask, "spanner": spanner, "compass": compass, "objective": objective,
+    "transmitter": transmitter, "torch": torch, "rank": rank, "stat-bars": stat_bars,
+    "backpack": backpack, "power-cell": battery, "sidearm": sidearm, "rifle": rifle, "skull": skull,
+}
+WRIST_LABELS = {
+    "status": "Status", "items": "Items", "data": "Data", "map": "Map", "radio": "Radio",
+    "rads": "Rads", "radiation": "Radiation", "dose-meter": "Dose Meter", "health": "Health",
+    "syringe": "Syringe", "canteen": "Canteen", "ration": "Ration Tin", "hatch": "Hatch",
+    "gas-mask": "Gas Mask", "spanner": "Workshop", "compass": "Compass", "objective": "Objective",
+    "transmitter": "Transmitter", "torch": "Torch", "rank": "Rank", "stat-bars": "Figures",
+    "backpack": "Backpack", "power-cell": "Power Cell", "sidearm": "Sidearm", "rifle": "Rifle",
+    "skull": "Danger", "dose-sweep": "Dose Meter Swinging",
+}
+WRIST_ICONS = {**CONTROLS, **DESKTOP, **WRIST}
+WRIST_LABELS = {**CONTROL_LABELS, **DESKTOP_LABELS, **WRIST_LABELS}
+WRIST_ANIMATED = {**CONTROL_ANIMATED, "dose-sweep": dose_sweep}
+
+
 # The sets, by the slug their theme folder carries. Each is the theme name,
 # its still icons, its labels, its animated icons, the prefix the tool once
 # put on its files when writing them into a user's images folder (which the
@@ -3149,6 +3461,7 @@ SETS = {
     "deep-colony": ("Deep Colony", COLONY_ICONS, COLONY_LABELS, COLONY_ANIMATED, "", DEEP_COLONY),
     "neon-chrome": ("Neon Chrome", NEON_ICONS, NEON_LABELS, {}, "", NEON_CHROME),
     "amber-console": ("Amber Console", AMBER_ICONS, AMBER_LABELS, AMBER_ANIMATED, "", AMBER),
+    "wrist-console": ("Wrist Console", WRIST_ICONS, WRIST_LABELS, WRIST_ANIMATED, "", TUBE),
 }
 
 

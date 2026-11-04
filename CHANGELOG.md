@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- "Wrist Console", a thirteenth icon theme: every Controls and Desktop
+  icon plus a survival set (the words STATUS, ITEMS, DATA, MAP, RADIO and
+  RADS, a radiation trefoil, a dose meter, still and with its needle
+  swinging, health, a syringe, a canteen, a ration tin, a hatch, a gas mask,
+  a spanner, a compass, an objective flag, a transmitter, a torch, a rank
+  star, figures, and the backpack, power cell, sidearm, rifle and skull from
+  the other sets), drawn smooth in green phosphor on a dark tube with a
+  glow, scan lines and a dimmer second tone, every still with a lit inverse
+  video twin, the way a wrist worn computer from a retro future shows the
+  selected thing. It borrows the look and nothing else: no game's name,
+  mascot or mark, and the names test now refuses the obvious ones.
 - The README rewritten shorter: one table of every action type, the
   page, the pages list and the chooser in fresh screenshots taken over the
   in memory stand in with sample readings, and a home lab page drawn from
