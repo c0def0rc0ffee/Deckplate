@@ -37,6 +37,7 @@ import re
 import shutil
 import sys
 import tomllib
+from datetime import datetime
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -47,10 +48,27 @@ APP_NAME = "deckplate"
 ROWS = 3
 KEY_COLUMNS = 5
 STRIP_ROWS = 3
-STRIP_TILE_KINDS = ("clock", "date", "weather", "blank")
+STRIP_TILE_KINDS = ("clock", "date", "weather", "playing", "system", "blank")
+# Where a playing panel reads from: the desktop's own players over the
+# session bus, or a Kodi player at an address of its own.
+PLAYING_SOURCES = ("local", "kodi")
+# What a key's lamp watches: a web address that answers, or a WLED device
+# whose lights are on.
+LAMP_KINDS = ("web", "wled")
+# How a key that follows a player names what is playing over the picture:
+# not at all, on a band along the bottom, or scrolling along the bottom.
+PLAYING_LABELS = ("none", "band", "scroll")
 ACTION_TYPES = ("hotkey", "sequence", "chord", "hold", "boost", "repeat",
                 "text", "launch", "url", "request", "page", "brightness", "sleep", "multi",
-                "toggle", "volume", "audio_output", "window", "timer", "stopwatch", "counter")
+                "toggle", "volume", "audio_output", "window", "timer", "stopwatch", "counter",
+                "stay_awake", "dnd", "status", "kodi", "weather", "system", "wled", "pihole", "synology")
+# The toggling desktop actions: like a hold they run until pressed again,
+# so they cannot be a step of another action either.
+DESKTOP_TOGGLES = ("stay_awake", "dnd")
+STATUS_EVERY_RANGE = (5_000, 3_600_000)
+NUDGE_EVERY_RANGE = (1_000, 3_600_000)
+KODI_URL_DEFAULT = "http://127.0.0.1:8080/jsonrpc"
+WIND_UNITS = ("kmh", "mph")
 # Actions that act on the key they sit on rather than on the PC, and so need
 # to know their position: the controller runs these itself. None of them can
 # be a step of another action, because a step has no key of its own.
@@ -256,6 +274,65 @@ class MarkSettings:
 
 
 @dataclass(frozen=True)
+class LampSettings:
+    """<summary>
+    An address a key keeps an eye on, to wear the status lamp for it.
+    </summary>
+    <param name="url">The address to ask.</param>
+    <param name="every_ms">How often to ask.</param>
+    <param name="insecure">True to accept a certificate that does not verify.</param>
+    <param name="expect">Text that must appear in the body, or "" for any
+    answer below 400.</param>
+    <param name="token_file">A credentials file whose contents go in the
+    Authorization header, or None for no header.</param>
+    <param name="kind">"web" asks the address and is green while it answers;
+    "wled" reads a WLED device the way a wled key does and is green while
+    the lights are on, red while they are off and grey while the device
+    cannot be reached. The three web fields mean nothing to a wled lamp.</param>
+    <remarks>
+    A status key and a remote kodi key wear the lamp for the address they
+    act on. A lamp on any other key, a page key that leads to the remote
+    player's page say, watches an address the key does nothing else with,
+    so the key that opens the Kodi page can show whether that Kodi is there
+    without being a kodi key itself. The fields are the status action's,
+    with the kodi key's credentials file beside them.
+    </remarks>"""
+
+    url: str
+    every_ms: int = 60_000
+    insecure: bool = False
+    expect: str = ""
+    token_file: str | None = None
+    kind: str = "web"
+
+
+@dataclass(frozen=True)
+class PlayingSource:
+    """<summary>
+    A media player a key follows, to wear the picture of what it is playing.
+    </summary>
+    <param name="source">"local" for the desktop's own players over the
+    session bus, "kodi" for a Kodi player at ``url``.</param>
+    <param name="url">The Kodi player's JSON RPC address. None for local,
+    and None on a kodi key for the player that key itself talks to, its
+    own ``url`` or the one in [kodi].</param>
+    <param name="token_file">The Kodi player's credentials file, or None.</param>
+    <param name="label">How what is playing is named over the picture:
+    "none", "band" for a caption band along the bottom, or "scroll" for the
+    name sliding along the bottom when it is too long to fit.</param>
+    <remarks>The same three a playing strip panel takes, and the label.
+    While the player has something on and names a picture for it, the
+    key's face is that picture; otherwise the key looks as it always does,
+    so a page key that leads to the Kodi page shows the film poster while
+    the film runs and its own icon the rest of the time.</remarks>"""
+
+    source: str = "local"
+    url: str | None = None
+    token_file: str | None = None
+    label: str = "none"
+
+
+@dataclass(frozen=True)
 class KeyConfig:
     """<summary>
     One key on one page.
@@ -284,6 +361,12 @@ class KeyConfig:
     is running, a timer or stopwatch that is going, a mute key while the
     sound is muted, an output key while that output is in use. Either may be
     left unset, in which case the ordinary picture or label stays.
+
+    ``lamp`` gives any key the status lamp for an address of the key's own
+    choosing; see <see cref="LampSettings"/>. It wins over the lamp a
+    status or remote kodi action would otherwise bring. ``playing`` makes
+    the key wear the picture of what a player is playing while it plays;
+    see <see cref="PlayingSource"/>.
     </remarks>
     """
 
@@ -299,6 +382,8 @@ class KeyConfig:
     mark: MarkSettings = field(default_factory=MarkSettings)
     image_active: Path | None = None
     label_active: str | None = None
+    lamp: LampSettings | None = None
+    playing: PlayingSource | None = None
 
     def actions(self) -> tuple[Action | None, Action | None, Action | None]:
         """<summary>
@@ -328,6 +413,10 @@ class Page:
     its own. Scaled to cover the grid at the deck's key pitch so it reads as
     continuous through the gaps; without a measured pitch the keys are treated
     as touching.</param>
+    <param name="changed">When the configuration page last edited this page,
+    as ISO 8601 text, or None for a page it has never touched. Written by
+    the page so its list can be sorted by what was worked on last; the
+    daemon reads it, checks it is a date and time, and never sets it.</param>
     <remarks>
     Page names are unique across a config and are how a page action names its
     target, so renaming a page breaks every key that jumps to it. That is
@@ -345,6 +434,7 @@ class Page:
     keys: dict[tuple[int, int], KeyConfig]
     match_window: str | None = None
     wallpaper: Path | None = None
+    changed: str | None = None
 
 
 @dataclass(frozen=True)
@@ -365,6 +455,13 @@ class StripTile:
     ``fit`` shrinks the picture to sit inside the visible area instead of
     filling it. The strip shows less of a picture than a key does, and the
     edges are cut off, so a picture with anything near its border wants this.
+
+    A playing tile reads the desktop's own players unless ``source`` is
+    "kodi", and then ``url`` is that player's JSON RPC address and
+    ``token_file`` its optional credentials file, the same two a kodi key
+    carries for a player in another room. ``art`` false leaves the picture
+    of what is playing off the panel, for words alone. The other kinds
+    leave all four at their defaults.
     </remarks>"""
 
     kind: str
@@ -372,6 +469,10 @@ class StripTile:
     fit: bool = False
     animation: AnimationConfig | None = None
     background: str | None = None
+    source: str = "local"
+    url: str | None = None
+    token_file: str | None = None
+    art: bool = True
 
 
 # The three strip panels show less of the picture than the keys do: the
@@ -423,6 +524,9 @@ class DeckSettings:
     key_pitch_y it lets one picture be split over the keys so it reads as
     continuous through the gaps. Found with the calibrate-grid command.</param>
     <param name="key_pitch_y">The same down the columns.</param>
+    <param name="night_brightness">The backlight between sunset and sunrise
+    at the weather coordinates, or 0 to leave the brightness alone at
+    night.</param>
     <remarks>
     These apply to the whole deck and not to one page, so switching pages
     never changes any of them. An action may change the brightness at run
@@ -446,6 +550,7 @@ class DeckSettings:
     focus_poll_ms: int = FOCUS_POLL_DEFAULT_MS
     key_pitch_x: int | None = None
     key_pitch_y: int | None = None
+    night_brightness: int = 0
 
     @property
     def key_pitch(self) -> tuple[int, int] | None:
@@ -478,6 +583,10 @@ class WeatherSettings:
 
     Refreshing costs a request to the weather service, so the floor of one
     minute is there to keep a mistyped value from hammering it.
+
+    ``wind_units`` lets the wind be read in miles an hour beside a Celsius
+    temperature, which is how Britain reads a forecast; None follows
+    ``units``.
     </remarks>"""
 
     latitude: float = 51.5072
@@ -485,9 +594,56 @@ class WeatherSettings:
     units: str = "metric"
     refresh_minutes: int = 10
     location_name: str = "London"
+    wind_units: str | None = None
+
+    @property
+    def wind_unit_code(self) -> str:
+        """<summary>The wind unit the forecast is asked for: "kmh" or "mph".</summary>
+        <returns>``wind_units`` when set, else the one that goes with ``units``.</returns>"""
+        return self.wind_units or ("mph" if self.units == "imperial" else "kmh")
 
 
 LOOPBACK_ADDRESSES = ("127.0.0.1", "localhost", "::1")
+
+
+@dataclass(frozen=True)
+class KodiSettings:
+    """<summary>
+    Where Kodi's JSON RPC is, from [kodi], shared by every kodi key.
+    </summary>
+    <param name="url">The JSON RPC endpoint, normally ``/jsonrpc`` on port 8080
+    of the machine running Kodi.</param>
+    <param name="token_file">A file outside the config folder whose contents
+    go in the Authorization header, as for a request action; Kodi wants
+    ``Basic`` and the base64 of ``user:password``. None sends no header.</param>
+    <param name="timeout_s">How long to wait for Kodi to answer.</param>
+    <remarks>
+    One table for the player rather than an address on every key, so a player
+    that moves is edited once. The default points at this machine, which is
+    where Kodi is when nothing says otherwise.
+    </remarks>"""
+
+    url: str = KODI_URL_DEFAULT
+    token_file: str | None = None
+    timeout_s: float = 5.0
+
+
+@dataclass(frozen=True)
+class TraySettings:
+    """<summary>
+    The daemon's icon in the system tray, from [tray].
+    </summary>
+    <param name="enabled">Whether the daemon puts an icon in the tray while it
+    runs. On by default; a machine with no tray, or without the pystray
+    package, simply logs that and runs without one.</param>
+    <remarks>
+    The icon is a way to reach the daemon with no terminal: open the
+    configuration window or quit. It is a setting rather than a flag because
+    the configuration page turns it on and off, and the daemon follows a
+    reload, so there is nothing to restart.
+    </remarks>"""
+
+    enabled: bool = True
 
 
 @dataclass(frozen=True)
@@ -538,6 +694,8 @@ class Config:
     path: Path | None = None
     server: ServerSettings = ServerSettings()
     strip_visible: tuple[int, int] = STRIP_VISIBLE_DEFAULT
+    kodi: KodiSettings = KodiSettings()
+    tray: TraySettings = TraySettings()
 
     def page_named(self, name: str) -> Page | None:
         """<summary>
@@ -626,8 +784,10 @@ def parse(text: str, base_dir: str | Path, path: Path | None = None) -> Config:
                _int(strip_table, "visible_height", "[strip]", STRIP_VISIBLE_DEFAULT[1], 8, 200))
     pages = _parse_pages(data.get("pages"), base_dir)
     server = _parse_server(_table(data, "server", {}))
+    kodi = _parse_kodi(_table(data, "kodi", {}))
+    tray = _parse_tray(_table(data, "tray", {}))
     return Config(deck=deck, weather=weather, strip=strip, pages=pages, base_dir=base_dir,
-                  path=path, server=server, strip_visible=visible)
+                  path=path, server=server, strip_visible=visible, kodi=kodi, tray=tray)
 
 
 # Parsing helpers. Every error names the place in the file it came from.
@@ -779,6 +939,7 @@ def _parse_deck(table: dict) -> DeckSettings:
         focus_poll_ms=_int(table, "focus_poll_ms", "[deck]", FOCUS_POLL_DEFAULT_MS, *FOCUS_POLL_RANGE),
         key_pitch_x=_int(table, "key_pitch_x", "[deck]", 0, *KEY_PITCH_RANGE) if "key_pitch_x" in table else None,
         key_pitch_y=_int(table, "key_pitch_y", "[deck]", 0, *KEY_PITCH_RANGE) if "key_pitch_y" in table else None,
+        night_brightness=_int(table, "night_brightness", "[deck]", 0, 0, 100),
     )
 
 
@@ -937,6 +1098,41 @@ def _parse_server(table: dict) -> ServerSettings:
     )
 
 
+def _parse_kodi(table: dict) -> KodiSettings:
+    """<summary>
+    Build the Kodi settings from the [kodi] table.
+    </summary>
+    <param name="table">The [kodi] table, or an empty dict when absent.</param>
+    <returns>Validated KodiSettings.</returns>
+    <remarks>Parsed whether or not any key talks to Kodi, so an absent table
+    must give working defaults.</remarks>
+    <exception cref="ConfigError">A value is of the wrong type or the
+    timeout is out of range.</exception>"""
+    url = _str(table, "url", "[kodi]", KODI_URL_DEFAULT) or KODI_URL_DEFAULT
+    if not url.startswith(("http://", "https://")):
+        raise ConfigError("[kodi]: 'url' must start with http:// or https://")
+    return KodiSettings(
+        url=url,
+        token_file=_str(table, "token_file", "[kodi]") or None,
+        timeout_s=_float(table, "timeout_s", "[kodi]", 5.0),
+    )
+
+
+def _parse_tray(table: dict) -> TraySettings:
+    """<summary>
+    Build the tray icon settings from the [tray] table.
+    </summary>
+    <param name="table">The [tray] table, or an empty dict when absent.</param>
+    <returns>Validated TraySettings.</returns>
+    <remarks>An absent table means the icon is wanted: the setting exists so
+    it can be turned off, not so it has to be turned on.</remarks>
+    <exception cref="ConfigError">'enabled' is not true or false.</exception>"""
+    enabled = table.get("enabled", True)
+    if not isinstance(enabled, bool):
+        raise ConfigError("[tray]: 'enabled' must be true or false")
+    return TraySettings(enabled=enabled)
+
+
 def _parse_weather(table: dict) -> WeatherSettings:
     """<summary>
     Build the weather tile settings from the [weather] table.
@@ -956,10 +1152,14 @@ def _parse_weather(table: dict) -> WeatherSettings:
     units = _str(table, "units", "[weather]", "metric")
     if units not in ("metric", "imperial"):
         raise ConfigError("[weather]: 'units' must be 'metric' or 'imperial'")
+    wind_units = _str(table, "wind_units", "[weather]")
+    if wind_units is not None and wind_units not in WIND_UNITS:
+        raise ConfigError(f"[weather]: 'wind_units' must be one of {', '.join(WIND_UNITS)}")
     return WeatherSettings(
         latitude=_float(table, "latitude", "[weather]", 51.5072),
         longitude=_float(table, "longitude", "[weather]", -0.1276),
         units=units,
+        wind_units=wind_units,
         refresh_minutes=_int(table, "refresh_minutes", "[weather]", 10, 1, 24 * 60),
         location_name=_str(table, "location_name", "[weather]", "London") or "London",
     )
@@ -1010,7 +1210,24 @@ def _parse_strip(table: dict, base_dir: Path) -> tuple[StripTile, ...]:
             kind = entry["kind"]
             if kind not in STRIP_TILE_KINDS:
                 raise ConfigError(f"{where}: unknown kind '{kind}'")
-            tiles.append(StripTile(kind=kind, background=_colour(entry, "background", where)))
+            source = _str(entry, "source", where, "local") or "local"
+            if source not in PLAYING_SOURCES:
+                raise ConfigError(f"{where}: 'source' must be one of {', '.join(PLAYING_SOURCES)}")
+            if source != "local" and kind != "playing":
+                raise ConfigError(f"{where}: only a playing tile takes a 'source'")
+            art = entry.get("art", True)
+            if not isinstance(art, bool):
+                raise ConfigError(f"{where}: 'art' must be true or false")
+            if not art and kind != "playing":
+                raise ConfigError(f"{where}: only a playing tile takes 'art'")
+            url = token_file = None
+            if source == "kodi":
+                url = _str(entry, "url", where, required=True) or ""
+                if not url.startswith(("http://", "https://")):
+                    raise ConfigError(f"{where}: 'url' must start with http:// or https://")
+                token_file = _str(entry, "token_file", where) or None
+            tiles.append(StripTile(kind=kind, background=_colour(entry, "background", where),
+                                   source=source, url=url, token_file=token_file, art=art))
         else:
             raise ConfigError(f"{where}: must be one of {', '.join(STRIP_TILE_KINDS)} or an image path")
     return tuple(tiles)
@@ -1055,7 +1272,8 @@ def _parse_pages(raw: Any, base_dir: Path) -> tuple[Page, ...]:
         wallpaper = _str(table, "wallpaper", where)
         pages.append(Page(name=name, keys=_parse_keys(table.get("keys", []), f"page '{name}'", base_dir),
                           match_window=_pattern(table, "match_window", where),
-                          wallpaper=_resolve(wallpaper, base_dir) if wallpaper else None))
+                          wallpaper=_resolve(wallpaper, base_dir) if wallpaper else None,
+                          changed=_changed(table, where)))
 
     for page in pages:
         for key in page.keys.values():
@@ -1063,6 +1281,33 @@ def _parse_pages(raw: Any, base_dir: Path) -> tuple[Page, ...]:
             for action in (key.action, key.action_long, key.action_double):
                 _check_page_targets(action, names, where)
     return tuple(pages)
+
+
+def _changed(table: dict, where: str) -> str | None:
+    """<summary>
+    A page's ``changed`` stamp, checked to be a date and time.
+    </summary>
+    <param name="table">The page's table.</param>
+    <param name="where">Where in the file, for the error.</param>
+    <returns>The stamp exactly as written, or None when the page has none.</returns>
+    <remarks>
+    Kept as the text it was written as rather than parsed into a datetime,
+    because the page compares stamps as text and writes them back as text,
+    and a round trip through a datetime would change the form of a stamp
+    that was written with a different offset. Only the check that it is a
+    date and time at all is done here, so a mangled value is reported at
+    load instead of breaking the sort on the page.
+    </remarks>
+    <exception cref="ConfigError">The value is not text or is not an ISO 8601
+    date and time.</exception>"""
+    value = _str(table, "changed", where)
+    if not value:
+        return None
+    try:
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as err:
+        raise ConfigError(f"{where}: 'changed' must be an ISO 8601 date and time, not {value!r}") from err
+    return value
 
 
 def _pattern(table: dict, key: str, where: str) -> str | None:
@@ -1144,20 +1389,103 @@ def _parse_keys(raw: Any, where: str, base_dir: Path) -> dict[tuple[int, int], K
             raw = table.get(field)
             return _parse_action(raw, f"{here} {label}") if raw is not None else None
 
+        actions = (action_for("action", "action"), action_for("action_long", "long press action"),
+                   action_for("action_double", "double press action"))
+        own_player = any(a is not None and a.type == "kodi" for a in actions)
         keys[(row, column)] = KeyConfig(
             row=row, column=column,
             image=_resolve(image, base_dir) if image else None,
             label=_str(table, "label", here),
-            action=action_for("action", "action"),
+            action=actions[0],
             animation=_parse_animation(animation, here) if animation is not None else None,
             background=_colour(table, "background", here),
             mark=_parse_mark(table.get("mark"), here),
-            action_long=action_for("action_long", "long press action"),
-            action_double=action_for("action_double", "double press action"),
+            action_long=actions[1],
+            action_double=actions[2],
             image_active=_resolve(image_active, base_dir) if image_active else None,
             label_active=_str(table, "label_active", here),
+            lamp=_parse_lamp(table.get("lamp"), here),
+            playing=_parse_playing(table.get("playing"), here, own_player),
         )
     return keys
+
+
+def _parse_playing(table: Any, where: str, own_player: bool = False) -> PlayingSource | None:
+    """<summary>
+    Build the player a key follows from its ``playing`` table, or None.
+    </summary>
+    <param name="table">The table from the file, or None.</param>
+    <param name="where">How to name the key in an error.</param>
+    <param name="own_player">True when the key has a kodi action, so a
+    Kodi source may leave the address out and mean that action's player.</param>
+    <returns>The source, or None.</returns>
+    <remarks>The same checks as a playing strip panel's source, so the two
+    refuse the same mistakes in the same words, plus the label.</remarks>
+    <exception cref="ConfigError">Not a table, an unknown source or label,
+    a Kodi source with an address that is not http or https, or one with
+    no address on a key that has no kodi action to borrow it from.</exception>"""
+    if table is None:
+        return None
+    here = f"{where} playing"
+    if not isinstance(table, dict):
+        raise ConfigError(f"{here}: must be a table")
+    source = _str(table, "source", here, "local") or "local"
+    if source not in PLAYING_SOURCES:
+        raise ConfigError(f"{here}: 'source' must be one of {', '.join(PLAYING_SOURCES)}")
+    label = _str(table, "label", here, "none") or "none"
+    if label not in PLAYING_LABELS:
+        raise ConfigError(f"{here}: 'label' must be one of {', '.join(PLAYING_LABELS)}")
+    url = token_file = None
+    if source == "kodi":
+        url = _str(table, "url", here) or None
+        if url is None and not own_player:
+            raise ConfigError(f"{here}: needs a 'url', or a kodi action on the key to take the player from")
+        if url is not None and not url.startswith(("http://", "https://")):
+            raise ConfigError(f"{here}: 'url' must start with http:// or https://")
+        token_file = _str(table, "token_file", here) or None
+    return PlayingSource(source=source, url=url, token_file=token_file, label=label)
+
+
+def _parse_lamp(table: Any, where: str) -> LampSettings | None:
+    """<summary>
+    Build a key's lamp from its ``lamp`` table, or None when it has none.
+    </summary>
+    <param name="table">The table from the file, or None.</param>
+    <param name="where">How to name the key in an error.</param>
+    <returns>The settings, or None.</returns>
+    <remarks>The same checks as a status action's fields, so a lamp and a
+    status key refuse the same mistakes in the same words. A wled lamp is
+    asked on the wled key's default interval, a web one on the status
+    key's, unless ``every_ms`` says otherwise.</remarks>
+    <exception cref="ConfigError">Not a table, no address, an address that is
+    not http or https, an unknown kind, or a field of the wrong type.</exception>"""
+    if table is None:
+        return None
+    here = f"{where} lamp"
+    if not isinstance(table, dict):
+        raise ConfigError(f"{here}: must be a table")
+    kind = _str(table, "kind", here, "web") or "web"
+    if kind not in LAMP_KINDS:
+        raise ConfigError(f"{here}: 'kind' must be one of {', '.join(LAMP_KINDS)}")
+    url = _str(table, "url", here, required=True) or ""
+    if not url.startswith(("http://", "https://")):
+        raise ConfigError(f"{here}: 'url' must start with http:// or https://")
+    insecure = table.get("insecure", False)
+    if not isinstance(insecure, bool):
+        raise ConfigError(f"{here}: 'insecure' must be true or false")
+    expect = table.get("expect", "")
+    if not isinstance(expect, str):
+        raise ConfigError(f"{here}: 'expect' must be text")
+    from . import lights as lights_module
+    default_every = lights_module.DEFAULT_EVERY_MS if kind == "wled" else STATUS_EVERY_RANGE[0] * 12
+    return LampSettings(
+        url=url,
+        every_ms=_int(table, "every_ms", here, default_every, *STATUS_EVERY_RANGE),
+        insecure=insecure,
+        expect=expect,
+        token_file=_str(table, "token_file", here) or None,
+        kind=kind,
+    )
 
 
 def _parse_action(table: Any, where: str, nested: bool = False) -> Action:
@@ -1409,6 +1737,142 @@ def _parse_action(table: Any, where: str, nested: bool = False) -> Action:
             params["device"] = _regex(device, where, "device")
         else:
             raise ConfigError(f"{where}: audio_output action needs 'device' or cycle = true")
+    elif kind in DESKTOP_TOGGLES:
+        # Stay Awake and Do Not Disturb run until pressed again, like a hold.
+        if nested:
+            raise ConfigError(f"{where}: a {kind} action cannot be a step of another action")
+        if kind == "stay_awake":
+            for name in ("inhibit", "nudge"):
+                value = table.get(name, True)
+                if not isinstance(value, bool):
+                    raise ConfigError(f"{where}: '{name}' must be true or false")
+                params[name] = value
+            params["every_ms"] = _int(table, "every_ms", where, awake_default_ms(), *NUDGE_EVERY_RANGE)
+    elif kind == "status":
+        # Lights the key while the address answers; the press opens it.
+        if nested:
+            raise ConfigError(f"{where}: a status action cannot be a step of another action")
+        params["url"] = _str(table, "url", where, required=True)
+        params["every_ms"] = _int(table, "every_ms", where, STATUS_EVERY_RANGE[0] * 12, *STATUS_EVERY_RANGE)
+        for name, default in (("insecure", False), ("open", True)):
+            value = table.get(name, default)
+            if not isinstance(value, bool):
+                raise ConfigError(f"{where}: '{name}' must be true or false")
+            params[name] = value
+        expect = table.get("expect", "")
+        if not isinstance(expect, str):
+            raise ConfigError(f"{where}: 'expect' must be text")
+        params["expect"] = expect
+    elif kind == "wled":
+        # The key draws the lights' state; the press changes it.
+        if nested:
+            raise ConfigError(f"{where}: a wled action cannot be a step of another action")
+        from . import lights as lights_module
+        url = _str(table, "url", where, required=True) or ""
+        if not url.startswith(("http://", "https://")):
+            raise ConfigError(f"{where}: 'url' must start with http:// or https://")
+        params["url"] = url
+        do = _str(table, "do", where, "toggle") or "toggle"
+        if do not in lights_module.DOINGS:
+            raise ConfigError(f"{where}: 'do' must be one of {', '.join(lights_module.DOINGS)}")
+        params["do"] = do
+        if do == "preset":
+            params["preset"] = _int(table, "preset", where, None, 1, 250)
+        elif do in ("brighter", "dimmer"):
+            params["step"] = _int(table, "step", where, lights_module.STEP_DEFAULT, 1, 254)
+        params["every_ms"] = _int(table, "every_ms", where, lights_module.DEFAULT_EVERY_MS, *STATUS_EVERY_RANGE)
+    elif kind == "pihole":
+        # The key draws today's figures and wears the blocking state as its
+        # lamp; the press pauses blocking for a while, or opens the admin page.
+        if nested:
+            raise ConfigError(f"{where}: a pihole action cannot be a step of another action")
+        from . import pihole as pihole_module
+        url = _str(table, "url", where, required=True) or ""
+        if not url.startswith(("http://", "https://")):
+            raise ConfigError(f"{where}: 'url' must start with http:// or https://")
+        params["url"] = url
+        params["token_file"] = _str(table, "token_file", where) or None
+        insecure = table.get("insecure", False)
+        if not isinstance(insecure, bool):
+            raise ConfigError(f"{where}: 'insecure' must be true or false")
+        params["insecure"] = insecure
+        do = _str(table, "do", where, "toggle") or "toggle"
+        if do not in pihole_module.DOINGS:
+            raise ConfigError(f"{where}: 'do' must be one of {', '.join(pihole_module.DOINGS)}")
+        params["do"] = do
+        params["seconds"] = _int(table, "seconds", where, pihole_module.DEFAULT_PAUSE_S, *pihole_module.PAUSE_RANGE)
+        params["every_ms"] = _int(table, "every_ms", where, pihole_module.DEFAULT_EVERY_MS, *STATUS_EVERY_RANGE)
+    elif kind == "synology":
+        # The key draws free space, load or temperature from a Synology NAS
+        # and wears its health as the lamp; the press opens DSM.
+        if nested:
+            raise ConfigError(f"{where}: a synology action cannot be a step of another action")
+        from . import synology as synology_module
+        url = _str(table, "url", where, required=True) or ""
+        if not url.startswith(("http://", "https://")):
+            raise ConfigError(f"{where}: 'url' must start with http:// or https://")
+        params["url"] = url
+        # Not required at load, like the credentials file: a key being set up
+        # on the page has neither yet, and the sign in says what is missing.
+        params["account"] = _str(table, "account", where)
+        params["token_file"] = _str(table, "token_file", where) or None
+        insecure = table.get("insecure", False)
+        if not isinstance(insecure, bool):
+            raise ConfigError(f"{where}: 'insecure' must be true or false")
+        params["insecure"] = insecure
+        show = _str(table, "show", where, "space") or "space"
+        if show not in synology_module.SHOWS:
+            raise ConfigError(f"{where}: 'show' must be one of {', '.join(synology_module.SHOWS)}")
+        params["show"] = show
+        params["volume"] = _str(table, "volume", where) or None
+        do = _str(table, "do", where, "open") or "open"
+        if do not in synology_module.DOINGS:
+            raise ConfigError(f"{where}: 'do' must be one of {', '.join(synology_module.DOINGS)}")
+        params["do"] = do
+        params["every_ms"] = _int(table, "every_ms", where, synology_module.DEFAULT_EVERY_MS, *STATUS_EVERY_RANGE)
+    elif kind == "weather":
+        # The key draws the reading itself; the press opens a site, the
+        # runner's default for the coordinates when none is written.
+        if nested:
+            raise ConfigError(f"{where}: a weather action cannot be a step of another action")
+        url = table.get("url", "")
+        if not isinstance(url, str):
+            raise ConfigError(f"{where}: 'url' must be text")
+        params["url"] = url.strip()
+    elif kind == "system":
+        # The key draws the machine's reading; the press launches a monitor,
+        # the first one found on this machine when none is written.
+        if nested:
+            raise ConfigError(f"{where}: a system action cannot be a step of another action")
+        command = table.get("command", "")
+        if not isinstance(command, str):
+            raise ConfigError(f"{where}: 'command' must be text")
+        params["command"] = command.strip()
+    elif kind == "kodi":
+        # Either a shorthand word or a raw method; the address is in [kodi]
+        # unless the key names its own, for a second player elsewhere.
+        url = _str(table, "url", where)
+        if url:
+            if not url.startswith(("http://", "https://")):
+                raise ConfigError(f"{where}: 'url' must start with http:// or https://")
+            params["url"] = url
+        token_file = _str(table, "token_file", where)
+        if token_file:
+            params["token_file"] = token_file
+        do = _str(table, "do", where)
+        if do:
+            from . import kodi as kodi_module
+            if do not in kodi_module.SHORTHAND:
+                raise ConfigError(f"{where}: unknown kodi action '{do}', expected one of {', '.join(kodi_module.SHORTHAND)}")
+            params["do"] = do
+        method = _str(table, "method", where)
+        if method:
+            params["method"] = method
+        raw_params = table.get("params")
+        if raw_params is not None:
+            if not isinstance(raw_params, dict):
+                raise ConfigError(f"{where}: 'params' must be a table")
+            params["params"] = dict(raw_params)
     elif kind == "window":
         params["match"] = _regex(_str(table, "match", where, required=True) or "", where, "match")
         operation = _str(table, "operation", where, "focus") or "focus"
@@ -1419,6 +1883,16 @@ def _parse_action(table: Any, where: str, nested: bool = False) -> Action:
         if command:
             params["command"] = command
     return Action(type=kind, params=params)
+
+
+def awake_default_ms() -> int:
+    """<summary>The default nudge interval of a stay_awake action, from the awake module.</summary>
+    <returns>Milliseconds.</returns>
+    <remarks>Read through a function so this module does not import the
+    desktop code at load, which would drag the session bus into every
+    config parse.</remarks>"""
+    from . import awake
+    return awake.NUDGE_DEFAULT_MS
 
 
 def _regex(value: str, where: str, key: str) -> str:
@@ -1619,6 +2093,35 @@ def _action_document(action: Action | None) -> dict | None:
     return doc
 
 
+def _lamp_document(lamp: LampSettings | None) -> dict | None:
+    """<summary>A key's lamp as the page's JSON, or None for no lamp.</summary>
+    <param name="lamp">The settings, or None.</param>
+    <returns>A dict with every field, the credentials file only when set.</returns>"""
+    if lamp is None:
+        return None
+    document: dict[str, Any] = {"kind": lamp.kind, "url": lamp.url, "every_ms": lamp.every_ms,
+                                "insecure": lamp.insecure, "expect": lamp.expect}
+    if lamp.token_file:
+        document["token_file"] = lamp.token_file
+    return document
+
+
+def _playing_document(playing: PlayingSource | None) -> dict | None:
+    """<summary>The player a key follows as the page's JSON, or None for none.</summary>
+    <param name="playing">The source, or None.</param>
+    <returns>A dict with the source, and the address and credentials file for a Kodi one.</returns>"""
+    if playing is None:
+        return None
+    document: dict[str, Any] = {"source": playing.source}
+    if playing.source == "kodi" and playing.url:
+        document["url"] = playing.url
+        if playing.token_file:
+            document["token_file"] = playing.token_file
+    if playing.label != "none":
+        document["label"] = playing.label
+    return document
+
+
 def _animation_document(animation: AnimationConfig | None) -> dict | None:
     """
     <summary>
@@ -1674,17 +2177,27 @@ def document_from_config(config: Config) -> dict:
                 "mark": _mark_document(key.mark),
                 "image_active": _relative(key.image_active, config.base_dir),
                 "label_active": key.label_active,
+                "lamp": _lamp_document(key.lamp),
+                "playing": _playing_document(key.playing),
             })
         pages.append({"name": page.name, "keys": keys, "match_window": page.match_window,
-                      "wallpaper": _relative(page.wallpaper, config.base_dir)})
+                      "wallpaper": _relative(page.wallpaper, config.base_dir),
+                      "changed": page.changed})
     strip: list[Any] = []
     for tile in config.strip:
         if tile.kind == "image":
             entry: Any = {"image": _relative(tile.image, config.base_dir), "fit": tile.fit}
         elif tile.kind == "animation":
             entry = {"animation": _animation_document(tile.animation)}
-        elif tile.background:
+        elif tile.background or tile.source != "local" or not tile.art:
             entry = {"kind": tile.kind}
+            if tile.source != "local":
+                entry["source"] = tile.source
+                entry["url"] = tile.url
+                if tile.token_file:
+                    entry["token_file"] = tile.token_file
+            if not tile.art:
+                entry["art"] = False
         else:
             entry = tile.kind
         if tile.background and isinstance(entry, dict):
@@ -1704,6 +2217,12 @@ def document_from_config(config: Config) -> dict:
             "focus_poll_ms": config.deck.focus_poll_ms,
             "key_pitch_x": config.deck.key_pitch_x,
             "key_pitch_y": config.deck.key_pitch_y,
+            "night_brightness": config.deck.night_brightness,
+        },
+        "kodi": {
+            "url": config.kodi.url,
+            "token_file": config.kodi.token_file,
+            "timeout_s": config.kodi.timeout_s,
         },
         "server": {
             "enabled": config.server.enabled,
@@ -1711,11 +2230,15 @@ def document_from_config(config: Config) -> dict:
             "port": config.server.port,
             "token": config.server.token,
         },
+        "tray": {
+            "enabled": config.tray.enabled,
+        },
         "weather": {
             "latitude": config.weather.latitude,
             "longitude": config.weather.longitude,
             "location_name": config.weather.location_name,
             "units": config.weather.units,
+            "wind_units": config.weather.wind_units,
             "refresh_minutes": config.weather.refresh_minutes,
         },
         "strip": strip,
@@ -1863,7 +2386,7 @@ def to_toml(document: dict) -> str:
     lines = ["# Deckplate configuration, written by the configuration page.",
              "# Positions are row and column from the top left. See README.md for the fields.",
              ""]
-    for section in ("deck", "server", "weather"):
+    for section in ("deck", "server", "weather", "kodi", "tray"):
         table = document.get(section)
         if isinstance(table, dict) and table:
             lines.append(f"[{section}]")
@@ -1893,6 +2416,8 @@ def to_toml(document: dict) -> str:
             lines.append(f"match_window = {_toml_value(page['match_window'])}")
         if page.get("wallpaper"):
             lines.append(f"wallpaper = {_toml_value(page['wallpaper'])}")
+        if page.get("changed"):
+            lines.append(f"changed = {_toml_value(page['changed'])}")
         lines.append("")
         keys = page.get("keys") or []
         if not isinstance(keys, list):
@@ -1902,7 +2427,7 @@ def to_toml(document: dict) -> str:
                 raise ConfigError("each key must be an object")
             lines.append("[[pages.keys]]")
             for field in ("row", "column", "image", "label", "image_active", "label_active",
-                          "background", "mark", "action", "action_long", "action_double", "animation"):
+                          "background", "mark", "lamp", "playing", "action", "action_long", "action_double", "animation"):
                 if key.get(field) is not None:
                     lines.append(f"{field} = {_toml_value(key[field])}")
             lines.append("")

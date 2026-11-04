@@ -50,6 +50,17 @@
   --radius: 8px;
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans", Ubuntu, Cantarell, sans-serif;
   --mono: ui-monospace, "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace;
+  /* How long the two side panes take to slide in and out. One number, so
+     the column and the pane inside it always finish together. */
+  --swoosh: 0.32s;
+  --pages-width: 280px;
+  --editor-width: 360px;
+  --pane-gap: 18px;
+  /* Frame, five keys and the strip at the 44px floor app.js keeps, and the gaps. */
+  --deck-min: 404px;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root { --swoosh: 0s; }
 }
 
 /**
@@ -121,7 +132,7 @@ button.ghost:hover { border-color: var(--steel); }
 button.ghost.danger { color: var(--bad); }
 button.ghost.danger:hover { border-color: var(--bad); }
 button.small { padding: 4px 9px; font-size: 13px; }
-input[type="text"], input[type="number"], input[type="search"], select, textarea {
+input[type="text"], input[type="password"], input[type="number"], input[type="search"], select, textarea {
   background: var(--paper);
   border: 1px solid var(--rule);
   border-radius: 6px;
@@ -231,26 +242,156 @@ input[type="range"] { accent-color: var(--signal); width: 140px; }
  */
 main {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
+  /* The deck column never goes below what fifteen keys at the smallest tile
+     need. With both panes open in a window too narrow for all three, main
+     scrolls sideways rather than letting the deck run under the editor. */
+  grid-template-columns: auto minmax(var(--deck-min), 1fr) auto;
   grid-template-areas:
-    "tabs   ."
-    "deck   editor";
-  gap: 18px;
+    "pages  tabs   ."
+    "pages  deck   editor";
+  column-gap: 0;
+  row-gap: 18px;
   padding: 18px;
   align-items: start;
+  overflow-x: auto;
 }
+.pages-col { grid-area: pages; }
 .tabs { grid-area: tabs; }
 .deck-pane { grid-area: deck; }
-.editor { grid-area: editor; }
+.editor-col { grid-area: editor; }
+
+/**
+ * <summary>The two side panes, and how they slide in and out.</summary>
+ * <remarks>
+ * Each pane sits in a column box of its own. The column is what is animated:
+ * its width goes to nothing and it clips, while the pane inside keeps its
+ * full width and slides sideways at the same time, so it leaves the way a
+ * drawer does instead of squashing. Width is animated rather than the grid
+ * track because every engine the page runs in animates a width, and the
+ * grid's outer tracks are auto, so they follow the box.
+ *
+ * The gap between a pane and the deck is a margin on the pane, inside the
+ * column, rather than the grid's column gap. A column gap would stay behind
+ * as an 18px hole on a side whose pane is hidden; a margin goes with the
+ * column.
+ *
+ * The pane is marked hidden only once the slide has finished, by delaying
+ * the visibility change the length of the slide, so nothing in a hidden pane
+ * can be tabbed to and the slide is still seen. Opening clears the delay so
+ * the pane is visible from the first frame.
+ *
+ * "booting" is on main for the first paint only, so the remembered open and
+ * closed states are applied without the panes seen sliding into place.
+ * </remarks>
+ */
+.pages-col, .editor-col {
+  /* clip, not hidden, and start, not stretch: a hidden box is a scroll
+     container, and Chromium sized a stretched one in an auto row from
+     nothing, which cut the editor off at the deck's height. Either change
+     alone cures that; both are here so an engine without clip, which takes
+     the hidden line, is cured by the start. No minimum height: max-content
+     here made the stacked rows a few pixels tall instead. */
+  overflow: hidden;
+  overflow: clip;
+  align-self: start;
+  transition: width var(--swoosh) ease;
+}
+.pages-col { width: calc(var(--pages-width) + var(--pane-gap)); }
+.editor-col { width: calc(var(--editor-width) + var(--pane-gap)); }
+main.pages-closed .pages-col, main.editor-closed .editor-col { width: 0; }
+.pages-pane {
+  width: var(--pages-width);
+  margin-right: var(--pane-gap);
+  transition: transform var(--swoosh) ease, visibility 0s linear 0s;
+}
+.editor {
+  width: var(--editor-width);
+  margin-left: var(--pane-gap);
+  transition: transform var(--swoosh) ease, visibility 0s linear 0s;
+}
+main.pages-closed .pages-pane {
+  transform: translateX(-100%);
+  visibility: hidden;
+  transition: transform var(--swoosh) ease, visibility 0s linear var(--swoosh);
+}
+main.editor-closed .editor {
+  transform: translateX(100%);
+  visibility: hidden;
+  transition: transform var(--swoosh) ease, visibility 0s linear var(--swoosh);
+}
+main.booting, main.booting .pages-col, main.booting .editor-col, main.booting .pages-pane, main.booting .editor { transition: none; }
 @media (max-width: 960px) {
   main {
     grid-template-columns: 1fr;
     grid-template-areas:
+      "pages"
       "tabs"
       "deck"
       "editor";
   }
+  /* Stacked, there is nowhere to slide to: a hidden pane is simply gone. */
+  .pages-col, .editor-col { width: auto; transition: none; }
+  .pages-pane, .editor { width: auto; margin: 0; transform: none; transition: none; }
+  main.pages-closed .pages-col, main.editor-closed .editor-col { display: none; }
 }
+
+/**
+ * <summary>The two toggle buttons in the header, and the dot on the editor's.</summary>
+ * <remarks>
+ * A pressed toggle is drawn like the active page tab, so the header says
+ * which panes are open. The dot appears while a key is selected and the
+ * editor is hidden: without it a click on a key with the editor away looks
+ * like nothing happened.
+ * </remarks>
+ */
+button.toggle { position: relative; }
+button.toggle[aria-pressed="true"] { color: var(--ink); background: var(--signal-soft); border-color: var(--signal); }
+button.toggle.attention::after {
+  content: ""; position: absolute; top: 4px; right: 4px;
+  width: 8px; height: 8px; border-radius: 50%; background: var(--warn);
+}
+
+/**
+ * <summary>The pages list: the search and sort at the top, then one entry per page.</summary>
+ * <remarks>
+ * An entry is a button, like a tab, and its keys sit under it as smaller
+ * buttons only while a search matches them. Matches are wrapped in mark so
+ * what matched is seen, not just that something did. The list scrolls on its
+ * own inside the pane rather than growing the page.
+ * </remarks>
+ */
+.pages-pane {
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  padding: 14px;
+  min-height: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pages-tools { display: flex; flex-direction: column; gap: 8px; }
+.page-menu { display: flex; flex-direction: column; gap: 4px; overflow: auto; max-height: 70vh; }
+.page-entry {
+  display: flex; flex-direction: column; align-items: stretch; gap: 2px;
+  width: 100%; text-align: left; padding: 7px 10px;
+  background: transparent; color: var(--ink); font-weight: 500;
+  border: 1px solid transparent; border-radius: 8px;
+}
+.page-entry:hover { border-color: var(--rule); filter: none; }
+.page-entry.active { background: var(--signal-soft); border-color: var(--signal); }
+.page-entry .page-meta { color: var(--steel); font-size: 12px; font-weight: 400; }
+.page-keys { display: flex; flex-direction: column; gap: 2px; margin: 0 0 6px 14px; }
+.page-key {
+  display: flex; align-items: baseline; gap: 8px;
+  text-align: left; padding: 4px 8px; font-size: 13px; font-weight: 500;
+  background: transparent; color: var(--steel);
+  border: 1px solid transparent; border-radius: 6px;
+}
+.page-key:hover { color: var(--ink); border-color: var(--rule); filter: none; }
+.page-key .pos { font-family: var(--mono); font-size: 11px; flex: none; }
+.page-menu mark { background: rgba(214, 160, 74, 0.35); color: inherit; border-radius: 2px; padding: 0 1px; }
+.page-menu .empty { color: var(--steel); font-size: 13px; padding: 6px 10px; }
 
 .deck-pane { min-width: 0; }
 
@@ -337,6 +478,39 @@ main {
 }
 .tab.dragging { opacity: 0.4; }
 .tab.dragover { border-color: var(--warn); }
+
+/**
+ * <summary>The right click menu on a key, and the position picker in the move and copy window.</summary>
+ * <remarks>
+ * The menu is fixed at the pointer and sits above the modal level, though
+ * nothing else is open while it shows. The picker is the deck's own five by
+ * three, each position a small button saying in words what it holds, because
+ * the daemon only draws pictures for the page that is showing. The text is
+ * clamped to three lines so a long label widens nothing.
+ * </remarks>
+ */
+.menu {
+  position: fixed; z-index: 60; min-width: 210px;
+  background: var(--card); border: 1px solid var(--rule); border-radius: 10px;
+  padding: 6px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.menu-item {
+  background: transparent; color: var(--ink); font-weight: 500;
+  text-align: left; padding: 7px 10px; border-radius: 6px; width: 100%;
+}
+.menu-item:hover:not(:disabled), .menu-item:focus-visible { background: var(--signal-soft); filter: none; outline: none; }
+.slot-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.slot {
+  display: flex; align-items: center; justify-content: center;
+  height: 54px; padding: 4px; font: inherit; font-size: 11px; line-height: 1.2; text-align: center;
+  background: var(--card2); color: var(--ink);
+  border: 1px solid var(--rule); border-radius: 8px;
+}
+.slot > span { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.slot.free { color: var(--steel); border-style: dashed; background: transparent; }
+.slot.same { border-color: var(--signal); }
+.slot:hover:not(:disabled), .slot:focus-visible { border-color: var(--signal); filter: none; outline: none; background: var(--signal-soft); }
 
 /**
  * <summary>Modals: the backdrop, the box, and the widths the three of them take.</summary>

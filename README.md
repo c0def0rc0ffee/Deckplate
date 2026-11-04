@@ -2,698 +2,296 @@
 
 # Deckplate
 
-A small driver and controller for the SOOMFON Stream Controller, a 15 key LCD
-macro deck that is really a Mirabox Stream Dock 293S underneath. Written to
-replace the official Windows only software with something that runs on Linux
-Mint and Windows from one code base, and does only the basics: pictures on
-keys, a clock, the weather, hotkeys and launching programs.
-
-Current state: the driver, the controller and the configuration page all
-work on real hardware. A TOML config file describes pages of keys with
-pictures, labels and actions, the display strip shows a clock, the date and
-the weather, and a configuration page served by the daemon edits all of it
-live. See `REVIEW.md` for the full research and hardware findings and
-`docs/gui-review.md` for why the page is built the way it is.
-
-A deck running one of the shipped examples, `examples/space-sim.toml`, drawn
-key for key as the hardware shows it:
-
-![A deck running the space sim example](docs/images/space-sim.png)
-
-Every picture of a deck in this file is drawn from the configuration file
-beside it by `tools/render_layout.py`, which opens no device and needs no
-deck. The pictures of the configuration page are screenshots of the page
-itself. Nothing here is a mock up.
-
-## What the deck looks like to the software
-
-```
-13  10   7   4   1  |  16
-14  11   8   5   2  |  17
-15  12   9   6   3  |  18
-```
-
-The firmware numbers keys down each column starting from the right. The right
-hand column is a display only strip, three screens with no button under them.
-The three physical side buttons beside that strip send nothing at all. The
-`deckplate.layout` module hides all of this: everything else speaks in rows
-and columns from the top left.
-
-## Running from source
-
-Python 3.11 or newer.
-
-```bash
-python3 -m venv --system-site-packages .venv
-.venv/bin/pip install -r requirements-dev.txt
-.venv/bin/python -m pytest
-.venv/bin/python -m deckplate devices
-.venv/bin/python -m deckplate probe
-```
-
-`--system-site-packages` is needed on Linux and only there. The configuration
-page opens in a real window through PyGObject, which apt installs and pip
-cannot, so it sits in `/usr/lib/python3/dist-packages` where an isolated
-environment cannot see it. Without the flag everything still works except
-that `deckplate gui` quietly falls back to the browser. See "The
-configuration page" below.
-
-The flag has one side effect worth knowing. System versions of Pillow and
-requests now satisfy the requirements, and on Mint those are older than what
-this project was built against, so pip leaves them alone. Force them, and
-their two HTTPS dependencies, into the environment itself afterwards:
-
-```bash
-.venv/bin/pip install --upgrade Pillow requests urllib3 certifi
-```
-
-On Windows use `.venv\Scripts\python.exe` instead, and close the official
-SOOMFON app first or it swallows every report from the deck. On this machine
-the environment lives outside the synced project folder, at
-`%LOCALAPPDATA%\deckplate-venv`, so Windows binaries do not sync to Linux.
-
-On Linux the deck's hidraw node is root only until the udev rule is in:
-
-```bash
-sudo ./deploy/install-udev.sh
-```
-
-Then unplug and replug the deck once.
-
-For a clickable Deckplate on the desktop and in the menu, run
-`./deploy/install-desktop.sh` from the unzipped release folder, or from the
-source tree after a build. It needs no sudo and installs the program to
-`~/.local/bin`. One click starts the daemon if it is not running and opens
-the configuration window; the daemon carries on after the window closes and
-logs to `~/.local/state/deckplate/run.log`. On Windows the same thing is
-`deploy\install-desktop.ps1` from the unzipped release folder, run with
-`powershell -ExecutionPolicy Bypass -File`; it installs under
-`%LOCALAPPDATA%\Programs\Deckplate` with shortcuts on the Desktop and in the
-Start Menu, and the daemon logs to `%LOCALAPPDATA%\deckplate\run.log`.
-
-## Running the deck
-
-```bash
-.venv/bin/python -m deckplate run
-```
-
-The first run writes a default config and tells you where it is
-(`config-path` prints it: `~/.config/deckplate/config.toml` on Linux,
-`%APPDATA%\deckplate\config.toml` on Windows). Edit it in any text editor;
-the daemon notices the save and applies it live. Put pictures in the
-`images/` folder next to it and refer to them by relative path.
-
-The config is documented by its own comments. In short:
-
-- `[deck]` brightness, the idle timeout before the screens turn off,
-  `press_flash`, which brightens a key for a moment when it is pressed, and
-  `background`, the colour behind every key and panel that has none of its
-  own (a key or strip entry may carry its own `background = "#rrggbb"`).
-  `long_press_ms` and `double_press_ms` are the two thresholds for second
-  actions, and `follow_focus` with `focus_poll_ms` turns on per application
-  pages. Both are described below.
-- `[weather]` coordinates and units. `deckplate geocode "Town"` prints
-  the coordinates for a place name.
-- `[strip]` the three right hand panels: `clock`, `date`, `weather`, `blank`
-  or a picture path. The panels show less than the 95 pixel picture they
-  are sent, so `visible_width` and `visible_height` say how much: clock,
-  date and weather are drawn to fit that area, and a picture given as
-  `{ image = "images/x.png", fit = true }` is shrunk to it instead of
-  filling the panel with its edges cut off. Measured at about 79 pixels
-  each way on the XF-CN001; `deckplate calibrate-strip` shows framed
-  test tiles on the panels to check yours.
-- `[[pages]]` may carry `wallpaper = "images/bg.png"`: one picture scaled to
-  cover the whole key grid and cut into a slice per key, under every key that
-  has no picture or animation of its own, with labels in a band on top. With
-  `key_pitch_x` and `key_pitch_y` set in `[deck]` the slices line up through
-  the gaps between keys, so the deck shows one continuous picture; without
-  them the keys are treated as touching. On the page, the editor shows the
-  page's wallpaper whenever no key is selected.
-- `[[pages]]` each with `[[pages.keys]]` entries carrying `row`, `column`
-  (from the top left), optional `image` and `label` (a label on its own is
-  the face of the key: big, wrapped word by word at the largest size that
-  fits, so "Request Hangar Access" reads on three lines; with a picture it
-  sits in a band along the bottom), an optional
-  `animation` such as `{ kind = "pulse", colour = "#4caf7d", speed = 1.0 }`
-  with kinds pulse, spinner, wave, rainbow and scroll (an animated GIF as
-  the image plays by itself, and a strip panel takes
-  `{ animation = { kind = "wave" } }`), and an `action` of type
-  `hotkey`, `sequence`, `text`, `launch`, `url`, `request`, `volume`,
-  `audio_output`, `window`, `toggle`, `timer`, `stopwatch`, `counter`,
-  `page`, `brightness`, `sleep` or `hold`, `multi`. A `sequence` sends several keys
-  in order with a `delay_ms` pause between them, for example
-  `keys = ["ctrl+l", "h", "enter"]`.
-  A `chord` keeps one key down while tapping others, with a random pause
-  before each tap between `delay_min_ms` and `delay_max_ms`; the held key
-  is never let go until the last tap, for example `hold = "alt"` with
-  `keys = ["1", "2", "3"]`.
-  A `boost` keeps one key down (`hold = "w"`) while a second (`keys = "shift"`)
-  goes on for `on_ms` and off for `off_ms`, over and over, until the deck key
-  is pressed again; `on_max_ms` and `off_max_ms` make each phase a random
-  length between the two numbers, so a cruise that cycles the afterburner
-  does not tick like a clock. `start_ms` and `start_max_ms` hold the first
-  key alone before the first boost, and `between = "tab"` taps a third key
-  once in each off phase, `between_after_ms` to `between_after_max_ms` into
-  it, for a scan ping between boosts. A `repeat` taps a key every `every_ms`.
-  A `hold` keeps a key pressed for games that want it held: press the deck
-  key once to start and again to let go. Between `hold_min_ms` and
-  `hold_max_ms` later it lets go for a random moment between `release_min_ms`
-  and `release_max_ms`, then presses again, so it does not look like a key
-  taped down. The key shows a green mark while it is held.
-
-### Typing text
-
-A `text` action types a piece of text into whatever has focus:
-
-```toml
-action = { type = "text", text = "gg wp", enter = true }
-```
-
-The text is sent as written, so `ctrl+c` here types those six characters
-rather than copying, and a line break in the text presses enter. `enter`
-presses enter afterwards, and `delay_ms` puts a pause between characters
-for a program that drops fast typing, such as a game's chat box or a remote
-desktop. Empty text with `enter` just presses enter.
-
-### Calling a web address
-
-A `request` action calls an address without opening a browser, which is how
-a key reaches anything with an HTTP API: Home Assistant, OBS through its
-websocket bridge, a home grown script behind a web server.
-
-```toml
-action = { type = "request", url = "http://192.0.2.10:8123/api/services/light/toggle",
-           method = "POST", body = '{"entity_id": "light.desk"}',
-           token_file = "~/.deckplate-tokens/home-assistant" }
-```
-
-`method` is GET unless given. `body` is sent as JSON unless a
-`Content-Type` in `headers` says otherwise, and `headers` is a table such as
-`{ X-Name = "value" }`. Whatever comes back is thrown away; a status of 400
-or above is logged as a failure like any other action.
-
-The token never goes in the config file. `token_file` names a file, outside
-the config folder and given as an absolute path (`~` is fine), holding just
-the token. Its contents are sent as `Authorization: Bearer <token>`; write
-the scheme yourself, for example `Basic dXNlcjpwYXNz`, to send anything
-else. The file is read on every press, so a rotated token is picked up
-without a restart, and nothing in the daemon, the page or the log ever
-holds it. Keep the file readable by you alone.
-
-### Keys that remember something
-
-Four action types act on the key they sit on rather than on the PC, and
-the key shows what it remembers:
-
-- `toggle` presses alternately run its `on` and `off` actions, either of
-  which may be any ordinary action:
-  `{ type = "toggle", on = { type = "hotkey", keys = "ctrl+shift+m" }, off = { type = "hotkey", keys = "ctrl+shift+m" } }`.
-- `timer` counts down `seconds`: press to start, press again to pause. The
-  key shows the time left with a ring that empties, then `0:00` in red for
-  ten seconds, and runs its optional `done` action once, for example
-  `done = { type = "launch", command = "paplay /usr/share/sounds/freedesktop/stereo/complete.oga" }`.
-  A `{ type = "timer", reset = true }` on the key's long press resets it.
-- `stopwatch` counts up in the same way; its ring goes round once a minute.
-  Holding the key puts it back to zero, with nothing to configure: a
-  stopwatch key with no long press of its own is given that reset. Because
-  it then has a second action, its press to start arrives when the key comes
-  up rather than on the way down. A long press written by hand wins over it,
-  and `{ type = "stopwatch", reset = true }` still works anywhere else.
-- `counter` adds `step` (default 1, negative to count down) to a count the
-  key shows large. `{ type = "counter", reset = true }` puts it back to zero,
-  so a long press reset and a double press `step = -1` make a full tally key.
-
-The count or the time takes the place the label normally has: on a key
-with a picture it goes in the band along the bottom, on a key without one
-it is the face and the key's own label moves into the band. The state is
-kept while the daemon runs and cleared when it stops. None of these can be
-a step of a multi action.
-
-### The other face of a key
-
-A key may carry `image_active` and `label_active`, shown in place of its
-picture and label while its thing is on: a toggle that is on, a hold, boost
-or repeat that is running, a timer or stopwatch that is going, a mute key
-while the sound is muted, an output key while its output is the one in
-use. The page has both behind "Picture and label while active".
-
-### Sound and windows
-
-- `volume` sets or steps the level, or mutes:
-  `{ type = "volume", value = 50 }`, `{ type = "volume", delta = -5 }`,
-  `{ type = "volume", mute = "toggle" }` (or `"on"`, `"off"`). Linux uses
-  pactl against the default output. Windows needs the pycaw package for the
-  level; without it the media keys are used for changes and for mute, and
-  the level cannot be set.
-- `audio_output` switches the default output: `{ type = "audio_output", device = "headphones" }`
-  matches a pattern against the outputs' names, ignoring case, and
-  `{ type = "audio_output", cycle = true }` goes to the next one. Playing
-  streams move with it on Linux. Windows needs the AudioDeviceCmdlets
-  PowerShell module (`Install-Module AudioDeviceCmdlets`).
-- `window` acts on another program's window:
-  `{ type = "window", match = "firefox", command = "firefox" }` brings the
-  first window whose class or title matches to the front, or launches the
-  command when there is none. `operation` may also be `minimise`, `maximise`
-  or `close`. Linux needs xdotool, and wmctrl to maximise; Wayland cannot do
-  any of it. Windows needs nothing installed.
-
-Twelve icon themes ship with the app. The first five are general:
-
-- "Space Game", the space sim glyphs.
-- "Controls", pictures for the actions above (volume, mute, headphones,
-  speaker, windows, timer, stopwatch, counter, toggle on and off, camera and
-  microphone on and off, play, pause, stop, record, reset, bell) plus four
-  animated ones: a running hourglass, a running stopwatch, an emptying ring
-  and a tally counting up. An animated icon is a GIF and plays on the key.
-- "Desktop", the everyday things a Linux desktop does: terminal, files,
-  home, browser, editor, settings, system monitor, calculator, screenshot,
-  lock, log out, power off, restart, suspend, the workspaces either side,
-  show desktop, the application menu, search, clipboard, mail, calendar,
-  music, video, images, downloads, the bin, wireless, Bluetooth, keyboard,
-  printer and software.
-- "Sherbet" and "Lagoon", every Controls and Desktop icon again, repainted
-  in bright corner to corner colour sweeps, warm and cool. They are made to
-  sit happily beside a gradient desktop icon theme. Each holds the same ids
-  as the two flat themes, so a whole setup moves across by changing
-  `theme:controls/` or `theme:desktop/` to `theme:sherbet/` or
-  `theme:lagoon/`.
-
-Six more are flavoured for kinds of game, each with a finish of its own
-as well as its colours. They borrow a mood and nothing else: no game's name,
-emblem, logo or creature design is used, and a test keeps real names out of
-every theme.
-
-- "Grimdark", gothic war in the far future: skulls, helms, relics, banners,
-  fire from orbit, in tarnished gold and crimson with an engraved edge.
-- "Wayfarer", friendly planet hopping: oxygen, tethers, rovers, habitats,
-  research and power, in suit white and orange with a soft outline.
-- "Field Command", a modern strategy war: harvester, refinery, power,
-  radar, barracks, tanks, air support and missiles, in sand and olive.
-- "Rift", alien crystal and bio tech: shards, rifts, obelisks, tendrils and
-  saucers, in violet with a red hot glow.
-- "Deep Colony", marines in the dark: a motion tracker (and one that
-  sweeps), rifles, flamers, sentries, flares, medkits, and whatever left the
-  claw marks, in green phosphor with scan lines.
-- "Neon Chrome", neon street tech: optics, chips, breaches, blades, rides
-  and creds, in hazard yellow with the signal splitting cyan and pink.
-
-And one more, for everything at once: "Amber Console", an old single
-colour terminal, amber on black, the kind a weapons console in an eighties
-film ran on. Every picture is pixel art drawn on the display's coarse grid
-with one pixel lines. It holds all the Controls and Desktop icons plus a
-console set: the words ARMED, SAFE, AUTO, MANUAL, SEARCH, ENGAGED, TEST and
-ONLINE as console options, a rounds counter, a pair of gauges, a warning
-(and one that flashes), sentry, tracker, ammo and target. Every still comes
-twice: `<id>` is the normal face and `<id>-lit` is the same picture in
-inverse video, a solid amber block with the picture cut out in black. Give a
-toggle the plain one as its `image` and the lit one as its `image_active`
-and it lights up when it is on.
-
-Grimdark, Field Command and Rift share ten strategy commands (attack, move,
-halt, guard, repair, sell, rally point, squad, upgrade, build) under the same
-ids, each drawn in its own theme's style.
-
-`tools/make_icons.py` draws them all in code, so every one of them is our
-own drawing and free to ship.
-
-Everything in the twelve themes, with the reference each key would use. A blue
-dot in the corner marks an animated one, shown here as one frame of its loop:
-
-![Every icon in the shipped themes](docs/images/themes.png)
-
-The sheet is drawn from the themes themselves by `tools/render_themes.py`, so
-an icon added to a theme appears in it when the tool is rerun:
-
-```bash
-.venv/bin/python tools/render_themes.py -o docs/images/themes.png
-```
-
-### Example setups
-
-Six complete configurations are in `examples/`, each drawn below as the
-deck shows it. Copy one over `~/.config/deckplate/config.toml`, or open it
-beside your own and take the keys you want. They use the shipped theme
-icons only, so none of them needs a picture of yours.
-
-`examples/stream-desk.toml`: microphone and camera as toggles that change
-their own picture, the recording controls, a break timer, a counter, the
-volume and the output, and a key that brings the broadcaster to the front
-or starts it. A second page holds the scene hotkeys.
-
-![The stream desk example on the deck](docs/images/stream-desk.png)
-
-`examples/focus-timer.toml`: the keys that remember something, on one page.
-A twenty five minute timer with a sound at the end, a break timer, a
-stopwatch, a counter for the tasks finished, and the brightness.
-
-![The focus timer example on the deck](docs/images/focus-timer.png)
-
-`examples/meetings.toml`: mute and camera with their own faces, which
-output the sound goes to, the windows a call needs, a stopwatch for how
-long it has run, and two sentences typed rather than said.
-
-![The meetings example on the deck](docs/images/meetings.png)
-
-`examples/space-sim.toml`: a cockpit. The ship's systems as toggles that
-show which way they are, the gear, the lights and a quantum key held down
-until the jump takes, and a second page for what is done out of the seat,
-with the run timed and the runs counted. Its first page is the picture at
-the top of this file; this is the second.
-
-![The space sim example's second page](docs/images/space-sim-ship.png)
-
-`examples/home.toml`: the keys that reach something over the network rather
-than pressing a key on this machine. Lights and a socket through a home
-automation box, a music player over its web API, the browser and the
-terminal, and a brew timer. It is the one to read for the `request` action
-and for keeping the token out of the config file.
-
-![The home example on the deck](docs/images/home.png)
-
-`examples/linux-desktop.toml`: the desktop itself. The terminal, the files,
-the browser, the editor, a screenshot, the workspaces either side, the
-menu, the settings and the bin, and a second page to lock, sleep, log out,
-restart and shut down, where everything but the lock waits for a long press.
-Written for Linux Mint with Cinnamon; the keys most likely to differ on
-another desktop say what to change.
-
-![The Linux desktop example on the deck](docs/images/linux-desktop.png)
-
-The pictures are drawn from the configuration files themselves by
-`tools/render_layout.py`, which opens no device and needs no deck:
-
-```bash
-.venv/bin/python tools/render_layout.py examples/meetings.toml -o docs/images/meetings.png --active 0,1 --live "1,4=24:10"
-```
-
-`--live` shows a key part way through a count, and `--active` draws one
-with its active picture and label, so a picture can show the deck in use
-rather than every key sitting idle. The clock, the date and the weather
-come from fixed values, so regenerating a picture after a change gives a
-clean diff.
-
-### Second actions
-
-A key may carry `action_long` and `action_double` beside its `action`, each
-taking any of the same action types:
-
-```toml
-[[pages.keys]]
-row = 2
-column = 4
-label = "Page 2"
-action        = { type = "page", page = "next" }
-action_long   = { type = "page", page = "Second" }
-action_double = { type = "brightness", delta = -20 }
-```
-
-The long press action runs the moment `long_press_ms` passes with the key
-still down, not when it is let go, so holding a key feels like it did
-something; the release then does nothing more. A key with a double press
-action cannot know on the first release whether a second press is coming, so
-its plain action waits out `double_press_ms` before running. Two presses
-inside that window are the double press, and the plain action is dropped
-rather than run as well.
-
-That waiting is the whole cost, and it falls only on keys that have a second
-action. A key with neither still fires the instant it is pressed, exactly as
-before, and `hold` keeps its press to toggle feel. The defaults are 400 ms
-for a hold and 300 ms for a double press.
-
-On the configuration page the two live behind "Long press and double press"
-under the plain action, folded away unless the key has one. "Try the hold"
-and "Try the double" appear beside "Press now" to run each one without
-touching the deck.
-
-### Per application pages
-
-With `follow_focus = true` in `[deck]`, a page that gives itself a
-`match_window` comes up by itself when a window matching it is in front:
-
-```toml
-[[pages]]
-name = "Browser"
-match_window = "firefox|chromium"
-```
-
-It is a regular expression, matched without regard to case against the
-focused window's class, the program name and the title, and it is a search
-rather than a full match, so `firefox` is enough. Pages are tried in file
-order and the first match wins. When nothing matches, the deck goes to the
-first page with no `match_window` of its own, so keep one ordinary page for
-everything else. Switching page by hand, from a key or from the page, sticks
-until the focused window changes: the deck follows the focus when the focus
-moves rather than overruling you a fifth of a second later.
-
-The focused window is read five times a second by default (`focus_poll_ms`),
-on a thread of its own so the deck's own loop never waits on the desktop.
-Linux needs an X11 session with `xprop` installed, which is what Cinnamon on
-Mint gives you; Windows uses `GetForegroundWindow`. A Wayland session cannot
-be asked which window is focused, so the daemon says so once in its log and
-pages stay manual. Reading only: nothing here focuses, moves or closes a
-window.
-
-Hotkeys use the same names on both platforms (`ctrl+alt+t`, `shift+f5`,
-`media_volume_mute`). `ctrl`, `alt` and `shift` are the left hand key; for a
-game that tells the sides apart write `alt_r`, `ctrl_r` or `shift_r` (`ralt`,
-`altgr`, `rctrl` and `rshift` are accepted spellings), and `alt_l` and so on
-name the left one outright. On Linux they are sent through the X test
-extension, which is what a game under Wine sees as real keys; pynput and
-then xdotool are the fallbacks there, and pynput is the Windows route. Programs can have a `command_windows` or
-`command_linux` override beside the shared `command`, so one config file
-serves both machines.
-
-The official SOOMFON app (and OpenDeck or StreamController on Linux) fights
-over the deck if both run at once. At start, `run` looks for them and asks
-whether to stop them. Set `official_software` in `[deck]` to `stop` or `keep`
-to skip the question, or pass `--stop-official` or `--keep-official` for one
-run. Without a terminal to ask in, the other software is left alone and a
-warning is printed.
-
-Any key press wakes a sleeping deck. If the deck is unplugged the daemon
-waits and reconnects.
-
-Working on the software with no deck to hand: `FAKE_DECK_WHEN_ABSENT` at the
-top of `deckplate/device.py` makes `run` drive a fake deck in memory when
-none is plugged in, so the daemon and the configuration page work without
-hardware. It is the real `Deck` class over a transport that goes nowhere, so
-the same protocol code and the same safety gates run. The daemon says
-`NO HARDWARE` in its log and the page shows "Fake deck" as the device. It is
-a constant in the code on purpose, with no config key or flag, and
-`tools/build.py` refuses to build while it is on. On Linux `deploy/deckplate.service` starts it with
-your session; the comments in it say how to install it.
+A driver and controller for the SOOMFON Stream Controller, a 15 key LCD macro
+deck that is a Mirabox Stream Dock 293S underneath. It replaces the official
+Windows only software with one program that runs on Linux and Windows: a
+daemon that drives the deck from a TOML file, and a configuration page, served
+by the daemon, that edits everything live.
+
+![A deck on its everyday page](docs/images/everyday.png)
+
+Every picture of a deck in this file is drawn by the software itself from a
+configuration file, with no deck plugged in. The pictures of the configuration
+page are screenshots of the page running over the same in memory stand in,
+which is why its header says "Fake deck". Nothing here is a mock up.
+
+## What a key can do
+
+A key has a picture, a label, or both, and an action for its press. It may
+also carry a second action for a long press and a third for a double press, a
+picture and label to wear while its thing is on, a built in animation (pulse,
+spinner, wave, rainbow, scroll, or an animated GIF), its own background
+colour, and a page may lay one wallpaper across all fifteen keys.
+
+| Action | What it does |
+| --- | --- |
+| `hotkey` | sends a key combination, `ctrl+alt+t`, `shift+f5`, `media_play_pause`; left and right modifiers can be told apart |
+| `sequence` | several combinations in order, with a pause between them |
+| `chord` | holds one key while tapping others, with a random pause before each tap |
+| `hold` | keeps a key pressed until the deck key is pressed again, letting go for a moment now and then so it does not look taped down |
+| `boost` | holds one key while a second goes on and off, with optional random phase lengths, a build up and a key tapped between boosts |
+| `repeat` | taps a key every so many milliseconds until pressed again |
+| `text` | types a piece of text, with an optional enter and a pause between characters |
+| `launch` | starts a program, with a separate command for Linux and Windows if needed |
+| `url` | opens a page in the browser |
+| `request` | calls a web address without a browser, any method, body and headers, the token read from a file outside the config |
+| `volume`, `audio_output` | sets or steps the level, mutes, switches or cycles the output device |
+| `window` | brings a program's window to the front or launches it, or minimises, maximises or closes it |
+| `toggle` | alternates between two actions and shows which way it is |
+| `timer`, `stopwatch`, `counter` | count down with a ring and a sound at the end, count up, or tally; the key shows the value |
+| `page`, `brightness`, `sleep` | go to a page (by name, next or previous), set or step the brightness, put the deck to sleep |
+| `multi` | several of the above, one after another |
+| `stay_awake`, `dnd` | keep the machine from idling, or hold notifications back, until pressed again |
+| `status` | watches a web address and wears a green, red or grey lamp; the press opens it |
+| `weather` | draws the conditions, temperature and wind on the key; the press opens a weather site |
+| `system` | draws the processor temperature, load and memory; the press opens the system monitor |
+| `wled` | draws a WLED light's colour and brightness; the press toggles it, turns it on or off, picks a preset or steps the brightness |
+| `pihole` | draws today's share blocked on a Pi-hole 6 with a lamp for the blocking state; the press pauses and resumes it |
+| `synology` | draws a Synology NAS over DSM's API: free space with a gauge, the processor and memory loads, or the model, temperature and uptime, with a lamp for its health; the press opens DSM |
+| `kodi` | a remote control action for Kodi over its JSON RPC, play, pause, next, up, select and the rest, on the Kodi in `[kodi]` or on a second player the key names |
+
+Two things any key can wear, whatever its action: a `lamp` watching an
+address of its own, green while it answers (or, for a WLED device, while the
+lights are on), and `playing`, which puts the cover or poster of what a
+player is playing over the whole key while it plays, the player being this
+machine's own or a Kodi, with the title on a band or scrolling along the
+bottom.
+
+![A page of home lab keys](docs/images/home-lab.png)
+
+The display strip on the right shows a clock, the date, the weather, what is
+playing (with its cover art), the machine's load, a picture or an animation,
+one per panel. With `follow_focus` on, a page that names a `match_window`
+comes up by itself when a matching window is in front, so a browser page or
+a game page appears when that program does. At night the deck dims to
+`night_brightness` between sunset and sunrise, worked out from the weather
+coordinates.
 
 ## The configuration page
 
-![The configuration page with a key selected](docs/images/configuration-page.png)
+![The configuration page with a NAS key selected](docs/images/configuration-page.png)
 
-The deck on the left is what the deck is showing at that moment, key for key,
-and the panel on the right edits whichever key is clicked. The two pictures
-here were taken against the in memory stand in deck rather than the hardware,
-which is why the header says so; the page is the same either way.
-
-With the daemon running, open the page in its own window:
-
-```bash
-.venv/bin/python -m deckplate gui
-```
-
-It uses pywebview, which wraps the browser engine the machine already has:
-WebView2 on Windows 11 and WebKitGTK on Mint. On Mint install the bindings
-once:
-
-```bash
-sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-webkit2-4.1
-```
-
-Those are apt packages, so the environment has to have been created with
-`--system-site-packages` for pywebview to find them. If the window never
-appears and the page opens in the browser instead, that is almost always
-why: check `include-system-site-packages` in `.venv/pyvenv.cfg`. There is no
-equivalent step on Windows, where WebView2 is part of the system rather than
-a Python package.
-
-If pywebview is missing or the window cannot open, the same page opens in
-the normal browser, and `gui --browser` does that on purpose. Either way it
-is the same HTML at `http://127.0.0.1:8765/`, so it looks the same on both
-platforms.
-
-The page shows the deck as it really is, with the tiles the panels are
-showing and a flash when a real key is pressed. Click a key to set its
-label, picture and action. The action is chosen from a window of tiles,
-each with a drawing and a line saying what it does, grouped and searchable,
-rather than from a list of names:
+The deck in the middle is what the deck is showing at that moment, key for
+key, with a flash when a real key is pressed. Click a key to edit it on the
+right: label, picture, the action and its fields, the active face, the lamp
+and the playing picture. The action is chosen from a window of tiles, each
+with a drawing and a line saying what it does, grouped and searchable:
 
 ![The window for choosing what a key does](docs/images/action-chooser.png)
 
-Click a strip panel to choose clock, date, weather or a picture. Keys for
-the hotkey, sequence and hold actions are captured rather than typed: click
-Capture and press them. Click a captured
-key to remove it. For keys the browser cannot see, such as media keys,
-"type it instead" opens a text box that takes the names listed above. Drag
-a key to another position to move it, or onto another key to swap them.
-Double click a page tab to rename it and drag tabs to reorder them.
-Uploaded pictures are kept in an `images` folder next to the config file.
-The built in theme icons are chosen from the gallery behind "Choose from a
-theme", never from the dropdown, which lists uploads only. A theme icon the
-icon tool once wrote into the images folder under its old `sc-<id>.png`
-name is recognised by that name (the theme's manifest declares the prefix),
-kept out of the dropdown and the pictures list, and left on disk; a key that
-still names one draws it as before.
-Pages are tabs; double click one to rename or delete it. A panel showing the
-weather has the weather place (with a search) and units in its own editor.
-The cog in the header opens the settings window for what applies to the
-whole deck: brightness at start, idle sleep, the deck wide background, the
-strip panels' visible area, the pictures folder with what uses each picture
-and a Delete for the unused ones, and where the API listens. Every change
-saves a moment after you make it and the deck updates at once; Undo (or
-Ctrl+Z outside a text field) steps back.
+Keys for the hotkey, sequence, chord and hold actions are captured rather
+than typed: click Capture and press them. Drag a key to move it, drop it on
+another to swap them, and right click it to move or copy it to another page.
+Pictures come from an upload or from the twelve shipped icon themes behind
+"Choose from a theme". Every change saves a moment after you make it and the
+deck updates at once; Undo steps back.
 
-One thing to know: the page rewrites the config file from its own copy, so
-comments you added by hand are not kept. The file stays hand editable
-between visits and the daemon still reloads it live.
+The editor slides in and out on the right from the button at the end of the
+header, and a pages list slides in on the left from the button at the start.
+Neither moves by itself. The list shows every page with its key count and
+when it was last edited, sorted by deck order, name, last edited or last
+shown, and a search finds pages by name and keys by label, action or the
+page they lead to; a key in the results takes the deck to its page and
+selects it.
+
+![The pages list searching for media, with the editor away](docs/images/pages-search.png)
+
+The cog opens the settings window for what applies to the whole deck:
+brightness at start, idle sleep, the deck wide background, the strip panels'
+visible area, the pictures folder with what uses each picture, the tray
+icon, and where the API listens. Passwords for Kodi, Pi-hole and a Synology
+NAS are typed once on the page and written to a file under
+`~/.deckplate-tokens` with owner only permissions; the config holds only the
+path, and the password never appears in it, in the page again or in the log.
+
+The page is plain HTML, one stylesheet and one script with no build step. It
+opens in its own window through pywebview (WebKitGTK on Linux, WebView2 on
+Windows), or in the normal browser at `http://127.0.0.1:8765/` with
+`gui --browser`.
+
+## Running it
+
+Python 3.11 or newer. On Linux the environment needs the system packages for
+the window, which pip cannot install:
+
+```bash
+sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-webkit2-4.1 gir1.2-ayatanaappindicator3-0.1
+python3 -m venv --system-site-packages .venv
+.venv/bin/pip install -r requirements-dev.txt
+.venv/bin/python -m pytest
+sudo ./deploy/install-udev.sh
+```
+
+The udev rule makes the deck's hidraw node readable; unplug and replug it
+once. On Windows use `.venv\Scripts\python.exe`, no udev step, and close the
+official SOOMFON app first or it swallows every report from the deck. `run`
+looks for the official app, OpenDeck and StreamController at start and asks
+whether to stop them.
+
+```bash
+.venv/bin/python -m deckplate run
+.venv/bin/python -m deckplate gui
+```
+
+The first run writes a default config, `~/.config/deckplate/config.toml` on
+Linux and `%APPDATA%\deckplate\config.toml` on Windows, and tells you where.
+Edit it by hand or from the page; the daemon notices the save and applies it
+live. Pictures go in the `images` folder next to it. While the daemon runs it
+puts an icon in the system tray, with Open for the configuration window and
+Quit; `[tray]` in the config or the tick in Settings turns it off. If the
+deck is unplugged the daemon waits and reconnects.
+
+For a clickable Deckplate on the desktop and in the menu, run
+`deploy/install-desktop.sh` (or `deploy\install-desktop.ps1` on Windows) from
+an unzipped release: it installs the single file program under your home,
+with one click starting the daemon if it is not running and opening the
+window. The daemon logs to `~/.local/state/deckplate/run.log` on Linux and
+`%LOCALAPPDATA%\deckplate\run.log` on Windows.
+
+## The config file
+
+The file is documented by its own comments, and `examples/` holds six
+complete setups drawn below. In short:
+
+```toml
+[deck]
+brightness = 70
+background = "#141c28"
+
+[strip]
+tiles = ["clock", "date", "weather"]
+
+[[pages]]
+name = "Main"
+
+[[pages.keys]]
+row = 0
+column = 0
+label = "Terminal"
+image = "theme:desktop/terminal"
+action = { type = "launch", command = "x-terminal-emulator" }
+
+[[pages.keys]]
+row = 0
+column = 1
+image = "theme:controls/mic"
+image_active = "theme:controls/mic-off"
+action = { type = "toggle", on = { type = "hotkey", keys = "ctrl+shift+m" }, off = { type = "hotkey", keys = "ctrl+shift+m" } }
+
+[[pages.keys]]
+row = 0
+column = 2
+action = { type = "synology", url = "http://nas.example:5000/", account = "deck", token_file = "~/.deckplate-tokens/synology" }
+```
+
+`[weather]` holds the coordinates and units (`deckplate geocode "Town"`
+finds them), `[kodi]` where Kodi answers, `[server]` where the API listens,
+and `[tray]` whether the icon shows.
+
+### Example setups
+
+Copy one over your config, or open it beside your own and take the keys you
+want. They use the shipped icons only.
+
+- `examples/space-sim.toml`: a cockpit, the ship's systems as toggles, a
+  quantum key held until the jump takes, and a second page for out of the
+  seat with the run timed and counted.
+- `examples/stream-desk.toml`: microphone and camera toggles with their own
+  faces, the recording controls, a break timer, a counter, the volume and
+  the output, and a page of scene hotkeys.
+- `examples/meetings.toml`: mute and camera, the output, the windows a call
+  needs, a stopwatch for how long it has run, and two sentences typed.
+- `examples/focus-timer.toml`: timers, a stopwatch, a counter and the
+  brightness on one page.
+- `examples/home.toml`: lights and a socket through a home automation box,
+  a music player over its web API, and the token kept out of the config.
+- `examples/linux-desktop.toml`: the desktop itself, with a second page to
+  lock, sleep, log out, restart and shut down behind long presses.
+
+![The space sim example on the deck](docs/images/space-sim.png)
+
+![The stream desk example on the deck](docs/images/stream-desk.png)
+
+The pictures are drawn from the files by `tools/render_layout.py`, which
+opens no device.
+
+### Icon themes
+
+Twelve themes ship with the app, every icon drawn in code by
+`tools/make_icons.py` and free to ship: Controls (the actions above, four of
+them animated), Desktop (the everyday desktop and the home lab), Sherbet and
+Lagoon (the same two sets in warm and cool colour sweeps), Space Game, six
+game flavoured sets that borrow a mood and no name or emblem (Grimdark,
+Wayfarer, Field Command, Rift, Deep Colony, Neon Chrome), and Amber Console,
+pixel art on an old amber terminal with a lit twin of every icon for
+toggles. The whole set is on one sheet in
+[docs/images/themes.png](docs/images/themes.png).
 
 ## The local API
 
-While `run` is going it serves a small API on `http://127.0.0.1:8765/`. This
-is the channel the configuration page will use, and it is handy on its own:
-
-| Route | What it does |
-| --- | --- |
-| `GET /api/state` | JSON: current page, page names, keys on the page, brightness, asleep, device, weather, the key grid |
-| `GET /api/tiles/ROW/COL.jpg` | the tile as shown on that panel, upright, column 5 being the strip |
-| `GET /api/config` | the config file text |
-| `PUT /api/config` | replace the config file; it is validated first and applied at once |
-| `GET /api/document`, `PUT /api/document` | the config as JSON, the form the page edits |
-| `GET /api/images`, `GET /api/images/NAME`, `POST /api/images`, `DELETE /api/images/NAME` | the pictures folder next to the config: list with what uses each, fetch, upload with the file as the body and its name in `X-Filename`, delete when unused |
-| `GET /api/geocode?name=Town` | coordinates for a place name |
-| `GET /api/events` | server sent events: key presses, page changes, tile updates, brightness, sleep |
-| `POST /api/page` | `{"page": "Name"}` or `next` or `previous` |
-| `POST /api/brightness` | `{"value": 60}` or `{"delta": -10}` |
-| `POST /api/press` | `{"row": 0, "column": 0}` acts as if that key was pressed. An optional `"gesture"` of `"press"`, `"long"` or `"double"` picks which of the key's three actions to run |
-| `POST /api/wake`, `POST /api/sleep` | wake a sleeping deck, or put it to sleep |
-
-POST bodies must be `application/json` and the config PUT must be
-`application/toml`. That is deliberate: browsers refuse to send those types
-to another origin without a preflight, which this server never grants, so a
-website open in your browser cannot drive the deck. The `Origin` and `Host`
-headers are checked for the same reason.
-
-`[server]` in the config sets `enabled`, `bind` and `port`. It listens on
-this machine only unless `bind` is changed, and then a `token` is required
-on every request (header `X-Token` or `?token=`). Changing `[server]` needs a
-restart; everything else reloads live.
+While `run` is going it serves a small API on `http://127.0.0.1:8765/`, the
+channel the page uses and handy on its own: `GET /api/state`, the tiles as
+pictures at `/api/tiles/ROW/COL.jpg`, the config as TOML or as JSON, the
+pictures folder, server sent events for presses and page changes, and
+`POST /api/page`, `/api/brightness`, `/api/press`, `/api/wake` and
+`/api/sleep`. POST bodies must be JSON and the config PUT must be TOML, and
+the `Origin` and `Host` headers are checked, so a website open in your
+browser cannot drive the deck. `[server]` sets the bind address and port; off
+this machine a token is required on every request. The module comment at the
+top of `deckplate/server.py` lists every route.
 
 ## Commands
 
 | Command | What it does |
 | --- | --- |
-| `run` | drive the deck from the config file. `--config PATH` to use another file, `--seconds N` to stop after a while, `--stop-official` or `--keep-official` to skip the question about the official app |
-| `gui` | open the configuration page in a window; `--browser` opens it in the normal browser instead |
-| `init-config` | write the default config if it does not exist |
-| `config-path` | print where the config file lives |
-| `geocode "Town"` | look up coordinates for `[weather]` |
-| `devices` | list known decks that are plugged in |
-| `layout` | print the key grid above |
-| `probe` | numbered tiles on every key, then print key events for 30 seconds |
-| `listen 60` | print key events for a minute |
-| `show ROW COL FILE` | put a picture on one key, for example `show 0 4 pic.png` for the top right key |
-| `brightness 60` | set brightness, 0 to 100 |
-| `calibrate-strip` | framed test tiles on the strip panels to measure their visible area; `--insets 6,7,9` picks the frame distances |
-| `calibrate-grid --pitch 142,160` | one picture cut across all fifteen keys at that key pitch (centre to centre, across and down, in key pixels), to measure the gaps between keys: the lines run straight through the gaps when the pitch is right. Record the answer as `key_pitch_x` and `key_pitch_y` in `[deck]`. Measured at 142 by 158 on the XF-CN001. Stop the daemon first |
-| `clear` | blank every key |
+| `run` | drive the deck from the config file; `--config PATH` for another file |
+| `gui` | open the configuration page in a window; `--browser` for the normal browser |
+| `config-path`, `init-config` | where the config lives; write the default one |
+| `geocode "Town"` | coordinates for `[weather]` |
+| `devices`, `probe`, `listen 60` | list decks, show numbered tiles and print presses, print presses for a minute |
+| `show ROW COL FILE`, `brightness 60`, `clear` | one picture on one key, the brightness, blank every key |
+| `calibrate-strip`, `calibrate-grid` | measure the strip panels' visible area and the gaps between keys |
 
 ## Layout of the code
 
 | Path | Purpose |
 | --- | --- |
-| `deckplate/protocol.py` | the wire format, pure functions, fully unit tested |
-| `deckplate/layout.py` | positions to firmware key numbers and back |
-| `deckplate/images.py` | resize, orient and JPEG encode pictures for the panels |
-| `deckplate/device.py` | hidapi transport and the `Deck` class |
-| `deckplate/config.py` | the TOML config file, validated into dataclasses |
-| `deckplate/tiles.py` | pictures with labels, clock, date and weather tiles |
-| `deckplate/animations.py` | built in animated effects and animated GIF playback |
-| `deckplate/weather.py` | Open Meteo readings with caching, and place name lookup |
-| `deckplate/hotkeys.py` | key combination names and the pynput and xdotool backends |
-| `deckplate/actions.py` | runs the action behind a key |
-| `deckplate/presses.py` | decides whether a press was a press, a hold or a double press |
-| `deckplate/focus.py` | reads the focused window, so pages can follow the program in front |
-| `deckplate/controller.py` | the daemon loop: render, events, idle sleep, config reload |
-| `deckplate/conflicts.py` | finds and stops the official app or other deck software |
-| `deckplate/server.py` | the local HTTP API and event stream for the configuration page |
-| `deckplate/web/` | the configuration page: one HTML file, one stylesheet, one script, no build step |
-| `deckplate/gui.py` | the window around the page (pywebview), with the browser fallback |
-| `deckplate/cli.py` | the command line |
-| `examples/` | complete example configurations, drawn in the README |
-| `tools/make_icons.py` | draws the shipped icon themes, stills and animated |
-| `tools/render_layout.py` | draws a configuration as a picture of the deck, for the documentation |
-| `tools/render_themes.py` | draws every shipped theme icon as one sheet, for the documentation |
-| `tools/make_icon.py`, `tools/make_banner.py` | the application icon, and the banner at the top of this file |
+| `deckplate/protocol.py`, `device.py`, `layout.py`, `images.py` | the wire format, the hidapi transport and the `Deck` class, positions to key numbers, pictures to the panels' JPEG |
+| `deckplate/config.py` | the TOML file, validated into dataclasses |
+| `deckplate/controller.py` | the daemon loop: render, presses, idle sleep, live reload |
+| `deckplate/actions.py`, `presses.py`, `holds.py`, `hotkeys.py` | what a press does, press or hold or double, the held keys, key names and the X test, pynput and xdotool backends |
+| `deckplate/tiles.py`, `animations.py`, `themes.py`, `live.py` | every picture a panel shows |
+| `deckplate/weather.py`, `status.py`, `lights.py`, `pihole.py`, `synology.py`, `kodi.py`, `media.py`, `system.py` | the things the deck watches, each polled on a thread of its own |
+| `deckplate/focus.py`, `awake.py`, `desktop.py`, `audio.py`, `conflicts.py` | the desktop: the focused window, idle and notifications, windows and sound, other deck software |
+| `deckplate/server.py`, `web/`, `gui.py`, `tray.py`, `cli.py` | the API, the page, its window, the tray icon, the command line |
+| `examples/`, `deploy/`, `tools/` | example setups, the udev rule and installers, the icon, theme and picture tools and the build |
 | `tests/` | pytest suite, no hardware needed |
-| `tools/probe.py` | the original milestone 1 probe, now a wrapper around `probe` |
-| `tools/build.py` | the PyInstaller build and platform zip, used by build-zip.sh on Linux and directly on Windows |
-| `deploy/` | udev rule and its installer, systemd user unit |
 
 ## Building the single file program
 
-Each platform builds its own program with PyInstaller, since PyInstaller
-does not cross compile. One Python script does the work on both:
-
 ```bash
-.venv/bin/pip install -r requirements-dev.txt
 .venv/bin/python tools/build.py
 ```
 
-It runs the tests, builds `deckplate` (or `deckplate.exe`), stages it
-with an `INSTALL.txt` and, on Linux, the `deploy/` files, then writes
-`Deckplate Dist/deckplate-v<version>-<platform>.zip` and mirrors the
-same files into `Deckplate App/<platform>/`. The Windows build is about
-23 MB and needs nothing installed on the target machine beyond Windows 11's
-own WebView2 runtime for the window. The Linux build is about 60 MB because
-it carries the GTK bindings for the window; PyInstaller is driven through a
-spec written by the script, which limits the GTK data to the stock theme
-(without that it bundled every icon theme on the machine, 1 GB of cursors).
-
-## Packaging
-
-`./build-zip.sh` (Linux) is the packaging convention's entry point. It runs
-the tests, moves the build number in `VERSION` on, stamps it into
-`pyproject.toml` and the package, calls `tools/build.py` for the Linux
-program and its Dist zip and App mirror, and writes
-`Deckplate Git/deckplate-v<version>-src.zip`, the full source tree as
-pushed to GitHub. Pass `--no-bump` to ship `VERSION` as it stands. The
-Windows zip is built on the Windows machine with `python tools\build.py`.
+PyInstaller builds `deckplate` (or `deckplate.exe` on Windows, each platform
+building its own) after running the tests, stages it with the installers,
+and writes a zip. The Linux program is about 30 MB, the Windows one about
+23 MB and needs nothing beyond Windows 11's own WebView2 runtime.
 
 ## Safety rule for the deck
 
-Read `docs/hardware-safety.md` before touching a deck. In short:
-
-The daemon only ever sends seven commands: init, keep alive, brightness,
-clear, key image, commit and sleep. The deck understands others, including
-a whole screen picture and a mode change, and on 10 September 2026 an
-experiment with those left a deck unable to start its USB interface. Two
-gates enforce the rule: the protocol module refuses to build any other
-command unless the caller passes `experimental=True`, and the device layer
-inspects every packet before it is written and refuses any other command
-unless the deck was opened with `allow_experimental=True`. The daemon never
-sets either. Only a deliberate test script should, and never against a
-deck you cannot afford to lose.
-
-## Protocol in one paragraph
-
-USB HID, vendor interface with usage page 0xFFA0. Output reports are 1024
-bytes plus a zero report id and start with the text CRT: `DIS` to init,
-`LIG` for brightness, `CLE` to clear, `HAN` to sleep, `BAT` plus a 16 bit
-length and key number to start an image, then the JPEG in 1024 byte chunks,
-then `STP` to commit. Images are 95 by 95 JPEG, rotated 90 degrees clockwise
-and mirrored on both axes before sending. Input reports are 512 bytes starting
-with the text ACK; byte 9 is the key number from 1 and byte 10 is 1 for press
-or 0 for release. The older CN001 revision of the same deck (USB 5548:6670)
-uses 512 byte packets and 85 pixel images and is defined alongside.
-
-Credits: the protocol was worked out by the community around the mirajazz
-library and the OpenDeck akp153 plugin, and confirmed here on real hardware.
+Read `docs/hardware-safety.md` before touching a deck. The daemon only ever
+sends seven commands: init, keep alive, brightness, clear, key image, commit
+and sleep. The deck understands others, including a whole screen picture and
+a mode change, and on 10 September 2026 an experiment with those left a deck
+unable to start its USB interface. Two gates enforce the rule: the protocol
+module refuses to build any other command unless the caller passes
+`experimental=True`, and the device layer inspects every packet before it is
+written and refuses any other command unless the deck was opened with
+`allow_experimental=True`. The daemon never sets either. `REVIEW.md` has the
+protocol and the hardware findings; the protocol was worked out by the
+community around the mirajazz library and the OpenDeck akp153 plugin, and
+confirmed here on real hardware.
 
 ## Licence
 

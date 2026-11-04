@@ -29,6 +29,11 @@ from PIL import Image, ImageDraw, ImageEnhance
 
 from . import animations, images
 from .config import AnimationConfig, KeyConfig, StripTile
+from .media import NowPlaying
+from .lights import LightState
+from .pihole import PiholeReading
+from .synology import SynologyReading
+from .system import SystemReading
 from .weather import Observation
 
 # The label strip along the bottom of a picture tile. RGBA, and the only
@@ -584,6 +589,42 @@ def with_mark(tile: Image.Image, colour: tuple[int, int, int]) -> Image.Image:
     return _draw_mark(tile.copy(), colour)
 
 
+# The empty part of a bar on the system tile, a shade above the navy.
+BAR_TRACK = (44, 54, 70)
+LIGHTS_FLOOR = 0.35  # the dimmest a lit key's colour is drawn, as a share of full
+
+# The status dot in a key's top right corner: up, down and not yet asked.
+DOT_UP = (76, 175, 125)
+DOT_DOWN = (232, 96, 96)
+DOT_UNKNOWN = (120, 130, 140)
+DOT_RADIUS = 0.085
+DOT_INSET = 0.13
+
+
+def with_dot(tile: Image.Image, colour: tuple[int, int, int]) -> Image.Image:
+    """<summary>
+    A copy of a tile with a small round lamp in its top right corner.
+    </summary>
+    <param name="tile">The tile. It is not modified.</param>
+    <param name="colour">The lamp's RGB colour, one of the DOT constants.</param>
+    <returns>A new tile the same size.</returns>
+    <remarks>
+    How a status key shows whether its address answers without giving up
+    its picture: a lamp the size of a fingertip, with a dark rim so it reads
+    on a light picture as well as on the navy. Drawn last, over everything,
+    so a label band or a ring never covers it.
+    </remarks>
+    """
+    out = tile.copy()
+    draw = ImageDraw.Draw(out)
+    size = out.width
+    r = max(3, round(size * DOT_RADIUS))
+    cx, cy = size - round(size * DOT_INSET), round(size * DOT_INSET)
+    draw.ellipse([cx - r - 2, cy - r - 2, cx + r + 2, cy + r + 2], fill=(16, 22, 32))
+    draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=colour)
+    return out
+
+
 def with_ring(tile: Image.Image, fraction: float, colour: tuple[int, int, int]) -> Image.Image:
     """<summary>
     Draw a progress ring round the edge of a tile, clockwise from the top.
@@ -761,6 +802,480 @@ def weather_tile(observation: Observation | None, size: int, location_name: str 
     return tile
 
 
+def weather_key_tile(observation: Observation | None, size: int,
+                     background: tuple[int, int, int] = images.BACKGROUND, labelled: bool = False) -> Image.Image:
+    """<summary>
+    A key's face for the weather: the conditions glyph, the temperature and the wind.
+    </summary>
+    <param name="observation">The reading, or None before the first one.</param>
+    <param name="size">The key size in pixels.</param>
+    <param name="background">RGB tuple behind everything.</param>
+    <param name="labelled">True when a label band will go along the bottom,
+    which squeezes the three lines into the space above it.</param>
+    <returns>An upright tile, always.</returns>
+    <remarks>
+    The same reading the strip's weather panel draws, laid out for a key,
+    which is wider than the panel's window and sits behind a label band: the
+    glyph takes the top, the temperature the middle and the wind the line
+    under it. No reading draws the quiet "no weather", as the panel does.
+    </remarks>
+    """
+    tile = images.solid(background, size)
+    draw = ImageDraw.Draw(tile)
+    room = size * (0.74 if labelled else 1.0)  # the band takes the bottom 26 percent
+    if observation is None:
+        draw.text((size / 2, room * 0.5), "no weather", fill=MUTED, font=images.load_font(int(size * 0.14)), anchor="mm")
+        return tile
+    draw_icon(draw, observation.icon, size * 0.5, room * 0.24, room * 0.15)
+    draw.text((size / 2, room * 0.55), observation.temperature_text, fill=images.FOREGROUND,
+              font=images.load_font(int(room * 0.24)), anchor="mm")
+    wind = observation.wind_text
+    font = images.load_font(_fit_font_size(wind, size - 8, int(room * 0.15)))
+    draw.text((size / 2, room * 0.8), wind, fill=MUTED, font=font, anchor="mm")
+    return tile
+
+
+def playing_tile(reading: NowPlaying | None, size: int,
+                 background: tuple[int, int, int] = images.BACKGROUND,
+                 art: Image.Image | None = None) -> Image.Image:
+    """<summary>
+    What the media player is playing: a play or pause mark, the title and the
+    artist, over the picture of it when there is one.
+    </summary>
+    <param name="reading">The player's state, or None when no player is open.</param>
+    <param name="size">The tile size in pixels, the visible window on a strip panel.</param>
+    <param name="background">RGB tuple behind everything.</param>
+    <param name="art">The picture of what is playing, or None for text alone.</param>
+    <returns>An upright tile, always.</returns>
+    <remarks>
+    The title gets the larger line and is shrunk to fit rather than wrapped,
+    because a panel is too small for two lines of title and a name cut short
+    reads better than one broken mid word. No player at all draws a quiet
+    "nothing playing", the same way the weather tile says it has none.
+
+    With a picture, it fills the square, cropped to the middle, and the
+    text sits on a dark band across the bottom with the play or pause mark
+    small in the top left corner, so the picture reads first and the words
+    still do.
+    </remarks>
+    """
+    if reading is not None and art is not None:
+        return _playing_with_art(reading, size, art)
+    tile = images.solid(background, size)
+    draw = ImageDraw.Draw(tile)
+    if reading is None:
+        draw.text((size / 2, size * 0.42), "nothing", fill=MUTED, font=images.load_font(int(size * 0.18)), anchor="mm")
+        draw.text((size / 2, size * 0.62), "playing", fill=MUTED, font=images.load_font(int(size * 0.18)), anchor="mm")
+        return tile
+    cx, cy, r = size * 0.5, size * 0.24, size * 0.11
+    if reading.playing:
+        draw.polygon([(cx - r * 0.8, cy - r), (cx + r, cy), (cx - r * 0.8, cy + r)], fill=images.ACCENT)
+    else:
+        for dx in (-r * 0.7, r * 0.25):
+            draw.rectangle([cx + dx, cy - r, cx + dx + r * 0.45, cy + r], fill=MUTED)
+    title = reading.title or reading.player or "unknown"
+    font = images.load_font(_fit_font_size(title, size - 6, int(size * 0.2)))
+    draw.text((size / 2, size * 0.55), title, fill=images.FOREGROUND, font=font, anchor="mm")
+    if reading.artist:
+        font = images.load_font(_fit_font_size(reading.artist, size - 6, int(size * 0.15)))
+        draw.text((size / 2, size * 0.82), reading.artist, fill=MUTED, font=font, anchor="mm")
+    return tile
+
+
+def picture_face(art: Image.Image, size: int) -> Image.Image:
+    """<summary>A picture as the whole face of a key, cover cropped to the square.</summary>
+    <param name="art">The picture, any size.</param>
+    <param name="size">The key size in pixels.</param>
+    <returns>An upright RGB tile of ``size`` square.</returns>
+    <remarks>Scaled so the shorter side fills the square and the longer
+    side's overflow is cut equally from both ends: a poster loses its top
+    and bottom, a wide picture its sides, and the middle of either shows.
+    The playing panel's picture form crops the same way.</remarks>"""
+    scale = size / min(art.width, art.height)
+    scaled = art.resize((max(size, round(art.width * scale)), max(size, round(art.height * scale))), Image.Resampling.LANCZOS)
+    left, top = (scaled.width - size) // 2, (scaled.height - size) // 2
+    return scaled.crop((left, top, left + size, top + size)).convert("RGB")
+
+
+def playing_caption(reading: NowPlaying) -> str:
+    """<summary>The words that name what is playing, for a band or a scroll.</summary>
+    <param name="reading">The player's state.</param>
+    <returns>The title, with the artist or show in brackets when there is one.</returns>"""
+    title = reading.title or reading.player or "unknown"
+    return f"{title} ({reading.artist})" if reading.artist else title
+
+
+def scrolling_label_frames(tile: Image.Image, text: str, fps: int = 20, speed: float = 40.0) -> tuple[list[Image.Image], int] | None:
+    """<summary>
+    The caption band of <see cref="with_label"/> with its text sliding along,
+    for a name too long to fit; None when the name fits as it is.
+    </summary>
+    <param name="tile">The picture to caption. It is not modified.</param>
+    <param name="text">The caption.</param>
+    <param name="fps">Frames a second the loop plays at.</param>
+    <param name="speed">Pixels a second the text moves, whatever the rate.</param>
+    <returns>(frames, fps), or None to say the caller should use
+    <see cref="with_label"/> and a still.</returns>
+    <remarks>
+    The same band as the still caption, so a key looks the same whether its
+    name fits or scrolls. The travel is the text width plus a whole key, so
+    the text leaves one edge before returning at the other, and the first
+    frame starts the text at the left edge so a still of it still reads.
+    Capped at 600 frames, as the scrolling label animation is.
+    </remarks>
+    """
+    size = tile.width
+    band_height = max(16, int(size * 0.26))
+    font = images.load_font(int(band_height * 0.7))
+    probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+    left, top, right, bottom = probe.textbbox((0, 0), text, font=font)
+    width = right - left
+    if width <= size - 6:
+        return None
+    travel = width + size
+    step = max(1, int(round(speed / max(1, fps))))
+    count = max(4, min(600, travel // step))
+    base = tile.convert("RGBA")
+    y = size - band_height / 2 - (top + bottom) / 2
+    frames = []
+    for i in range(count):
+        overlay = Image.new("RGBA", tile.size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
+        draw.rectangle([0, size - band_height, size, size], fill=BAND)
+        x = size - (i * step + size - 3) % travel
+        draw.text((x - left, y), text, fill=images.FOREGROUND, font=font)
+        frames.append(Image.alpha_composite(base, overlay).convert("RGB"))
+    return frames, fps
+
+
+def _playing_with_art(reading: NowPlaying, size: int, art: Image.Image) -> Image.Image:
+    """<summary>The playing tile's other form: the picture, a band, the words.</summary>
+    <param name="reading">The player's state.</param>
+    <param name="size">The tile size in pixels.</param>
+    <param name="art">The picture, any size.</param>
+    <returns>An upright tile of ``size`` square.</returns>
+    <remarks>Cover cropped: scaled so the shorter side fills the square and
+    the longer side's overflow is cut equally from both ends, so a poster
+    loses its top and bottom and a wide picture its sides, and the middle
+    of either is what shows.</remarks>"""
+    tile = picture_face(art, size).convert("RGBA")
+    band = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    band_draw = ImageDraw.Draw(band)
+    band_draw.rectangle([0, round(size * 0.6), size, size], fill=(0, 0, 0, 165))
+    r = size * 0.07
+    cx, cy = size * 0.14, size * 0.14
+    band_draw.ellipse([cx - r * 1.6, cy - r * 1.6, cx + r * 1.6, cy + r * 1.6], fill=(0, 0, 0, 150))
+    tile = Image.alpha_composite(tile, band)
+    draw = ImageDraw.Draw(tile)
+    if reading.playing:
+        draw.polygon([(cx - r * 0.8, cy - r), (cx + r, cy), (cx - r * 0.8, cy + r)], fill=images.ACCENT)
+    else:
+        for dx in (-r * 0.7, r * 0.25):
+            draw.rectangle([cx + dx, cy - r, cx + dx + r * 0.45, cy + r], fill=images.FOREGROUND)
+    title = reading.title or reading.player or "unknown"
+    font = images.load_font(_fit_font_size(title, size - 6, int(size * 0.17)))
+    draw.text((size / 2, size * 0.73), title, fill=images.FOREGROUND, font=font, anchor="mm")
+    if reading.artist:
+        font = images.load_font(_fit_font_size(reading.artist, size - 6, int(size * 0.13)))
+        draw.text((size / 2, size * 0.89), reading.artist, fill=MUTED, font=font, anchor="mm")
+    return tile.convert("RGB")
+
+
+def system_tile(reading: SystemReading | None, size: int,
+                background: tuple[int, int, int] = images.BACKGROUND, labelled: bool = False) -> Image.Image:
+    """<summary>
+    The machine at a glance: temperature on top, then a processor bar and a memory bar.
+    </summary>
+    <param name="reading">The latest reading, or None before the first one.</param>
+    <param name="size">The tile size in pixels, the visible window on a strip panel.</param>
+    <param name="background">RGB tuple behind everything.</param>
+    <param name="labelled">True when a label band will go along the bottom,
+    which squeezes the rows into the space above it, for a key.</param>
+    <returns>An upright tile, always.</returns>
+    <remarks>
+    A value the machine could not give is drawn as a dash and an empty bar,
+    so a box with no temperature sensor still shows its load. The bars turn
+    red past 90 percent, which is the only colour rule here.
+    </remarks>
+    """
+    tile = images.solid(background, size)
+    draw = ImageDraw.Draw(tile)
+    room = size * (0.74 if labelled else 1.0)  # the band takes the bottom 26 percent
+    temp = reading.temperature_c if reading is not None else None
+    draw.text((size / 2, room * 0.18), f"{temp}°C" if temp is not None else "--°C",
+              fill=images.FOREGROUND, font=images.load_font(int(room * 0.26)), anchor="mm")
+    small = images.load_font(int(room * 0.11))
+    rows = (("CPU", reading.cpu_percent if reading is not None else None, 0.4),
+            ("MEM", reading.memory_percent if reading is not None else None, 0.7))
+    left, right = size * 0.34, size * 0.94
+    for name, value, y in rows:
+        top, bottom = room * y, room * (y + 0.12)
+        draw.text((size * 0.04, (top + bottom) / 2), name, fill=MUTED, font=small, anchor="lm")
+        draw.rectangle([left, top, right, bottom], fill=BAR_TRACK)
+        if value is not None:
+            colour = ALERT if value >= 90 else images.ACCENT
+            draw.rectangle([left, top, left + (right - left) * value / 100, bottom], fill=colour)
+            draw.text((right, bottom + 1), f"{value}%", fill=MUTED, font=images.load_font(int(room * 0.1)), anchor="ra")
+    return tile
+
+
+def lights_tile(state: LightState | None, size: int,
+                background: tuple[int, int, int] = images.BACKGROUND, labelled: bool = False) -> Image.Image:
+    """<summary>
+    The lights at a glance: their own colour behind a lamp, lit or dark,
+    with the brightness as a bar and a percentage.
+    </summary>
+    <param name="state">The latest state, or None when unknown or unreachable.</param>
+    <param name="size">The tile size in pixels.</param>
+    <param name="background">RGB tuple behind everything while the lights
+    are off or unknown.</param>
+    <param name="labelled">True when a label band will go along the bottom,
+    which squeezes everything into the space above it.</param>
+    <returns>An upright tile, always.</returns>
+    <remarks>
+    While the lights are on, the key's background is their first colour,
+    scaled by the brightness so a dim setting reads dim, with a floor so a
+    low setting is still visibly the colour. A colour too dark to show, or
+    black, leaves the plain background. The lamp has a dark rim so it reads
+    on any colour. An unknown state draws a grey lamp, a dash and an empty
+    bar, so a device that has gone away is not mistaken for one that is off.
+    </remarks>
+    """
+    lit = state is not None and state.on
+    back = background
+    if lit:
+        level = LIGHTS_FLOOR + (1 - LIGHTS_FLOOR) * state.brightness / 255
+        candidate = tuple(int(c * level) for c in state.colour)
+        if max(candidate) >= 40:
+            back = candidate
+    tile = images.solid(back, size)
+    draw = ImageDraw.Draw(tile)
+    room = size * (0.74 if labelled else 1.0)
+    cx, cy, r = size / 2, room * 0.36, room * 0.19
+    rim = (16, 22, 32)
+    bulb = images.FOREGROUND if lit else (MUTED if state is not None else BAR_TRACK)
+    width = max(2, int(r * 0.16))
+    draw.ellipse([cx - r - width, cy - r - width, cx + r + width, cy + r + width], fill=rim)
+    draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=bulb if lit else back, outline=bulb, width=width)
+    neck = r * 0.45
+    draw.rectangle([cx - neck, cy + r * 0.75, cx + neck, cy + r * 1.35], fill=rim)
+    draw.rectangle([cx - neck + width, cy + r * 0.85, cx + neck - width, cy + r * 1.25], fill=bulb)
+    if lit:
+        for dx, dy in ((-1.55, -1.0), (1.55, -1.0), (-1.9, 0.2), (1.9, 0.2)):
+            x, y = cx + r * dx, cy + r * dy
+            draw.line([x, y, x + r * 0.3 * (1 if dx > 0 else -1), y + r * 0.3 * (1 if dy > 0 else -1)],
+                      fill=rim, width=width + 2)
+            draw.line([x, y, x + r * 0.3 * (1 if dx > 0 else -1), y + r * 0.3 * (1 if dy > 0 else -1)],
+                      fill=bulb, width=width)
+    text = f"{state.percent}%" if state is not None else "--"
+    font = images.load_font(int(room * 0.15))
+    tx, ty = size / 2, room * 0.71
+    # Dark ink on a light colour, light ink with a dark shadow on anything else.
+    luminance = 0.299 * back[0] + 0.587 * back[1] + 0.114 * back[2]
+    if luminance > 150:
+        draw.text((tx, ty), text, fill=rim, font=font, anchor="mm")
+    else:
+        draw.text((tx + 1, ty + 1), text, fill=rim, font=font, anchor="mm")
+        draw.text((tx, ty), text, fill=images.FOREGROUND, font=font, anchor="mm")
+    left, right, top, bottom = size * 0.12, size * 0.88, room * 0.82, room * 0.9
+    draw.rectangle([left - 1, top - 1, right + 1, bottom + 1], fill=rim)
+    draw.rectangle([left, top, right, bottom], fill=BAR_TRACK)
+    if state is not None:
+        draw.rectangle([left, top, left + (right - left) * state.brightness / 255, bottom],
+                       fill=images.ACCENT if lit else MUTED)
+    return tile
+
+
+def compact_count(value: int) -> str:
+    """<summary>A count short enough for a key: 950, 12.3k, 1.2M.</summary>
+    <param name="value">The count.</param>
+    <returns>The text.</returns>"""
+    if value < 1000:
+        return str(value)
+    if value < 1_000_000:
+        text = f"{value / 1000:.1f}".rstrip("0").rstrip(".")
+        return text + "k"
+    text = f"{value / 1_000_000:.1f}".rstrip("0").rstrip(".")
+    return text + "M"
+
+
+def pihole_tile(reading: PiholeReading | None, size: int,
+                background: tuple[int, int, int] = images.BACKGROUND, labelled: bool = False) -> Image.Image:
+    """<summary>
+    Pi-hole today: the share blocked large, with the queries and blocked
+    counts under it, and the word paused while blocking is off.
+    </summary>
+    <param name="reading">The latest reading, or None when unknown or unreachable.</param>
+    <param name="size">The tile size in pixels.</param>
+    <param name="background">RGB tuple behind everything.</param>
+    <param name="labelled">True when a label band will go along the bottom,
+    which squeezes everything into the space above it.</param>
+    <returns>An upright tile, always.</returns>
+    <remarks>
+    The percentage is the figure worth a glance, so it gets the big type;
+    the counts are the detail. While blocking is paused the percentage goes
+    muted and the caption says so, with the minutes left when the pause
+    has a timer, because a paused Pi-hole still reports today's share and
+    the number alone would read as all well. No reading draws a quiet "no
+    pi-hole", as the weather tile says it has none. The lamp in the corner
+    is the controller's and goes on top of this.
+    </remarks>
+    """
+    tile = images.solid(background, size)
+    draw = ImageDraw.Draw(tile)
+    room = size * (0.74 if labelled else 1.0)
+    if reading is None:
+        draw.text((size / 2, room * 0.5), "no pi-hole", fill=MUTED, font=images.load_font(int(size * 0.14)), anchor="mm")
+        return tile
+    percent = f"{reading.percent:.0f}%" if reading.percent >= 10 else f"{reading.percent:.1f}%"
+    colour = images.FOREGROUND if reading.blocking else MUTED
+    draw.text((size / 2, room * 0.3), percent, fill=colour, font=images.load_font(int(room * 0.3)), anchor="mm")
+    if reading.blocking:
+        caption = "blocked today"
+    elif reading.timer:
+        caption = f"paused {max(1, round(reading.timer / 60))} min"
+    else:
+        caption = "paused"
+    draw.text((size / 2, room * 0.52), caption, fill=MUTED if reading.blocking else ALERT,
+              font=images.load_font(int(room * 0.11)), anchor="mm")
+    counts = f"{compact_count(reading.queries)} asked, {compact_count(reading.blocked)} out"
+    font = images.load_font(_fit_font_size(counts, size - 8, int(room * 0.13)))
+    draw.text((size / 2, room * 0.74), counts, fill=MUTED, font=font, anchor="mm")
+    return tile
+
+
+def human_bytes(value: int) -> str:
+    """<summary>
+    A byte count the way DSM shows one: 3.4 TB, 512 GB, 900 MB.
+    </summary>
+    <param name="value">Bytes; anything negative reads as zero.</param>
+    <returns>A number with at most one decimal and a unit.</returns>
+    <remarks>Steps of 1024, labelled TB rather than TiB, because that is
+    the figure DSM's own storage page shows and a key that disagreed with
+    it would look wrong even when it was right.</remarks>
+    """
+    amount = float(max(0, value))
+    units = ("B", "KB", "MB", "GB", "TB", "PB")
+    index = 0
+    while amount >= 1024 and index < len(units) - 1:
+        amount /= 1024
+        index += 1
+    if index == 0:
+        return f"{int(amount)} B"
+    text = f"{amount:.1f}" if amount < 100 else f"{amount:.0f}"
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return f"{text} {units[index]}"
+
+
+def uptime_text(seconds: int) -> str:
+    """<summary>An uptime in the two largest units that apply: 3 d 4 h, 5 h 10 m, 12 m.</summary>
+    <param name="seconds">Seconds since the box started.</param>"""
+    seconds = max(0, int(seconds))
+    days, rest = divmod(seconds, 86_400)
+    hours, rest = divmod(rest, 3_600)
+    minutes = rest // 60
+    if days:
+        return f"up {days} d {hours} h"
+    if hours:
+        return f"up {hours} h {minutes} m"
+    return f"up {minutes} m"
+
+
+# The empty part of a gauge, a shade lighter than the navy behind it.
+GAUGE_TRACK = (60, 72, 86)
+
+
+def _bar(draw: ImageDraw.ImageDraw, x0: float, y0: float, x1: float, y1: float, fraction: float | None,
+         colour: tuple[int, int, int]) -> None:
+    """<summary>A thin horizontal gauge: a muted track with a share of it filled.</summary>
+    <param name="fraction">0 to 1 of the track to fill, or None for an empty track.</param>"""
+    draw.rounded_rectangle([x0, y0, x1, y1], radius=(y1 - y0) / 2, fill=GAUGE_TRACK)
+    if fraction:
+        width = max(0.0, min(1.0, fraction)) * (x1 - x0)
+        if width >= (y1 - y0):
+            draw.rounded_rectangle([x0, y0, x0 + width, y1], radius=(y1 - y0) / 2, fill=colour)
+
+
+def synology_tile(reading: SynologyReading | None, size: int, show: str = "space", volume: str | None = None,
+                  background: tuple[int, int, int] = images.BACKGROUND, labelled: bool = False) -> Image.Image:
+    """<summary>
+    A Synology NAS on a key: free space with a gauge, the processor and
+    memory loads, or the temperature and uptime, by the key's choice.
+    </summary>
+    <param name="reading">The latest reading, or None when unknown or unreachable.</param>
+    <param name="size">The tile size in pixels.</param>
+    <param name="show">"space", "load" or "system".</param>
+    <param name="volume">For "space", one volume's DSM name, or None for all of them together.</param>
+    <param name="background">RGB tuple behind everything.</param>
+    <param name="labelled">True when a label band will go along the bottom,
+    which squeezes everything into the space above it.</param>
+    <returns>An upright tile, always.</returns>
+    <remarks>
+    Free space gets the big type because it is the figure the key exists
+    for; the gauge under it fills with what is used and turns red past
+    nine tenths, as does the caption, so a nearly full volume is seen
+    across the room. No reading draws a quiet "no nas", as the weather
+    tile says it has none, and a volume the box does not have says so by
+    name. The lamp in the corner is the controller's and goes on top.
+    </remarks>
+    """
+    tile = images.solid(background, size)
+    draw = ImageDraw.Draw(tile)
+    room = size * (0.74 if labelled else 1.0)
+    small = images.load_font(int(room * 0.11))
+    if reading is None:
+        draw.text((size / 2, room * 0.5), "no nas", fill=MUTED, font=images.load_font(int(size * 0.14)), anchor="mm")
+        return tile
+    if show == "load":
+        for index, (name, value) in enumerate((("CPU", reading.cpu), ("RAM", reading.memory))):
+            top = room * (0.14 + index * 0.42)
+            figure = "?" if value is None else f"{value:.0f}%"
+            colour = ALERT if value is not None and value >= 90 else images.FOREGROUND
+            draw.text((8, top), name, fill=MUTED, font=small, anchor="lm")
+            draw.text((size - 8, top), figure, fill=colour, font=images.load_font(int(room * 0.16)), anchor="rm")
+            _bar(draw, 8, top + room * 0.12, size - 8, top + room * 0.19, None if value is None else value / 100, colour)
+        return tile
+    if show == "system":
+        name = reading.model or "Synology"
+        draw.text((size / 2, room * 0.14), name, fill=MUTED, font=images.load_font(_fit_font_size(name, size - 8, int(room * 0.12))), anchor="mm")
+        if reading.temperature is None:
+            draw.text((size / 2, room * 0.42), "no temp", fill=MUTED, font=images.load_font(int(room * 0.14)), anchor="mm")
+        else:
+            draw.text((size / 2, room * 0.42), f"{reading.temperature}\u00b0", fill=ALERT if reading.temperature_warn else images.FOREGROUND,
+                      font=images.load_font(int(room * 0.3)), anchor="mm")
+        if reading.uptime is not None:
+            draw.text((size / 2, room * 0.68), uptime_text(reading.uptime), fill=MUTED, font=small, anchor="mm")
+        if reading.disk_temp is not None:
+            draw.text((size / 2, room * 0.84), f"disks {reading.disk_temp}\u00b0", fill=MUTED, font=small, anchor="mm")
+        return tile
+    space = reading.space(volume)
+    if space is None:
+        words = f"no {volume_label(volume)}" if volume else "no volumes"
+        draw.text((size / 2, room * 0.5), words, fill=MUTED, font=images.load_font(_fit_font_size(words, size - 8, int(size * 0.14))), anchor="mm")
+        return tile
+    free, total = space
+    used = 1 - free / total if total else 0.0
+    colour = ALERT if used >= 0.9 else images.FOREGROUND
+    big = human_bytes(free)
+    draw.text((size / 2, room * 0.27), big, fill=colour, font=images.load_font(_fit_font_size(big, size - 8, int(room * 0.26))), anchor="mm")
+    caption = f"free of {human_bytes(total)}"
+    draw.text((size / 2, room * 0.5), caption, fill=ALERT if used >= 0.9 else MUTED,
+              font=images.load_font(_fit_font_size(caption, size - 8, int(room * 0.11))), anchor="mm")
+    _bar(draw, 8, room * 0.62, size - 8, room * 0.69, used, colour)
+    where = volume_label(volume) if volume else ("all volumes" if len(reading.volumes) > 1 else volume_label(reading.volumes[0].id))
+    draw.text((size / 2, room * 0.84), where, fill=MUTED, font=images.load_font(_fit_font_size(where, size - 8, int(room * 0.11))), anchor="mm")
+    return tile
+
+
+def volume_label(name: str | None) -> str:
+    """<summary>DSM's ``volume_1`` as the words its pages use: Volume 1.</summary>
+    <param name="name">The volume's id, or None.</param>"""
+    if not name:
+        return ""
+    return name.replace("_", " ").strip().capitalize()
+
+
 def draw_icon(draw: ImageDraw.ImageDraw, icon: str, cx: float, cy: float, r: float) -> None:
     """<summary>
     Draw one weather glyph from a few flat shapes.
@@ -856,7 +1371,8 @@ def _cloud(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, colour) ->
 
 def strip_tile(tile: StripTile, now: datetime, observation: Observation | None,
                size: int, location_name: str, visible: tuple[int, int] | None = None,
-               default_background: str | None = None) -> Image.Image:
+               default_background: str | None = None, playing: NowPlaying | None = None,
+               system: SystemReading | None = None, playing_art: Image.Image | None = None) -> Image.Image:
     """<summary>
     The still picture for one strip panel, whatever kind of tile it is
     configured as.
@@ -870,6 +1386,9 @@ def strip_tile(tile: StripTile, now: datetime, observation: Observation | None,
     <param name="visible">The window the panel actually shows, in pixels, or
     None to treat the whole square as visible.</param>
     <param name="default_background">The page or deck wide background colour.</param>
+    <param name="playing">The media player reading for a now playing panel, or None.</param>
+    <param name="system">The machine reading for a system panel, or None.</param>
+    <param name="playing_art">The picture of what is playing, once fetched, or None.</param>
     <returns>An upright tile of ``size`` square, always.</returns>
     <remarks>
     The panel shows only a central window of ``visible`` pixels out of the
@@ -894,6 +1413,10 @@ def strip_tile(tile: StripTile, now: datetime, observation: Observation | None,
         return centred(date_tile(now, inner, bg), size, bg)
     if tile.kind == "weather":
         return centred(weather_tile(observation, inner, location_name, bg), size, bg)
+    if tile.kind == "playing":
+        return centred(playing_tile(playing, inner, bg, playing_art), size, bg)
+    if tile.kind == "system":
+        return centred(system_tile(system, inner, bg), size, bg)
     if tile.kind == "image" and tile.image is not None:
         if tile.fit:
             return centred(picture_box(tile.image, width, height, bg), size, bg)
@@ -1201,7 +1724,9 @@ def grid_pattern(size: int, pitch_x: int, pitch_y: int) -> dict[tuple[int, int],
     return tiles
 
 
-def strip_signature(tile: StripTile, now: datetime, observation: Observation | None) -> tuple:
+def strip_signature(tile: StripTile, now: datetime, observation: Observation | None,
+                    playing: NowPlaying | None = None, system: SystemReading | None = None,
+                    playing_art_ready: bool = False) -> tuple:
     """<summary>
     A value that changes whenever the panel's picture would change, and not
     otherwise.
@@ -1209,6 +1734,10 @@ def strip_signature(tile: StripTile, now: datetime, observation: Observation | N
     <param name="tile">The strip tile's config.</param>
     <param name="now">The moment the tile would be drawn at.</param>
     <param name="observation">The weather reading, or None.</param>
+    <param name="playing">The media player reading, or None.</param>
+    <param name="system">The machine reading, or None.</param>
+    <param name="playing_art_ready">Whether the picture of what is playing
+    has arrived, so the panel is drawn again when it does.</param>
     <returns>A hashable tuple to compare against the last one.</returns>
     <remarks>
     This is what stops the deck being sent the same picture several times a
@@ -1228,4 +1757,8 @@ def strip_signature(tile: StripTile, now: datetime, observation: Observation | N
         return ("date", now.strftime("%Y-%m-%d"), tile.background)
     if tile.kind == "weather":
         return ("weather", observation, tile.background)
+    if tile.kind == "playing":
+        return ("playing", playing, tile.background, playing_art_ready)
+    if tile.kind == "system":
+        return ("system", system, tile.background)
     return (tile.kind, str(tile.image), tile.fit, tile.animation, tile.background)

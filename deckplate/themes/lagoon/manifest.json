@@ -119,6 +119,26 @@
       "label": "Dim"
     },
     {
+      "id": "page",
+      "label": "Page"
+    },
+    {
+      "id": "page-next",
+      "label": "Next Page"
+    },
+    {
+      "id": "page-previous",
+      "label": "Previous Page"
+    },
+    {
+      "id": "key-sequence",
+      "label": "Key Sequence"
+    },
+    {
+      "id": "key-hold",
+      "label": "Hold Key"
+    },
+    {
       "id": "terminal",
       "label": "Terminal"
     },
@@ -245,6 +265,78 @@
     {
       "id": "software",
       "label": "Software"
+    },
+    {
+      "id": "server",
+      "label": "Server"
+    },
+    {
+      "id": "nas",
+      "label": "Network Storage"
+    },
+    {
+      "id": "firewall",
+      "label": "Firewall"
+    },
+    {
+      "id": "network",
+      "label": "Network"
+    },
+    {
+      "id": "router",
+      "label": "Router"
+    },
+    {
+      "id": "vpn",
+      "label": "VPN"
+    },
+    {
+      "id": "cloud",
+      "label": "Cloud"
+    },
+    {
+      "id": "database",
+      "label": "Database"
+    },
+    {
+      "id": "movies",
+      "label": "Movies"
+    },
+    {
+      "id": "series",
+      "label": "Series"
+    },
+    {
+      "id": "games",
+      "label": "Games"
+    },
+    {
+      "id": "meeting",
+      "label": "Meeting"
+    },
+    {
+      "id": "sync",
+      "label": "Sync"
+    },
+    {
+      "id": "assistant",
+      "label": "Assistant"
+    },
+    {
+      "id": "launch",
+      "label": "Launch"
+    },
+    {
+      "id": "coffee",
+      "label": "Stay Awake"
+    },
+    {
+      "id": "bell-off",
+      "label": "Do Not Disturb"
+    },
+    {
+      "id": "remote",
+      "label": "Media Centre"
     },
     {
       "id": "hourglass-running",

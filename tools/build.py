@@ -128,6 +128,10 @@ INSTALL_LINUX = """Deckplate {version} for Linux
    The window needs the WebKitGTK bindings; if it does not open, install them
        sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-webkit2-4.1
    or use    deckplate gui --browser    to open the page in your browser.
+   While it runs the daemon puts a Deckplate icon in the system tray, with
+   Open and Quit on it. On a desktop with an indicator tray that needs
+       sudo apt install gir1.2-ayatanaappindicator3-0.1
+   and it is turned off under Tray icon in the page's Settings.
 
 5. To start with your session:
        mkdir -p ~/.config/systemd/user
@@ -268,7 +272,7 @@ a = Analysis(
     pathex=[{root!r}],
     datas=[({web!r}, "deckplate/web"), ({themes!r}, "deckplate/themes"),
            ({config!r}, "deckplate")] + collect_data_files("webview"),
-    hiddenimports=collect_submodules("pynput") + collect_submodules("webview"),
+    hiddenimports=collect_submodules("pynput") + collect_submodules("webview") + collect_submodules("pystray"),
     # On Linux pywebview draws with GTK, and PyInstaller's GTK hook bundles
     # every icon theme and GTK theme on the build machine unless told which:
     # 1 GB of cursors on Mint, a 440 MB program that took 11 seconds to start.

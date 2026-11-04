@@ -51,6 +51,12 @@ background = "#141c28"
 # flags on the run command override this for one run.
 official_software = "ask"
 
+[tray]
+# A Deckplate icon in the system tray while the daemon runs, with Open, for
+# the configuration window, and Quit on it. Needs the pystray package, and
+# on Linux a tray to sit in. Turned off here or under Settings on the page.
+enabled = true
+
 [server]
 # The local channel the configuration page uses. Only this machine can reach
 # it unless bind is changed, and then a token is required on every request.
@@ -65,6 +71,7 @@ latitude = 51.5072
 longitude = -0.1276
 location_name = "London"
 units = "metric"        # metric or imperial
+# wind_units = "mph"    # kmh or mph for the wind on its own; follows units when left out
 refresh_minutes = 10
 
 [strip]
@@ -75,7 +82,11 @@ refresh_minutes = 10
 # Check yours with:  deckplate calibrate-strip
 visible_width = 78
 visible_height = 78
-# Top to bottom: clock, date, weather, blank, a picture path,
+# Top to bottom: clock, date, weather, playing (the media player's track, or
+# a Kodi player's with { kind = "playing", source = "kodi", url = "http://player:8080/jsonrpc" }
+# and an optional token_file; the cover or poster shows behind the words
+# unless art = false), system (processor temperature, load and
+# memory), blank, a picture path,
 # { image = "images/logo.png", fit = true }, or an animation such as
 # { animation = { kind = "wave", colour = "#5c9bde", speed = 1.0 } }
 tiles = ["clock", "date", "weather"]
@@ -120,8 +131,43 @@ tiles = ["clock", "date", "weather"]
 #   stopwatch  press to start and pause;  holding the key resets it, and
 #              reset = true puts a reset on another gesture as well
 #   counter    step = 1 (negative counts down);  reset = true resets
+#   A key may carry lamp = { url = "http://player:8080/jsonrpc", token_file = "..." }
+#   and wears the status lamp for that address whatever it does when pressed;
+#   every_ms, insecure and expect as on a status key. With kind = "wled" the
+#   url is a WLED device's own and the lamp is green while the lights are on.
+#   A key may carry playing = { source = "kodi", url = "...", token_file = "..." }
+#   (or source = "local", or source = "kodi" alone on a kodi key for its own
+#   player) and wears the picture of what that player is playing while it
+#   plays something, its own face the rest of the time; label = "band" or
+#   "scroll" names it along the bottom.
 #   A key may carry image_active and label_active, shown while its toggle is on,
 #   its hold or repeat runs, its timer counts, or the sound is muted by it.
+#   stay_awake keeps the machine awake until pressed again: the screensaver inhibit
+#              plus a pointer nudge every every_ms; inhibit = false / nudge = false drop one
+#   dnd        holds notifications back until pressed again
+#   status     url = "https://box/"  lights the key's active face while the address
+#              answers, asked every every_ms; expect = "text", insecure = true and
+#              open = false are optional, and the press opens the address
+#   weather    draws the conditions, temperature and wind on the key, from [weather];
+#              the press opens url, or a map site at the coordinates when none is given
+#   system     draws the processor temperature, load and memory on the key; the press
+#              launches command, or the first desktop system monitor found
+#   wled       url = "http://lights/"  do = "toggle" | "on" | "off" | "preset" (preset = 2) |
+#              "brighter" | "dimmer" (step = 32); draws the light's colour and brightness
+#   pihole     url = "http://pi.hole/"  token_file = "~/.deckplate-tokens/pihole" (the web
+#              password alone)  do = "toggle" (pauses blocking for seconds = 300, resumes on
+#              the next press) | "open" (the admin page); draws today's figures and wears a
+#              lamp, green while blocking is on
+#   synology   url = "http://nas.local:5000/"  account = "deck"  token_file = "~/.deckplate-tokens/synology"
+#              (the password alone)  show = "space" (free space, volume = "volume_1" for one volume) |
+#              "load" (processor and memory) | "system" (temperature and uptime); wears a lamp,
+#              green while every volume and disk is normal; the press opens DSM
+#   kodi       do = "play_pause" | "pause" | "play" | "stop" | "next" | "previous" | "up" |
+#              "down" | "left" | "right" | "select" | "back" | "home" | "info" | "context" |
+#              "osd" | "volume_up" | "volume_down" | "mute", or method = "..." with
+#              params = { }; where Kodi is comes from the [kodi] table unless the key
+#              gives its own url (and token_file) for a second player, which then
+#              wears a lamp that is green while that player answers
 #   page       page = "Name" | "next" | "previous"
 #   brightness value = 50  or  delta = -10
 #   sleep      turns the screens off until a key is pressed

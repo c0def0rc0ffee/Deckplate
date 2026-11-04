@@ -119,6 +119,26 @@
       "label": "Dim"
     },
     {
+      "id": "page",
+      "label": "Page"
+    },
+    {
+      "id": "page-next",
+      "label": "Next Page"
+    },
+    {
+      "id": "page-previous",
+      "label": "Previous Page"
+    },
+    {
+      "id": "key-sequence",
+      "label": "Key Sequence"
+    },
+    {
+      "id": "key-hold",
+      "label": "Hold Key"
+    },
+    {
       "id": "hourglass-running",
       "label": "Hourglass Running"
     },

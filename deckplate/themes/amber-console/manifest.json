@@ -235,6 +235,46 @@
       "label": "Dim Lit"
     },
     {
+      "id": "page",
+      "label": "Page"
+    },
+    {
+      "id": "page-lit",
+      "label": "Page Lit"
+    },
+    {
+      "id": "page-next",
+      "label": "Next Page"
+    },
+    {
+      "id": "page-next-lit",
+      "label": "Next Page Lit"
+    },
+    {
+      "id": "page-previous",
+      "label": "Previous Page"
+    },
+    {
+      "id": "page-previous-lit",
+      "label": "Previous Page Lit"
+    },
+    {
+      "id": "key-sequence",
+      "label": "Key Sequence"
+    },
+    {
+      "id": "key-sequence-lit",
+      "label": "Key Sequence Lit"
+    },
+    {
+      "id": "key-hold",
+      "label": "Hold Key"
+    },
+    {
+      "id": "key-hold-lit",
+      "label": "Hold Key Lit"
+    },
+    {
       "id": "terminal",
       "label": "Terminal"
     },
@@ -489,6 +529,150 @@
     {
       "id": "software-lit",
       "label": "Software Lit"
+    },
+    {
+      "id": "server",
+      "label": "Server"
+    },
+    {
+      "id": "server-lit",
+      "label": "Server Lit"
+    },
+    {
+      "id": "nas",
+      "label": "Network Storage"
+    },
+    {
+      "id": "nas-lit",
+      "label": "Network Storage Lit"
+    },
+    {
+      "id": "firewall",
+      "label": "Firewall"
+    },
+    {
+      "id": "firewall-lit",
+      "label": "Firewall Lit"
+    },
+    {
+      "id": "network",
+      "label": "Network"
+    },
+    {
+      "id": "network-lit",
+      "label": "Network Lit"
+    },
+    {
+      "id": "router",
+      "label": "Router"
+    },
+    {
+      "id": "router-lit",
+      "label": "Router Lit"
+    },
+    {
+      "id": "vpn",
+      "label": "VPN"
+    },
+    {
+      "id": "vpn-lit",
+      "label": "VPN Lit"
+    },
+    {
+      "id": "cloud",
+      "label": "Cloud"
+    },
+    {
+      "id": "cloud-lit",
+      "label": "Cloud Lit"
+    },
+    {
+      "id": "database",
+      "label": "Database"
+    },
+    {
+      "id": "database-lit",
+      "label": "Database Lit"
+    },
+    {
+      "id": "movies",
+      "label": "Movies"
+    },
+    {
+      "id": "movies-lit",
+      "label": "Movies Lit"
+    },
+    {
+      "id": "series",
+      "label": "Series"
+    },
+    {
+      "id": "series-lit",
+      "label": "Series Lit"
+    },
+    {
+      "id": "games",
+      "label": "Games"
+    },
+    {
+      "id": "games-lit",
+      "label": "Games Lit"
+    },
+    {
+      "id": "meeting",
+      "label": "Meeting"
+    },
+    {
+      "id": "meeting-lit",
+      "label": "Meeting Lit"
+    },
+    {
+      "id": "sync",
+      "label": "Sync"
+    },
+    {
+      "id": "sync-lit",
+      "label": "Sync Lit"
+    },
+    {
+      "id": "assistant",
+      "label": "Assistant"
+    },
+    {
+      "id": "assistant-lit",
+      "label": "Assistant Lit"
+    },
+    {
+      "id": "launch",
+      "label": "Launch"
+    },
+    {
+      "id": "launch-lit",
+      "label": "Launch Lit"
+    },
+    {
+      "id": "coffee",
+      "label": "Stay Awake"
+    },
+    {
+      "id": "coffee-lit",
+      "label": "Stay Awake Lit"
+    },
+    {
+      "id": "bell-off",
+      "label": "Do Not Disturb"
+    },
+    {
+      "id": "bell-off-lit",
+      "label": "Do Not Disturb Lit"
+    },
+    {
+      "id": "remote",
+      "label": "Media Centre"
+    },
+    {
+      "id": "remote-lit",
+      "label": "Media Centre Lit"
     },
     {
       "id": "armed",

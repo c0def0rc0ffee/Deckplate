@@ -462,3 +462,179 @@ def test_a_picture_too_large_to_decode_is_marked_like_a_missing_one(tmp_path, mo
     tile = tiles.key_tile(KeyConfig(0, 0, image=path), SIZE)
     assert tile.getpixel((3, 3)) == (60, 20, 20)
     assert tiles.wallpaper_slice(path, SIZE, (120, 120), 0, 0) is None
+
+
+def test_now_playing_and_system_tiles_render_and_sign():
+    """<summary>
+    The two newer strip kinds draw with and without a reading, and their
+    signatures follow the reading so the panel is resent only on a change.
+    </summary>
+    """
+    from deckplate.media import NowPlaying
+    from deckplate.system import SystemReading
+    assert differs_from_blank(tiles.playing_tile(None, SIZE))
+    assert differs_from_blank(tiles.playing_tile(NowPlaying("A very long track title indeed", "Someone", "Playing", "vlc"), SIZE))
+    assert differs_from_blank(tiles.playing_tile(NowPlaying("", "", "Paused", "vlc"), SIZE))
+    assert differs_from_blank(tiles.system_tile(None, SIZE))
+    assert differs_from_blank(tiles.system_tile(SystemReading(95, 40, 61), SIZE))
+    assert differs_from_blank(tiles.system_tile(SystemReading(None, None, None), SIZE))
+    now = datetime(2026, 9, 10, 14, 5, 10)
+    playing = StripTile("playing")
+    a = NowPlaying("One", "", "Playing", "p")
+    b = NowPlaying("Two", "", "Playing", "p")
+    assert tiles.strip_signature(playing, now, None, playing=a) == tiles.strip_signature(playing, now, None, playing=a)
+    assert tiles.strip_signature(playing, now, None, playing=a) != tiles.strip_signature(playing, now, None, playing=b)
+    system = StripTile("system")
+    assert tiles.strip_signature(system, now, None, system=SystemReading(1, 2, 3)) != \
+        tiles.strip_signature(system, now, None, system=SystemReading(1, 2, 4))
+    assert differs_from_blank(tiles.strip_tile(playing, now, None, 95, "", (78, 78), None, playing=a))
+    assert differs_from_blank(tiles.strip_tile(system, now, None, 95, "", (78, 78), None, system=SystemReading(1, 2, 3)))
+
+
+def test_the_status_lamp_sits_in_the_top_right_corner():
+    """<summary>
+    The lamp is drawn over the tile in the colour given, in the top right,
+    and the tile handed in is left alone.
+    </summary>
+    """
+    base = tiles.key_tile(None, SIZE)
+    lit = tiles.with_dot(base, tiles.DOT_UP)
+    cx, cy = SIZE - round(SIZE * tiles.DOT_INSET), round(SIZE * tiles.DOT_INSET)
+    assert lit.getpixel((cx, cy)) == tiles.DOT_UP
+    assert base.getpixel((cx, cy)) != tiles.DOT_UP
+    assert lit.getpixel((SIZE // 2, SIZE // 2)) == base.getpixel((SIZE // 2, SIZE // 2))
+    assert tiles.with_dot(base, tiles.DOT_DOWN).getpixel((cx, cy)) == tiles.DOT_DOWN
+
+
+def test_the_weather_key_face_draws_with_and_without_a_reading():
+    """<summary>The weather key's face draws something in every state.</summary>"""
+    assert differs_from_blank(tiles.weather_key_tile(None, SIZE))
+    windy = Observation(12.4, 61, "Light rain", "rain", "°C", wind_speed=23.2, wind_unit="km/h")
+    assert differs_from_blank(tiles.weather_key_tile(windy, SIZE))
+    assert tiles.weather_key_tile(windy, SIZE).tobytes() != tiles.weather_key_tile(
+        Observation(12.4, 61, "Light rain", "rain", "°C", wind_speed=5, wind_unit="km/h"), SIZE).tobytes()
+
+
+def test_the_system_face_squeezes_above_a_label_band():
+    """<summary>The labelled layout keeps every row above the band's 26 percent.</summary>"""
+    from deckplate.system import SystemReading
+    reading = SystemReading(55, 60, 65)
+    plain = tiles.system_tile(reading, SIZE)
+    squeezed = tiles.system_tile(reading, SIZE, labelled=True)
+    assert plain.tobytes() != squeezed.tobytes()
+    band_top = SIZE - max(16, int(SIZE * 0.26))
+    blank = tiles.key_tile(None, SIZE)
+    for y in range(band_top, SIZE):
+        for x in range(0, SIZE, 7):
+            assert squeezed.getpixel((x, y)) == blank.getpixel((x, y))
+
+
+def test_the_lights_face_follows_the_state_and_wears_the_lights_colour():
+    """<summary>
+    Unknown, off and on draw differently; a lit key's background is the
+    lights' colour scaled by brightness; white lights still show their
+    percentage; and the labelled layout keeps above the band.
+    </summary>
+    """
+    from deckplate.lights import LightState
+    unknown = tiles.lights_tile(None, SIZE)
+    off = tiles.lights_tile(LightState(False, 128, (255, 160, 0)), SIZE)
+    on = tiles.lights_tile(LightState(True, 255, (255, 160, 0)), SIZE)
+    dim = tiles.lights_tile(LightState(True, 20, (255, 160, 0)), SIZE)
+    assert len({unknown.tobytes(), off.tobytes(), on.tobytes(), dim.tobytes()}) == 4
+    assert differs_from_blank(unknown)
+    assert on.getpixel((2, 2)) == (255, 160, 0)
+    r, g, b = dim.getpixel((2, 2))
+    assert 0 < r < 255 and g < 160 and b == 0
+    assert off.getpixel((2, 2)) == tiles.key_tile(None, SIZE).getpixel((2, 2))
+    assert tiles.lights_tile(LightState(True, 200, (0, 0, 0)), SIZE).getpixel((2, 2)) == off.getpixel((2, 2))
+    white = tiles.lights_tile(LightState(True, 255, (255, 255, 255)), SIZE)
+    assert any(white.getpixel((x, int(SIZE * 0.71))) != (255, 255, 255) for x in range(SIZE // 3, SIZE * 2 // 3))
+    squeezed = tiles.lights_tile(LightState(True, 255, (255, 160, 0)), SIZE, labelled=True)
+    band_top = SIZE - max(16, int(SIZE * 0.26))
+    for y in range(band_top, SIZE):
+        for x in range(0, SIZE, 7):
+            assert squeezed.getpixel((x, y)) == (255, 160, 0)
+
+
+def test_the_playing_tile_shows_the_picture_with_the_words_on_a_band():
+    """<summary>
+    With a picture the tile is the picture, cover cropped, with a dark band
+    carrying the title across the bottom; without one it is the text tile;
+    and the signature changes when the picture arrives.
+    </summary>
+    """
+    from datetime import datetime
+    from PIL import Image
+    from deckplate.config import StripTile
+    from deckplate.media import NowPlaying
+    reading = NowPlaying("Song", "Band", "Playing", "kodi", art="http://p.test/image/x")
+    art = Image.new("RGB", (40, 80), (10, 200, 10))
+    with_art = tiles.playing_tile(reading, SIZE, art=art)
+    assert with_art.size == (SIZE, SIZE)
+    assert with_art.getpixel((SIZE - 3, 3)) == (10, 200, 10)       # the picture, top right, untouched
+    band = with_art.getpixel((3, SIZE - 3))
+    assert band[1] < 200 and band != (10, 200, 10)                 # the band darkens the picture
+    without = tiles.playing_tile(reading, SIZE)
+    assert without.tobytes() != with_art.tobytes()
+    playing = StripTile("playing")
+    now = datetime(2026, 1, 1, 12, 0)
+    assert tiles.strip_signature(playing, now, None, playing=reading) \
+        != tiles.strip_signature(playing, now, None, playing=reading, playing_art_ready=True)
+    panel = tiles.strip_tile(playing, now, None, 95, "", (78, 78), None, playing=reading, playing_art=art)
+    assert panel.getpixel((47, 12)) == (10, 200, 10)
+
+
+def test_a_scrolling_caption_slides_a_long_name_and_leaves_a_short_one_still():
+    """<summary>A name that fits gives None, so the still band is used; a
+    long one gives a loop whose frames differ, every one of them carrying
+    the band and keeping the picture above it.</summary>"""
+    from PIL import Image
+    from deckplate.media import NowPlaying
+    picture = Image.new("RGB", (SIZE, SIZE), (10, 10, 200))
+    assert tiles.scrolling_label_frames(picture, "Hi") is None
+    frames, fps = tiles.scrolling_label_frames(picture, "A very long name that cannot fit on one key at all")
+    assert fps == 20 and 4 <= len(frames) <= 600
+    assert frames[0].tobytes() != frames[1].tobytes()
+    assert all(frame.getpixel((SIZE // 2, 4)) == (10, 10, 200) for frame in frames)
+    assert all(frame.getpixel((2, SIZE - 2)) != (10, 10, 200) for frame in frames)
+    assert tiles.playing_caption(NowPlaying("Song", "Band", "Playing", "x")) == "Song (Band)"
+    assert tiles.playing_caption(NowPlaying("", "", "Playing", "vlc")) == "vlc"
+
+
+def test_the_pi_hole_tile_shows_the_share_and_says_when_it_is_paused():
+    """<summary>A reading draws, a paused one differs from a blocking one and
+    from none at all, and counts come out short.</summary>"""
+    from deckplate.pihole import PiholeReading
+    on = PiholeReading(True, None, 12345, 2345, 19.0, 150000)
+    off = PiholeReading(False, 300, 12345, 2345, 19.0, 150000)
+    assert differs_from_blank(tiles.pihole_tile(on, SIZE))
+    assert tiles.pihole_tile(on, SIZE).tobytes() != tiles.pihole_tile(off, SIZE).tobytes()
+    assert tiles.pihole_tile(None, SIZE).tobytes() != tiles.pihole_tile(on, SIZE).tobytes()
+    assert tiles.pihole_tile(on, SIZE, labelled=True).tobytes() != tiles.pihole_tile(on, SIZE).tobytes()
+    assert [tiles.compact_count(n) for n in (950, 1000, 12345, 1_200_000)] == ["950", "1k", "12.3k", "1.2M"]
+
+
+def test_the_synology_tile_draws_each_view_and_reads_sizes_as_dsm_does():
+    """<summary>The three views draw and differ from each other, a nearly full
+    volume differs from a roomy one, an unknown volume and no reading both
+    say so, and byte counts and uptimes come out as DSM's pages show them.</summary>"""
+    from deckplate.synology import SynologyReading, Volume
+    reading = SynologyReading((Volume("volume_1", "normal", 8_000_000_000_000, 5_000_000_000_000),
+                               Volume("volume_2", "normal", 2_000_000_000_000, 500_000_000_000)),
+                              True, 41, 12, 45, 46, False, 300000, "DS923+")
+    space = tiles.synology_tile(reading, SIZE)
+    assert differs_from_blank(space)
+    assert space.tobytes() != tiles.synology_tile(reading, SIZE, "load").tobytes()
+    assert space.tobytes() != tiles.synology_tile(reading, SIZE, "system").tobytes()
+    assert space.tobytes() != tiles.synology_tile(reading, SIZE, "space", "volume_2").tobytes()
+    full = SynologyReading((Volume("volume_1", "normal", 1000, 950),))
+    assert tiles.synology_tile(full, SIZE).tobytes() != tiles.synology_tile(SynologyReading((Volume("volume_1", "normal", 1000, 50),)), SIZE).tobytes()
+    assert tiles.synology_tile(reading, SIZE, "space", "volume_9").tobytes() != space.tobytes()
+    assert tiles.synology_tile(None, SIZE).tobytes() != space.tobytes()
+    assert tiles.synology_tile(reading, SIZE, labelled=True).tobytes() != space.tobytes()
+    assert differs_from_blank(tiles.synology_tile(SynologyReading(()), SIZE, "load"))
+    assert [tiles.human_bytes(n) for n in (500, 1536, 512 * 1024 ** 3, 3_400_000_000_000, 150 * 1024 ** 4)] == \
+        ["500 B", "1.5 KB", "512 GB", "3.1 TB", "150 TB"]
+    assert [tiles.uptime_text(s) for s in (300000, 18600, 720)] == ["up 3 d 11 h", "up 5 h 10 m", "up 12 m"]
+    assert tiles.volume_label("volume_1") == "Volume 1"

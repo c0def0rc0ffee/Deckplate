@@ -136,6 +136,39 @@
   let capturing = null;    // hotkey capture callback while active
 
   /**
+   * <summary>What this browser remembers between visits: the panes, the sort, the search.</summary>
+   * <remarks>
+   * Conveniences for whoever sits at this window, not settings of the deck,
+   * so they live in the browser's own storage rather than in the config. Every
+   * read and write is wrapped because storage can be off or full, or throw in
+   * a private window, and the page has to work exactly the same without it.
+   * </remarks>
+   */
+  const remembered = {
+    get(key, fallback) {
+      try { const value = localStorage.getItem("deckplate." + key); return value === null ? fallback : JSON.parse(value); }
+      catch (e) { return fallback; }
+    },
+    set(key, value) {
+      try { localStorage.setItem("deckplate." + key, JSON.stringify(value)); } catch (e) { /* storage off: nothing to do */ }
+    },
+  };
+  /** <summary>Which side panes are open. The editor starts open, the pages list shut.</summary> */
+  let panes = { pages: remembered.get("pane.pages", false) === true, editor: remembered.get("pane.editor", true) !== false };
+  /** <summary>The pages list's order and filter.</summary> */
+  let pagesSort = remembered.get("pages.sort", "deck");
+  let pagesSearch = "";
+  /**
+   * <summary>When each page was last showing on the deck, by name, as ISO text.</summary>
+   * <remarks>Noted here from the daemon's page events rather than kept by the
+   * daemon, since it is only for ordering this list. The daemon's own record
+   * of a page is its "changed" stamp, which says when it was last edited.</remarks>
+   */
+  let shownAt = remembered.get("pages.shown", {}) || {};
+  /** <summary>A key to select once the daemon has switched to its page, from a click in the list.</summary> */
+  let pendingSelect = null;
+
+  /**
    * <summary>Which page is showing, clamped to one that still exists.</summary>
    * <remarks>The daemon's index can outlive the page it pointed at: deleting
    * the last page leaves it pointing past the end until the next config event
@@ -176,7 +209,7 @@
    */
   function dropEmptyKey(page, key) {
     if (!key.image && !key.label && !key.action && !key.action_long && !key.action_double
-        && !key.animation && !key.background && !key.image_active && !key.label_active) {
+        && !key.animation && !key.background && !key.image_active && !key.label_active && !key.lamp && !key.playing) {
       page.keys = page.keys.filter(k => k !== key);
     }
   }
@@ -366,9 +399,40 @@
     undoStack.push(JSON.stringify(doc));
     if (undoStack.length > UNDO_LIMIT) undoStack.shift();
     $("#undoBtn").disabled = false;
+    const before = new Map(doc.pages.map(page => [page, pageSignature(page)]));
     mutator(doc);
+    stampChanged(before);
     if (!(options && options.silent)) renderAll();
     scheduleSave();
+  }
+
+  /**
+   * <summary>A page as text, its own stamp left out, for telling whether an edit touched it.</summary>
+   * <param name="page">A page of the document.</param>
+   * <returns>JSON of everything on the page except "changed".</returns>
+   */
+  const pageSignature = page => JSON.stringify(page, (key, value) => (key === "changed" ? undefined : value));
+
+  /**
+   * <summary>Write the time on every page an edit just changed.</summary>
+   * <param name="before">Each page object as it was before the mutator ran,
+   * keyed by the object itself.</param>
+   * <remarks>
+   * Pages are compared by identity and then by content, so a page the mutator
+   * edited in place and a page it created both get the stamp, while a page
+   * that was only moved along the row of tabs does not: reordering is not an
+   * edit of the page. The stamp is what "Last edited" in the pages list sorts
+   * by, and it is saved with the page so the order survives a restart. Whole
+   * seconds in UTC, which the daemon checks as ISO 8601 and the list shows in
+   * local time.
+   * </remarks>
+   */
+  function stampChanged(before) {
+    const now = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+    for (const page of doc.pages) {
+      const was = before.get(page);
+      if (was === undefined || was !== pageSignature(page)) page.changed = now;
+    }
   }
 
   function scheduleSave() {
@@ -624,6 +688,221 @@
     change(d => { d.pages.splice(index, 1); });
   }
 
+  // ---- Moving a key between pages -------------------------------------------
+
+  /** <summary>The open right click menu, so a second one closes the first.</summary> */
+  let keyMenu = null;
+
+  /** <summary>Take the right click menu off the page, if one is up.</summary> */
+  function closeKeyMenu() {
+    if (!keyMenu) return;
+    keyMenu.node.remove();
+    document.removeEventListener("mousedown", keyMenu.onAway, true);
+    document.removeEventListener("keydown", keyMenu.onKey, true);
+    window.removeEventListener("blur", closeKeyMenu);
+    window.removeEventListener("resize", closeKeyMenu);
+    keyMenu = null;
+  }
+
+  /**
+   * <summary>Open the right click menu for a key: move it or copy it to another page.</summary>
+   * <param name="x">Pointer position across the viewport.</param>
+   * <param name="y">Pointer position down the viewport.</param>
+   * <param name="row">Row of the key.</param>
+   * <param name="column">Column of the key.</param>
+   * <remarks>
+   * Drawn by the page rather than the browser, like the dialogs, so it matches
+   * the dark page and offers only what the page can do. It is placed at the
+   * pointer, nudged back inside the viewport when it would spill out, and goes
+   * away on a click anywhere else, on Escape, on a resize, or when the window
+   * loses focus. A move needs a second page to go to, so with one page that
+   * item is disabled and says why; a copy can go to the same page.
+   * </remarks>
+   */
+  function openKeyMenu(x, y, row, column) {
+    closeKeyMenu();
+    const onlyPage = doc.pages.length < 2;
+    const item = (text, enabled, onPick, hint) => {
+      const button = el("button", { type: "button", class: "menu-item", role: "menuitem", text, title: hint || null });
+      button.disabled = !enabled;
+      button.addEventListener("click", () => { closeKeyMenu(); onPick(); });
+      return button;
+    };
+    const node = el("div", { class: "menu", role: "menu" }, [
+      item("Move to another page…", !onlyPage, () => openTransfer("move", row, column), onlyPage ? "Add another page first" : null),
+      item("Copy to a page…", true, () => openTransfer("copy", row, column)),
+    ]);
+    const onAway = e => { if (!node.contains(e.target)) closeKeyMenu(); };
+    const onKey = e => { if (e.key === "Escape") { e.preventDefault(); closeKeyMenu(); } };
+    keyMenu = { node, onAway, onKey };
+    document.addEventListener("mousedown", onAway, true);
+    document.addEventListener("keydown", onKey, true);
+    window.addEventListener("blur", closeKeyMenu);
+    window.addEventListener("resize", closeKeyMenu);
+    node.style.left = x + "px";
+    node.style.top = y + "px";
+    document.body.append(node);
+    // Only once it is in the document is its size known, so the nudge comes last.
+    const box = node.getBoundingClientRect();
+    if (box.right > window.innerWidth) node.style.left = Math.max(0, window.innerWidth - box.width - 4) + "px";
+    if (box.bottom > window.innerHeight) node.style.top = Math.max(0, window.innerHeight - box.height - 4) + "px";
+    const first = node.querySelector("button:not(:disabled)");
+    if (first) first.focus();
+  }
+
+  /**
+   * <summary>A few words saying what is on a key, for the position picker and the replace question.</summary>
+   * <param name="key">A key from the document.</param>
+   * <returns>Its label; failing that the name of its action; failing that
+   * "a picture" or, for a key with only a colour or border, "a key".</returns>
+   */
+  function keyDescription(key) {
+    if (key.label) return key.label;
+    const action = key.action || key.action_long || key.action_double;
+    if (action && ACTION_META[action.type]) return ACTION_META[action.type].label;
+    if (key.image || key.animation) return "a picture";
+    return "a key";
+  }
+
+  /**
+   * <summary>The window that moves or copies a key to a position on a page.</summary>
+   * <param name="mode">"move" or "copy".</param>
+   * <param name="row">Row of the key being moved or copied.</param>
+   * <param name="column">Its column.</param>
+   * <param name="startIndex">The page to offer first, when reopening after a
+   * cancelled replace question. Otherwise the page after this one.</param>
+   * <remarks>
+   * A page to go to and the fifteen positions on it, laid out as the deck is.
+   * A free position takes the key at once. A taken one asks first: replace what
+   * is there, or for a move swap the two keys over, which brings the other key
+   * back to the position this one left. The key's own position is outlined and
+   * focused, since a key usually wants the same place on each page.
+   *
+   * The replace question is a second dialog, and this window closes before it
+   * opens rather than stacking the two, so there is never a question of which
+   * one Escape belongs to. Cancelling the question reopens this window on the
+   * same page. The pictures cannot be shown on the picker: the daemon draws
+   * panels for the page that is showing and no other, so each position says in
+   * words what it holds.
+   * </remarks>
+   */
+  function openTransfer(mode, row, column, startIndex) {
+    const fromIndex = pageIndex();
+    const source = doc.pages[fromIndex];
+    const key = keyAt(source, row, column);
+    if (!key) return;
+    const choices = doc.pages.map((p, i) => i).filter(i => mode === "copy" || i !== fromIndex);
+    if (!choices.length) return;
+    const next = (fromIndex + 1) % doc.pages.length;
+    let toIndex = choices.includes(startIndex) ? startIndex : choices.includes(next) ? next : choices[0];
+
+    const backdrop = el("div", { class: "modal-backdrop" });
+    const box = el("div", { class: "modal", role: "dialog", "aria-modal": "true" });
+    const onKey = e => { if (e.key === "Escape") { e.preventDefault(); finish(); } };
+    const finish = () => { backdrop.remove(); document.removeEventListener("keydown", onKey, true); };
+    box.append(el("h2", { text: mode === "move" ? "Move key" : "Copy key" }));
+    box.append(el("p", { class: "muted", text: "Row " + (row + 1) + ", column " + (column + 1) + " on " + source.name + ": " + keyDescription(key) + "." }));
+
+    const pageSelect = el("select", { id: "transferPage" });
+    for (const i of choices) pageSelect.append(el("option", { value: String(i), text: doc.pages[i].name }));
+    pageSelect.value = String(toIndex);
+    box.append(el("div", { class: "field" }, [el("label", { for: "transferPage", text: "To page" }), pageSelect]));
+
+    const slots = el("div", { class: "slot-grid", role: "group", "aria-label": "Position on the page" });
+    box.append(el("div", { class: "field" }, [
+      el("label", { text: "To position" }), slots,
+      el("div", { class: "help", text: "A free position takes the key. A taken one asks whether to replace" + (mode === "move" ? " or swap" : "") + "." }),
+    ]));
+
+    const choose = async (r, c, there) => {
+      finish();
+      let how = "place";
+      if (there) {
+        const answer = await dialog({
+          title: "Row " + (r + 1) + ", column " + (c + 1) + " on " + doc.pages[toIndex].name + " is taken",
+          message: "It has " + keyDescription(there) + ". Replace it" + (mode === "move" ? ", or swap the two keys over?" : "?") + " Undo puts it back.",
+          confirmText: "Replace",
+          danger: true,
+          extra: mode === "move" ? { text: "Swap" } : null,
+        });
+        if (!answer) { openTransfer(mode, row, column, toIndex); return; }
+        how = answer === "extra" ? "swap" : "replace";
+      }
+      transferKey(mode, { page: fromIndex, row, column }, { page: toIndex, row: r, column: c }, how);
+    };
+    const fillSlots = () => {
+      slots.innerHTML = "";
+      const target = doc.pages[toIndex];
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLUMNS; c++) {
+          const there = keyAt(target, r, c);
+          const itself = toIndex === fromIndex && r === row && c === column;
+          const slot = el("button", {
+            type: "button",
+            class: "slot" + (there ? " taken" : " free") + (r === row && c === column ? " same" : ""),
+            title: "Row " + (r + 1) + ", column " + (c + 1) + (there ? ": " + keyDescription(there) : ": free"),
+          }, [el("span", { text: itself ? "this key" : there ? keyDescription(there) : "free" })]);
+          if (itself) slot.disabled = true;
+          slot.addEventListener("click", () => choose(r, c, there));
+          slots.append(slot);
+        }
+      }
+    };
+    pageSelect.addEventListener("change", () => { toIndex = parseInt(pageSelect.value, 10); fillSlots(); });
+    fillSlots();
+
+    const cancel = el("button", { type: "button", class: "ghost", text: "Cancel" });
+    cancel.addEventListener("click", finish);
+    box.append(el("div", { class: "row modal-buttons" }, [cancel]));
+    document.addEventListener("keydown", onKey, true);
+    backdrop.addEventListener("click", e => { if (e.target === backdrop) finish(); });
+    backdrop.append(box);
+    document.body.append(backdrop);
+    const same = slots.querySelector(".slot.same:not(:disabled)");
+    (same || pageSelect).focus();
+  }
+
+  /**
+   * <summary>Move or copy a key to a position on a page, as one undoable edit.</summary>
+   * <param name="mode">"move" takes the key off its page; "copy" leaves it there.</param>
+   * <param name="from">{page, row, column} of the key, the page by index.</param>
+   * <param name="to">{page, row, column} to put it at.</param>
+   * <param name="how">What becomes of a key already at ``to``: "swap" moves it
+   * to ``from`` (moves only), anything else drops it.</param>
+   * <remarks>
+   * A copy is a deep copy through JSON, so the two keys share nothing and an
+   * edit to one never reaches the other. A moved key is deselected first,
+   * because the editor would otherwise be showing the empty position it left;
+   * a copy leaves the selection alone. The page the key went to is not
+   * switched to: which page shows is the daemon's business, and the next key
+   * to deal with is usually on the page that is open.
+   * </remarks>
+   */
+  function transferKey(mode, from, to, how) {
+    if (mode === "move") deselect();
+    change(d => {
+      const source = d.pages[from.page], target = d.pages[to.page];
+      if (!source || !target) return;
+      const key = keyAt(source, from.row, from.column);
+      if (!key) return;
+      if (source === target && from.row === to.row && from.column === to.column) return;
+      const moving = mode === "move" ? key : JSON.parse(JSON.stringify(key));
+      if (mode === "move") source.keys = source.keys.filter(k => k !== key);
+      const there = keyAt(target, to.row, to.column);
+      if (there) {
+        target.keys = target.keys.filter(k => k !== there);
+        if (how === "swap" && mode === "move") {
+          there.row = from.row;
+          there.column = from.column;
+          source.keys.push(there);
+        }
+      }
+      moving.row = to.row;
+      moving.column = to.column;
+      target.keys.push(moving);
+    });
+  }
+
   /** <summary>Every grid cell by "row,column", so a redraw can reach one without a query.</summary> */
   let cells = {};
   let draggingKey = null;
@@ -657,13 +936,23 @@
         const cell = el("button", {
           class: "cell" + (isStrip ? " strip" : ""),
           type: "button",
-          title: isStrip ? "Strip panel " + (row + 1) : "Row " + (row + 1) + ", column " + (column + 1) + ". Drag to move or swap.",
+          title: isStrip ? "Strip panel " + (row + 1) : "Row " + (row + 1) + ", column " + (column + 1) + ". Drag to move or swap, right click to move or copy it to another page.",
           onclick: () => select(row, column),
         }, [picture]);
         if (isStrip) {
           cell.append(el("div", { class: "crop" }));
         } else {
           cell.draggable = true;
+          // The right button opens the menu that moves or copies the key to
+          // another page. The browser's own menu is suppressed on every key
+          // cell: on an empty one there is nothing to move, and the native
+          // menu is painted from the light desktop theme.
+          cell.addEventListener("contextmenu", e => {
+            e.preventDefault();
+            if (!keyAt(currentPage(), row, column)) return;
+            if (!selected || selected.row !== row || selected.column !== column) select(row, column);
+            openKeyMenu(e.clientX, e.clientY, row, column);
+          });
           cell.addEventListener("dragstart", e => {
             if (!keyAt(currentPage(), row, column)) { e.preventDefault(); return; }
             draggingKey = { row, column };
@@ -867,6 +1156,7 @@
     selected = same ? null : { row, column };
     applySelection();
     renderEditor();
+    markEditorAttention();
   }
 
   /** <summary>Back to nothing selected, which is where the page settings live.</summary> */
@@ -875,6 +1165,7 @@
     selected = null;
     applySelection();
     renderEditor();
+    markEditorAttention();
   }
 
   // ---- Rendering: editor ---------------------------------------------------
@@ -888,10 +1179,174 @@
   function renderAll() {
     renderHeader();
     renderTabs();
+    renderPageMenu();
     renderEditor();
     renderSettings();
     updateCropOverlay();
     fitDeck();  // the tabs can wrap to another line, which moves the deck down
+  }
+
+  // ---- The side panes and the pages list --------------------------------
+
+  /**
+   * <summary>Open or close one of the two side panes, with the slide.</summary>
+   * <param name="name">"pages" or "editor".</param>
+   * <param name="open">True to show it.</param>
+   * <remarks>
+   * Only ever on a click: nothing opens a pane by itself, which is why the
+   * editor's button carries a dot while a key is selected behind a closed
+   * editor. The state is a class on main and the stylesheet does the moving;
+   * the deck resizes to the room left through its own ResizeObserver, frame
+   * by frame as the column changes, so nothing here has to wait for the end.
+   * </remarks>
+   */
+  function setPane(name, open) {
+    panes[name] = open;
+    remembered.set("pane." + name, open);
+    document.querySelector("main").classList.toggle(name + "-closed", !open);
+    const button = $(name === "pages" ? "#pagesBtn" : "#editorBtn");
+    if (button) button.setAttribute("aria-pressed", open ? "true" : "false");
+    markEditorAttention();
+  }
+
+  /** <summary>The dot on the editor's button: a key is selected but the editor is away.</summary> */
+  function markEditorAttention() {
+    const button = $("#editorBtn");
+    if (button) button.classList.toggle("attention", !!selected && !panes.editor);
+  }
+
+  /**
+   * <summary>Note that the page the daemon is showing is showing now.</summary>
+   * <remarks>Called on the first state and on every page event, so "Last
+   * shown" in the list follows the deck whether the switch came from this
+   * page, a key, or the focused window.</remarks>
+   */
+  function noteShown() {
+    if (!state || !state.page) return;
+    shownAt[state.page] = new Date().toISOString();
+    remembered.set("pages.shown", shownAt);
+  }
+
+  /**
+   * <summary>Whether a key answers the search, by anything the list could show for it.</summary>
+   * <param name="key">A key of a page.</param>
+   * <param name="query">Lower case search text, not empty.</param>
+   * <returns>True when its labels, its description, an action's name or a page it switches to contain the text.</returns>
+   */
+  function keyMatches(key, query) {
+    const words = [key.label, key.label_active, keyDescription(key)];
+    for (const action of [key.action, key.action_long, key.action_double]) {
+      if (!action) continue;
+      if (ACTION_META[action.type]) words.push(ACTION_META[action.type].label);
+      words.push(action.type, action.page, action.url, action.command, action.keys, action.text);
+    }
+    return words.some(word => typeof word === "string" && word.toLowerCase().includes(query));
+  }
+
+  /**
+   * <summary>Text with the part that matched the search wrapped in mark.</summary>
+   * <param name="text">What to show.</param>
+   * <param name="query">Lower case search text, or empty for none.</param>
+   * <returns>Nodes to append.</returns>
+   */
+  function highlight(text, query) {
+    const at = query ? text.toLowerCase().indexOf(query) : -1;
+    if (at < 0) return [document.createTextNode(text)];
+    return [document.createTextNode(text.slice(0, at)), el("mark", { text: text.slice(at, at + query.length) }),
+            document.createTextNode(text.slice(at + query.length))];
+  }
+
+  /** <summary>An ISO stamp as a date and time for this country, or "" for none.</summary> */
+  function whenText(iso) {
+    if (!iso) return "";
+    const date = new Date(iso);
+    if (isNaN(date)) return "";
+    return date.toLocaleString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  }
+
+  /**
+   * <summary>The pages in the order the sort asks for, each with its place in the deck.</summary>
+   * <returns>Entries of page and index.</returns>
+   * <remarks>Ties, and pages with no stamp at all, fall back to deck order,
+   * so the list is stable rather than shuffling as stamps appear.</remarks>
+   */
+  function sortedPages() {
+    const entries = doc.pages.map((page, index) => ({ page, index }));
+    const stamp = (text) => text || "";
+    const orders = {
+      deck: (a, b) => a.index - b.index,
+      name: (a, b) => a.page.name.localeCompare(b.page.name, "en-GB", { sensitivity: "base" }) || a.index - b.index,
+      edited: (a, b) => stamp(b.page.changed).localeCompare(stamp(a.page.changed)) || a.index - b.index,
+      shown: (a, b) => stamp(shownAt[b.page.name]).localeCompare(stamp(shownAt[a.page.name])) || a.index - b.index,
+    };
+    return entries.sort(orders[pagesSort] || orders.deck);
+  }
+
+  /**
+   * <summary>Switch the deck to a page and then select one of its keys.</summary>
+   * <param name="pageName">The page the key is on.</param>
+   * <param name="row">The key's row.</param>
+   * <param name="column">Its column.</param>
+   * <remarks>Which page is showing is the daemon's to change, and its answer
+   * comes back as a page event, so the selection waits for that event unless
+   * the page is already the one showing.</remarks>
+   */
+  function goToKey(pageName, row, column) {
+    if (currentPage().name === pageName) {
+      selected = { row, column };
+      applySelection();
+      renderEditor();
+      markEditorAttention();
+      return;
+    }
+    pendingSelect = { page: pageName, row, column };
+    apiPost("/api/page", { page: pageName }).catch(err => { pendingSelect = null; showError(err); });
+  }
+
+  /**
+   * <summary>Rebuild the pages list from the document, the search and the sort.</summary>
+   * <remarks>
+   * With no search every page is listed and no keys are. With one, a page is
+   * listed when its name matches or when any of its keys does, and the keys
+   * that match are listed under it; a page with neither is left out. The
+   * showing page is marked whatever the order, and clicking an entry switches
+   * the deck to it through the daemon exactly as a tab does.
+   * </remarks>
+   */
+  function renderPageMenu() {
+    const menu = $("#pageMenu");
+    if (!menu || !doc) return;
+    menu.innerHTML = "";
+    const query = pagesSearch.trim().toLowerCase();
+    let shown = 0;
+    for (const { page, index } of sortedPages()) {
+      const nameHit = !query || page.name.toLowerCase().includes(query);
+      const keyHits = query ? page.keys.filter(key => keyMatches(key, query)) : [];
+      if (!nameHit && !keyHits.length) continue;
+      shown += 1;
+      const parts = [page.keys.length + (page.keys.length === 1 ? " key" : " keys")];
+      if (pagesSort === "shown" && shownAt[page.name]) parts.push("shown " + whenText(shownAt[page.name]));
+      else if (page.changed) parts.push("edited " + whenText(page.changed));
+      const entry = el("button", {
+        class: "page-entry" + (index === pageIndex() ? " active" : ""), type: "button", role: "listitem",
+        title: "Click to show, double click to rename",
+        onclick: () => apiPost("/api/page", { page: page.name }).catch(showError),
+        ondblclick: () => renamePage(index),
+      }, [el("span", {}, highlight(page.name, query)), el("span", { class: "page-meta", text: parts.join(" \u00b7 ") })]);
+      menu.append(entry);
+      if (keyHits.length) {
+        const keys = el("div", { class: "page-keys" });
+        for (const key of keyHits.sort((a, b) => a.row - b.row || a.column - b.column)) {
+          keys.append(el("button", {
+            class: "page-key", type: "button", title: "Show the page and select this key",
+            onclick: () => goToKey(page.name, key.row, key.column),
+          }, [el("span", { class: "pos", text: (key.row + 1) + "," + (key.column + 1) }),
+              el("span", {}, highlight(keyDescription(key), query))]));
+        }
+        menu.append(keys);
+      }
+    }
+    if (!shown) menu.append(el("div", { class: "empty", text: query ? "Nothing matches." : "No pages." }));
   }
 
   /**
@@ -978,6 +1433,10 @@
       "The colour behind the label, around a picture, and under an animation. Default follows the deck wide colour in Settings."));
 
     tpl.querySelector("#keyMark").append(markFields());
+    tpl.querySelector("#keyLamp").append(lampFields(key));
+    if (key.lamp) tpl.querySelector("details.lamp").open = true;
+    tpl.querySelector("#keyPlaying").append(keyPlayingFields(key));
+    if (key.playing) tpl.querySelector("details.playing-face").open = true;
 
     // The plain action and the two second actions are edited the same way and
     // differ only in which field of the key they write to.
@@ -1066,7 +1525,7 @@
       let e = d.strip[row];
       if (typeof e === "string") e = d.strip[row] = { kind: e };
       if (value) e.background = value; else delete e.background;
-      if (e.kind && !e.background) d.strip[row] = e.kind;  // back to the plain form
+      if (e.kind && !e.background && !e.source && e.art === undefined) d.strip[row] = e.kind;  // back to the plain form
     }, { silent: true });
     const kindSelect = tpl.querySelector("#stripKind");
     kindSelect.value = kind;
@@ -1098,6 +1557,11 @@
       weatherField.hidden = false;
       weatherField.append(weatherFields());
     }
+    if (kind === "playing") {
+      const sourceField = tpl.querySelector("#stripSourceField");
+      sourceField.hidden = false;
+      sourceField.append(playingSourceFields(row));
+    }
     const pictureField = tpl.querySelector("#stripPictureField");
     if (kind === "image") {
       pictureField.hidden = false;
@@ -1112,6 +1576,213 @@
       pictureField.append(el("div", { class: "help", text: "Off: the picture fills the whole panel and its edges are cut off, which suits some pictures. On: it is scaled to fit inside the part the panel shows, with a border around it." }));
     }
     editor.append(tpl);
+  }
+
+  /**
+   * <summary>Where a playing panel reads from: this machine's players, or a Kodi player.</summary>
+   * <param name="row">Which strip panel.</param>
+   * <returns>The fields.</returns>
+   * <remarks>
+   * The panel's entry in the document is a bare "playing" until a source is
+   * chosen, and becomes an object carrying source, url and token_file once a
+   * Kodi player is named; back on this machine the three are dropped and the
+   * entry folds back to the word. The daemon refuses a Kodi source with no
+   * address, so the header says not saved until one is typed, as it does for
+   * a status key.
+   * </remarks>
+   */
+  function playingSourceFields(row) {
+    const entry = typeof doc.strip[row] === "object" ? doc.strip[row] : {};
+    const source = entry.source === "kodi" ? "kodi" : "local";
+    const edit = mutate => change(d => {
+      let e = d.strip[row];
+      if (typeof e === "string") e = d.strip[row] = { kind: e };
+      mutate(e);
+      if (e.source !== "kodi") { delete e.source; delete e.url; delete e.token_file; }
+      if (e.kind && !e.background && !e.source && e.art === undefined) d.strip[row] = e.kind;
+    }, { silent: true });
+    const art = el("input", { type: "checkbox", id: "playingArt" });
+    art.checked = entry.art !== false;
+    art.addEventListener("change", () => edit(e => { if (art.checked) delete e.art; else e.art = false; }));
+    const pick = el("select", {}, [
+      el("option", { value: "local", text: "This machine's media player" }),
+      el("option", { value: "kodi", text: "A Kodi player" }),
+    ]);
+    pick.value = source;
+    const url = el("input", { type: "text", value: entry.url || "", placeholder: "http://player:8080/jsonrpc" });
+    url.addEventListener("input", () => edit(e => { e.url = url.value.trim(); }));
+    const tokenFile = el("input", { type: "text", value: entry.token_file || "", placeholder: "~/.deckplate-tokens/kodi-other" });
+    tokenFile.addEventListener("input", () => edit(e => {
+      if (tokenFile.value.trim()) e.token_file = tokenFile.value.trim(); else delete e.token_file;
+    }));
+    const kodiBox = el("div", {}, [
+      el("div", { class: "field" }, [el("label", { text: "Player address" }), url,
+        el("div", { class: "help", text: "The player's JSON RPC address, as on a kodi key for another room. Asked every few seconds on a thread of its own, so a player that is off never holds the deck up." })]),
+      el("div", { class: "field" }, [el("label", { text: "Its credentials file" }), tokenFile]),
+      credentialsFields(() => tokenFile.value.trim(), () => kodiTokenPath(url.value.trim()), path => {
+        tokenFile.value = path;
+        edit(e => { e.token_file = path; });
+      }),
+    ]);
+    kodiBox.hidden = source !== "kodi";
+    pick.addEventListener("change", () => {
+      kodiBox.hidden = pick.value !== "kodi";
+      edit(e => {
+        if (pick.value === "kodi") {
+          e.source = "kodi";
+          e.url = url.value.trim();
+          if (tokenFile.value.trim()) e.token_file = tokenFile.value.trim();
+        } else {
+          e.source = "local";
+        }
+      });
+    });
+    return el("div", {}, [
+      el("div", { class: "field" }, [el("label", { text: "Shows what is playing on" }), pick]),
+      kodiBox,
+      el("div", { class: "field" }, [el("label", { class: "check", for: "playingArt" }, [art, el("span", { text: "Show a picture of what is playing" })]),
+        el("div", { class: "help", text: "The album cover or poster the player names, with the title on a band across it. Untick for words alone." })]),
+    ]);
+  }
+
+  /**
+   * <summary>The player a key follows, to wear the picture of what it is playing.</summary>
+   * <param name="key">The key as read at build time, for the starting values.</param>
+   * <returns>The fields.</returns>
+   * <remarks>
+   * Nothing, this machine's players, or a Kodi player with its address and
+   * credentials file, as on a playing strip panel. The form is the truth, as
+   * on the lamp fold: every save rebuilds the setting from the fields, and
+   * "nothing" takes it off the key.
+   * </remarks>
+   */
+  function keyPlayingFields(key) {
+    const playing = key.playing || {};
+    const hasKodi = ["action", "action_long", "action_double"].some(field => key[field] && key[field].type === "kodi");
+    const pick = el("select", {}, [
+      el("option", { value: "", text: "Nothing" }),
+      el("option", { value: "local", text: "This machine's media player" }),
+      el("option", { value: "kodi", text: "A Kodi player" }),
+    ]);
+    if (hasKodi) pick.append(el("option", { value: "own", text: "The player this key controls" }));
+    pick.value = playing.source === "kodi" ? (playing.url || !hasKodi ? "kodi" : "own") : playing.source === "local" ? "local" : "";
+    const label = el("select", {}, [
+      el("option", { value: "none", text: "Not named" }),
+      el("option", { value: "band", text: "On a band along the bottom" }),
+      el("option", { value: "scroll", text: "Scrolling along the bottom" }),
+    ]);
+    label.value = ["band", "scroll"].includes(playing.label) ? playing.label : "none";
+    const url = el("input", { type: "text", value: playing.url || "", placeholder: "http://player:8080/jsonrpc" });
+    const tokenFile = el("input", { type: "text", value: playing.token_file || "", placeholder: "~/.deckplate-tokens/kodi-other" });
+    const save = () => change(d => {
+      const k = ensureKey(currentPage(), selected.row, selected.column);
+      if (!pick.value) { k.playing = null; dropEmptyKey(currentPage(), k); return; }
+      const next = { source: pick.value === "own" ? "kodi" : pick.value };
+      if (pick.value === "kodi") {
+        next.url = url.value.trim();
+        if (tokenFile.value.trim()) next.token_file = tokenFile.value.trim();
+      }
+      if (label.value !== "none") next.label = label.value;
+      k.playing = next;
+    }, { silent: true });
+    url.addEventListener("input", save);
+    tokenFile.addEventListener("input", save);
+    label.addEventListener("change", save);
+    const kodiBox = el("div", {}, [
+      el("div", { class: "field" }, [el("label", { text: "Player address" }), url,
+        el("div", { class: "help", text: "The player's JSON RPC address, as on a kodi key for another room." })]),
+      el("div", { class: "field" }, [el("label", { text: "Its credentials file" }), tokenFile]),
+      credentialsFields(() => tokenFile.value.trim(), () => kodiTokenPath(url.value.trim()), path => {
+        tokenFile.value = path;
+        save();
+      }),
+    ]);
+    const show = () => { kodiBox.hidden = pick.value !== "kodi"; };
+    pick.addEventListener("change", () => { show(); save(); });
+    show();
+    return el("div", {}, [
+      el("div", { class: "field" }, [el("label", { text: "Follows" }), pick,
+        el("div", { class: "help", text: "While that player has something on, the key's whole face is the cover or poster of it, with the lamp still in the corner. The rest of the time the key looks as it does now." })]),
+      kodiBox,
+      el("div", { class: "field" }, [el("label", { text: "Name of what is playing" }), label,
+        el("div", { class: "help", text: "The title, with the artist or show in brackets, over the picture. Scrolling slides it along when it is too long to fit, and sits still when it fits." })]),
+    ]);
+  }
+
+  /**
+   * <summary>A lamp of the key's own: the address it watches and how.</summary>
+   * <param name="key">The key as read at build time, for the starting values.</param>
+   * <returns>The fields.</returns>
+   * <remarks>
+   * The lamp exists while the address does: clearing the address takes the
+   * lamp off the key, which is also what makes a fresh fold harmless. Two
+   * kinds: a web address, with the status key's fields, or a WLED device,
+   * which needs only the address and hides the rest. Every
+   * edit looks the key up again through <see cref="ensureKey"/>, as the rest
+   * of the editor does. The interval is edited in seconds and stored in
+   * milliseconds, in the status key's range.
+   * </remarks>
+   */
+  function lampFields(key) {
+    const lamp = key.lamp || {};
+    const wledAtStart = lamp.kind === "wled";
+    const kind = el("select", {}, [
+      el("option", { value: "web", text: "A web address" }),
+      el("option", { value: "wled", text: "WLED lights" }),
+    ]);
+    kind.value = wledAtStart ? "wled" : "web";
+    const url = el("input", { type: "text", value: lamp.url || "" });
+    const seconds = el("input", { type: "number", min: 5, max: 3600, step: 5, value: Math.round((lamp.every_ms || (wledAtStart ? 10000 : 60000)) / 1000) });
+    const expect = el("input", { type: "text", value: lamp.expect || "", placeholder: "Leave empty for any answer" });
+    const insecure = el("input", { type: "checkbox", id: "lampInsecure" });
+    insecure.checked = !!lamp.insecure;
+    const tokenFile = el("input", { type: "text", value: lamp.token_file || "", placeholder: "~/.deckplate-tokens/kodi-other" });
+    // The form is the truth: every save rebuilds the lamp from what the
+    // fields say now, so a kind chosen before the address is typed is not
+    // lost when the address arrives.
+    const save = () => change(d => {
+      const k = ensureKey(currentPage(), selected.row, selected.column);
+      const address = url.value.trim();
+      if (!address) { k.lamp = null; dropEmptyKey(currentPage(), k); return; }
+      const next = { kind: kind.value, url: address,
+        every_ms: Math.max(5, Math.min(3600, parseInt(seconds.value, 10) || 60)) * 1000,
+        insecure: insecure.checked, expect: expect.value };
+      if (tokenFile.value.trim()) next.token_file = tokenFile.value.trim();
+      k.lamp = next;
+    }, { silent: true });
+    for (const input of [url, seconds, expect, tokenFile]) input.addEventListener("input", save);
+    insecure.addEventListener("change", save);
+    const help = el("div", { class: "help" });
+    const webBox = el("div", {}, [
+      el("div", { class: "field" }, [el("label", { text: "Text the page must contain" }), expect]),
+      el("div", { class: "field" }, [el("label", { class: "check", for: "lampInsecure" }, [insecure, el("span", { text: "Accept a certificate that does not verify" })])]),
+      el("div", { class: "field" }, [el("label", { text: "Credentials file" }), tokenFile,
+        el("div", { class: "help", text: "Sent as the Authorization header, as a kodi key sends it. Leave empty for an address that asks for none." })]),
+      credentialsFields(() => tokenFile.value.trim(), () => kodiTokenPath(url.value.trim()), path => {
+        tokenFile.value = path;
+        save();
+      }),
+    ]);
+    const show = () => {
+      const wled = kind.value === "wled";
+      webBox.hidden = wled;
+      url.placeholder = wled ? "http://lights.local/" : "http://player:8080/jsonrpc";
+      help.textContent = wled
+        ? "The WLED device's own address, as on a lights key. Green while the lights are on, red while they are off, grey while the device cannot be reached. Clear the address to take the lamp off."
+        : "Green while the address answers, red while it does not, whatever the key does when pressed. For the key that opens the Kodi page, give the player's JSON RPC address and its credentials file. Clear the address to take the lamp off.";
+    };
+    kind.addEventListener("change", () => {
+      show();
+      seconds.value = kind.value === "wled" ? 10 : 60;
+      save();
+    });
+    show();
+    return el("div", {}, [
+      el("div", { class: "field" }, [el("label", { text: "Watches" }), kind]),
+      el("div", { class: "field" }, [el("label", { text: "Address to watch" }), url, help]),
+      el("div", { class: "field" }, [el("label", { text: "Ask every (seconds)" }), seconds]),
+      webBox,
+    ]);
   }
 
   /**
@@ -1146,6 +1817,15 @@
       case "brightness": return { type, delta: -10 };
       case "sleep": return { type };
       case "multi": return { type, delay_ms: 0, steps: [{ type: "hotkey", keys: "" }] };
+      case "stay_awake": return { type, inhibit: true, nudge: true, every_ms: 60000 };
+      case "dnd": return { type };
+      case "status": return { type, url: "https://", every_ms: 60000, insecure: false, expect: "", open: true };
+      case "wled": return { type, url: "http://", do: "toggle", every_ms: 10000 };
+      case "kodi": return { type, do: "play_pause" };
+      case "pihole": return { type, url: "http://", do: "toggle", seconds: 300, every_ms: 10000, insecure: false };
+      case "synology": return { type, url: "http://", show: "space", do: "open", every_ms: 30000, insecure: false };
+      case "weather": return { type };
+      case "system": return { type };
     }
     return { type };
   }
@@ -1220,6 +1900,24 @@
       icon: '<path d="M20.5 14.8A9 9 0 019.2 3.5 9 9 0 1020.5 14.8z"/>' },
     multi: { label: "Several steps", help: "Do several of these, one after another.", nested: false,
       icon: '<path d="M4 7h16M4 12h16M4 17h10"/><circle cx="19" cy="17" r="1.6" fill="currentColor"/>' },
+    stay_awake: { label: "Stay awake", help: "Keeps the machine from going idle until pressed again.", nested: false,
+      icon: '<path d="M5 9h11v6a4 4 0 01-4 4H9a4 4 0 01-4-4V9z"/><path d="M16 11h2a2 2 0 010 4h-2M8 3v3M11 3v3M14 3v3"/>' },
+    dnd: { label: "Do not disturb", help: "Holds notifications back until pressed again.", nested: false,
+      icon: '<path d="M6 16V11a6 6 0 0110-4.5M18 11v5l2 2H4l2-2"/><path d="M10 21h4M3 3l18 18"/>' },
+    status: { label: "Watch a web address", help: "Lights the key while an address answers; the press opens it.", nested: false,
+      icon: '<circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/>' },
+    weather: { label: "Weather", help: "Shows the conditions, temperature and wind on the key; the press opens a weather site.", nested: false,
+      icon: '<path d="M7 17a4 4 0 010-8 5.5 5.5 0 0110.5 1.5A3.5 3.5 0 0117 17H7z"/><path d="M8 20h2M12 20h2M16 20h2"/>' },
+    system: { label: "The machine", help: "Shows the processor temperature, load and memory on the key; the press opens the system monitor.", nested: false,
+      icon: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/><path d="M6 13l3-4 3 2 3-5 3 4"/>' },
+    wled: { label: "Lights", help: "Shows a WLED light's state and colour on the key; the press toggles it, picks a preset or steps the brightness.", nested: false,
+      icon: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 00-3.5 10.9c.8.6 1.5 1.6 1.5 2.6h4c0-1 .7-2 1.5-2.6A6 6 0 0012 3z"/>' },
+    pihole: { label: "Pi-hole", help: "Shows today's queries and the share blocked; the press pauses blocking for a while and resumes it.", nested: false,
+      icon: '<path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/>' },
+    synology: { label: "Synology NAS", help: "Shows free space, the load or the temperature of a Synology NAS; the press opens DSM.", nested: false,
+      icon: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7.5h8M8 11.5h8M8 15.5h4"/><circle cx="16" cy="16.5" r="0.9"/>' },
+    kodi: { label: "Media centre", help: "Sends play, pause, stop or a remote control key to Kodi.",
+      icon: '<rect x="7" y="2.5" width="10" height="19" rx="3"/><path d="M12 7v4M10 9h4M12 15h.01M10 18h4"/>' },
   };
 
   /** <summary>The chooser's sections, in the order they are shown.</summary>
@@ -1228,8 +1926,9 @@
    * enough failure to be worth saying out loud here.</remarks> */
   const ACTION_GROUPS = [
     { title: "Keys and text", types: ["hotkey", "sequence", "chord", "text", "hold", "boost", "repeat"] },
-    { title: "Programs and the web", types: ["launch", "url", "request"] },
+    { title: "Programs and the web", types: ["launch", "url", "request", "status", "weather", "system", "kodi", "wled", "pihole", "synology"] },
     { title: "Sound and windows", types: ["volume", "audio_output", "window"] },
+    { title: "The desktop", types: ["stay_awake", "dnd"] },
     { title: "Keys that remember", types: ["toggle", "timer", "stopwatch", "counter"] },
     { title: "The deck", types: ["page", "brightness", "sleep", "multi"] },
   ];
@@ -1618,6 +2317,230 @@
         const timeout = el("input", { type: "number", min: 1, max: 120, value: action.timeout_s || 10 });
         timeout.addEventListener("input", () => change(d => { getAction().timeout_s = parseInt(timeout.value, 10) || 10; }, { silent: true }));
         box.append(el("div", { class: "field" }, [el("label", { text: "Give up after (seconds)" }), timeout]));
+        break;
+      }
+      case "stay_awake": {
+        const tick = (name, label, help) => {
+          const input = el("input", { type: "checkbox", id: "awake_" + name });
+          input.checked = action[name] !== false;
+          input.addEventListener("change", () => change(d => { getAction()[name] = input.checked; }, { silent: true }));
+          return el("div", { class: "field" }, [el("label", { class: "check", for: "awake_" + name }, [input, el("span", { text: label })]),
+            el("div", { class: "help", text: help })]);
+        };
+        box.append(tick("inhibit", "Ask the desktop not to go idle",
+          "The screensaver inhibit, as a caffeine program takes. Works on X11 and Wayland."));
+        box.append(tick("nudge", "Nudge the pointer on a timer",
+          "Moves the pointer one pixel and back, for programs that watch for input. Reaches X programs only under Wayland."));
+        box.append(millis("every_ms", "Nudge every", {
+          min: 1000, max: 3600000, step: 1000, fallback: 60000,
+          help: "Press the deck key once to start, again to stop. The key shows its active face while it is on.",
+        }));
+        break;
+      }
+      case "dnd": {
+        box.append(el("div", { class: "help", text: "Press once to hold notifications back, again to let them through. The key shows its active face while it is on." }));
+        break;
+      }
+      case "status": {
+        const url = el("input", { type: "text", value: action.url || "", placeholder: "https://" });
+        url.addEventListener("input", () => change(d => { getAction().url = url.value.trim(); }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { text: "Address to watch" }), url,
+          el("div", { class: "help", text: "Asked on a timer. The key shows its active face while the address answers." })]));
+        box.append(millis("every_ms", "Ask every", { min: 5000, max: 3600000, step: 5000, fallback: 60000 }));
+        const expect = el("input", { type: "text", value: action.expect || "", placeholder: "Leave empty for any answer" });
+        expect.addEventListener("input", () => change(d => { getAction().expect = expect.value; }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { text: "Text the page must contain" }), expect]));
+        const tick = (name, label, fallback, help) => {
+          const input = el("input", { type: "checkbox", id: "status_" + name });
+          input.checked = name in action ? !!action[name] : fallback;
+          input.addEventListener("change", () => change(d => { getAction()[name] = input.checked; }, { silent: true }));
+          return el("div", { class: "field" }, [el("label", { class: "check", for: "status_" + name }, [input, el("span", { text: label })]),
+            el("div", { class: "help", text: help })]);
+        };
+        box.append(tick("insecure", "Accept a certificate that does not verify", false, "For a firewall or server with its own certificate."));
+        box.append(tick("open", "Open the address when pressed", true, "Untick for a key that only shows the state."));
+        break;
+      }
+      case "wled": {
+        const url = el("input", { type: "text", value: action.url || "", placeholder: "http://lights.local/" });
+        url.addEventListener("input", () => change(d => { getAction().url = url.value.trim(); }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { text: "Device address" }), url,
+          el("div", { class: "help", text: "The WLED device's own address. The key draws its state and colour; give it no picture, or the picture wins and the active face shows on instead." })]));
+        const doings = [["toggle", "Toggle the lights"], ["on", "Turn on"], ["off", "Turn off"],
+          ["preset", "Pick a preset"], ["brighter", "Brighter"], ["dimmer", "Dimmer"]];
+        const pick = el("select");
+        for (const [value, text] of doings) pick.append(el("option", { value, text }));
+        pick.value = action.do || "toggle";
+        const preset = el("input", { type: "number", min: 1, max: 250, value: action.preset || 1 });
+        const step = el("input", { type: "number", min: 1, max: 254, value: action.step || 32 });
+        const presetField = el("div", { class: "field" }, [el("label", { text: "Preset number" }), preset,
+          el("div", { class: "help", text: "As numbered in WLED's presets page." })]);
+        const stepField = el("div", { class: "field" }, [el("label", { text: "Step" }), step,
+          el("div", { class: "help", text: "Out of 255. 32 is an eighth of the range." })]);
+        const show = () => { presetField.hidden = pick.value !== "preset"; stepField.hidden = !["brighter", "dimmer"].includes(pick.value); };
+        const apply = () => change(d => {
+          const a = getAction();
+          a.do = pick.value;
+          delete a.preset; delete a.step;
+          if (pick.value === "preset") a.preset = Math.max(1, Math.min(250, parseInt(preset.value, 10) || 1));
+          if (pick.value === "brighter" || pick.value === "dimmer") a.step = Math.max(1, Math.min(254, parseInt(step.value, 10) || 32));
+        }, { silent: true });
+        pick.addEventListener("change", () => { show(); apply(); });
+        preset.addEventListener("input", apply);
+        step.addEventListener("input", apply);
+        show();
+        box.append(el("div", { class: "field" }, [el("label", { text: "On press" }), pick]), presetField, stepField);
+        box.append(millis("every_ms", "Ask every", { min: 5000, max: 3600000, step: 5000, fallback: 10000 }));
+        break;
+      }
+      case "pihole": {
+        const url = el("input", { type: "text", value: action.url || "", placeholder: "http://pi.hole/" });
+        url.addEventListener("input", () => change(d => { getAction().url = url.value.trim(); }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { text: "Pi-hole address" }), url,
+          el("div", { class: "help", text: "The box's own address. The key draws today's figures and wears a lamp that is green while blocking is on and red while it is paused; give it no picture, or the picture wins and only the lamp shows." })]));
+        const tokenFile = el("input", { type: "text", value: action.token_file || "", placeholder: "~/.deckplate-tokens/pihole" });
+        tokenFile.addEventListener("input", () => change(d => {
+          const a = getAction();
+          if (tokenFile.value.trim()) a.token_file = tokenFile.value.trim(); else delete a.token_file;
+        }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { text: "Password file" }), tokenFile,
+          el("div", { class: "help", text: "Holds the web password, or an app password made on Pi-hole's settings page, and nothing else." })]));
+        box.append(passwordFields(() => tokenFile.value.trim(), () => "~/.deckplate-tokens/pihole", path => {
+          tokenFile.value = path;
+          change(d => { getAction().token_file = path; }, { silent: true });
+        }));
+        const pick = el("select", {}, [
+          el("option", { value: "toggle", text: "Pause blocking for a while, or resume it" }),
+          el("option", { value: "open", text: "Open the admin page" }),
+        ]);
+        pick.value = action.do || "toggle";
+        const seconds = el("input", { type: "number", min: 10, max: 86400, step: 10, value: action.seconds || 300 });
+        const secondsField = el("div", { class: "field" }, [el("label", { text: "Pause for (seconds)" }), seconds]);
+        const show = () => { secondsField.hidden = pick.value !== "toggle"; };
+        pick.addEventListener("change", () => { show(); change(d => { getAction().do = pick.value; }, { silent: true }); });
+        seconds.addEventListener("input", () => change(d => {
+          getAction().seconds = Math.max(10, Math.min(86400, parseInt(seconds.value, 10) || 300));
+        }, { silent: true }));
+        show();
+        box.append(el("div", { class: "field" }, [el("label", { text: "On press" }), pick]), secondsField);
+        const insecure = el("input", { type: "checkbox", id: "pihole_insecure" });
+        insecure.checked = !!action.insecure;
+        insecure.addEventListener("change", () => change(d => { getAction().insecure = insecure.checked; }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { class: "check", for: "pihole_insecure" }, [insecure, el("span", { text: "Accept a certificate that does not verify" })]),
+          el("div", { class: "help", text: "For a box reached over https with its own certificate." })]));
+        box.append(millis("every_ms", "Ask every", { min: 5000, max: 3600000, step: 5000, fallback: 10000 }));
+        break;
+      }
+      case "synology": {
+        const url = el("input", { type: "text", value: action.url || "", placeholder: "http://nas.local:5000/" });
+        url.addEventListener("input", () => change(d => { getAction().url = url.value.trim(); }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { text: "DSM address" }), url,
+          el("div", { class: "help", text: "The address DSM is opened at, port and all. The key draws the reading and wears a lamp that is green while every volume and disk is normal and red when DSM is reporting trouble; give it no picture, or the picture wins and only the lamp shows." })]));
+        const account = el("input", { type: "text", value: action.account || "", placeholder: "an account without two step verification", autocomplete: "off" });
+        account.addEventListener("input", () => change(d => {
+          const a = getAction();
+          if (account.value.trim()) a.account = account.value.trim(); else delete a.account;
+        }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { text: "Account" }), account,
+          el("div", { class: "help", text: "A DSM user. One with two step verification cannot sign in from a key; make a separate one for the deck if need be." })]));
+        const tokenFile = el("input", { type: "text", value: action.token_file || "", placeholder: "~/.deckplate-tokens/synology" });
+        tokenFile.addEventListener("input", () => change(d => {
+          const a = getAction();
+          if (tokenFile.value.trim()) a.token_file = tokenFile.value.trim(); else delete a.token_file;
+        }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { text: "Password file" }), tokenFile,
+          el("div", { class: "help", text: "Holds the account's password and nothing else." })]));
+        box.append(passwordFields(() => tokenFile.value.trim(), () => "~/.deckplate-tokens/synology", path => {
+          tokenFile.value = path;
+          change(d => { getAction().token_file = path; }, { silent: true });
+        }));
+        const show = el("select", {}, [
+          el("option", { value: "space", text: "Free space, with a gauge" }),
+          el("option", { value: "load", text: "Processor and memory load" }),
+          el("option", { value: "system", text: "Temperature and uptime" }),
+        ]);
+        show.value = action.show || "space";
+        const volume = el("input", { type: "text", value: action.volume || "", placeholder: "Leave empty for every volume together" });
+        const volumeField = el("div", { class: "field" }, [el("label", { text: "Volume" }), volume,
+          el("div", { class: "help", text: "DSM's name for it, such as volume_1." })]);
+        const showVolume = () => { volumeField.hidden = show.value !== "space"; };
+        show.addEventListener("change", () => { showVolume(); change(d => { getAction().show = show.value; }, { silent: true }); });
+        volume.addEventListener("input", () => change(d => {
+          const a = getAction();
+          if (volume.value.trim()) a.volume = volume.value.trim(); else delete a.volume;
+        }, { silent: true }));
+        showVolume();
+        box.append(el("div", { class: "field" }, [el("label", { text: "Shows" }), show]), volumeField);
+        const insecure = el("input", { type: "checkbox", id: "synology_insecure" });
+        insecure.checked = !!action.insecure;
+        insecure.addEventListener("change", () => change(d => { getAction().insecure = insecure.checked; }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { class: "check", for: "synology_insecure" }, [insecure, el("span", { text: "Accept a certificate that does not verify" })]),
+          el("div", { class: "help", text: "For a box reached over https with its own certificate." })]));
+        box.append(millis("every_ms", "Ask every", { min: 5000, max: 3600000, step: 5000, fallback: 30000 }));
+        box.append(el("p", { class: "muted", text: "The press opens DSM in the browser." }));
+        break;
+      }
+      case "weather": {
+        const url = el("input", { type: "text", value: action.url || "", placeholder: "Leave empty for a map site at the weather coordinates" });
+        url.addEventListener("input", () => change(d => {
+          const a = getAction();
+          if (url.value.trim()) a.url = url.value.trim(); else delete a.url;
+        }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { text: "Site to open" }), url,
+          el("div", { class: "help", text: "The key draws the reading from the weather settings below the pages. Give it no picture, or the picture wins." })]));
+        break;
+      }
+      case "system": {
+        const command = el("input", { type: "text", value: action.command || "", placeholder: "Leave empty for the first system monitor found" });
+        command.addEventListener("input", () => change(d => {
+          const a = getAction();
+          if (command.value.trim()) a.command = command.value.trim(); else delete a.command;
+        }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { text: "Program to open" }), command,
+          el("div", { class: "help", text: "The key draws the temperature, processor and memory from the machine itself. Give it no picture, or the picture wins." })]));
+        break;
+      }
+      case "kodi": {
+        const mode = el("select", {}, [
+          el("option", { value: "do", text: "A remote control action" }),
+          el("option", { value: "method", text: "A raw JSON RPC method" }),
+        ]);
+        mode.value = action.method && !action.do ? "method" : "do";
+        const shorthand = ["play_pause", "pause", "play", "stop", "next", "previous", "up", "down", "left", "right", "select",
+          "back", "home", "info", "context", "osd", "volume_up", "volume_down", "mute"];
+        const pick = el("select");
+        for (const name of shorthand) pick.append(el("option", { value: name, text: name.replace("_", " ") }));
+        pick.value = action.do || "play_pause";
+        pick.addEventListener("change", () => change(d => { const a = getAction(); a.do = pick.value; delete a.method; delete a.params; }, { silent: true }));
+        const method = el("input", { type: "text", value: action.method || "", placeholder: "Player.PlayPause" });
+        method.addEventListener("input", () => change(d => { const a = getAction(); a.method = method.value.trim(); delete a.do; }, { silent: true }));
+        const doField = el("div", { class: "field" }, [el("label", { text: "Do" }), pick]);
+        const methodField = el("div", { class: "field" }, [el("label", { text: "Method" }), method,
+          el("div", { class: "help", text: "Any method from Kodi's JSON RPC. Parameters are edited in the config file." })]);
+        const show = () => { doField.hidden = mode.value !== "do"; methodField.hidden = mode.value !== "method"; };
+        mode.addEventListener("change", () => { show(); change(d => {
+          const a = getAction();
+          if (mode.value === "do") { a.do = pick.value; delete a.method; delete a.params; } else { a.method = method.value.trim(); delete a.do; }
+        }, { silent: true }); });
+        show();
+        const url = el("input", { type: "text", value: action.url || "", placeholder: "http://player:8080/jsonrpc" });
+        url.addEventListener("input", () => change(d => {
+          const a = getAction();
+          if (url.value.trim()) a.url = url.value.trim(); else delete a.url;
+        }, { silent: true }));
+        const tokenFile = el("input", { type: "text", value: action.token_file || "", placeholder: "~/.deckplate-tokens/kodi-other" });
+        tokenFile.addEventListener("input", () => change(d => {
+          const a = getAction();
+          if (tokenFile.value.trim()) a.token_file = tokenFile.value.trim(); else delete a.token_file;
+        }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { text: "Send" }), mode]), doField, methodField);
+        box.append(el("div", { class: "field" }, [el("label", { text: "Another player" }), url,
+          el("div", { class: "help", text: "Leave empty for the Kodi in the settings below the pages. Give an address and this key talks to that player instead, with only the credentials file beside it, and wears a lamp in its corner that is green while that player answers." })]));
+        box.append(el("div", { class: "field" }, [el("label", { text: "Its credentials file" }), tokenFile]));
+        box.append(credentialsFields(() => tokenFile.value.trim(), () => kodiTokenPath(url.value.trim()), path => {
+          tokenFile.value = path;
+          change(d => { getAction().token_file = path; }, { silent: true });
+        }));
         break;
       }
       case "page": {
@@ -2287,6 +3210,89 @@
    * <param name="labelText">The field's label.</param>
    * <returns>The field element.</returns>
    */
+  /**
+   * <summary>
+   * Username and password boxes that write a credentials file through the
+   * daemon, so a Kodi key or the Kodi settings can carry the file's path and
+   * never the password.
+   * </summary>
+   * <param name="currentPath">Gives the credentials file path held now, or "".</param>
+   * <param name="defaultPath">Gives the path to write when none is held.</param>
+   * <param name="onWritten">Called with the path once the file exists, to store it.</param>
+   * <returns>The field element.</returns>
+   * <remarks>
+   * The password is sent once, to the daemon on this machine, which writes
+   * "Basic" and the base64 of user:password with owner only permissions. It is
+   * never put in the document, and the box is emptied once the file is written.
+   * </remarks>
+   */
+  function credentialsFields(currentPath, defaultPath, onWritten) {
+    const user = el("input", { type: "text", autocomplete: "off", placeholder: "username" });
+    const pass = el("input", { type: "password", autocomplete: "new-password", placeholder: "password" });
+    const write = el("button", { type: "button", class: "ghost small", text: "Write credentials file" });
+    const note = el("span", { class: "muted", text: "" });
+    write.addEventListener("click", async () => {
+      const path = currentPath() || defaultPath();
+      note.textContent = "writing";
+      try {
+        const reply = await apiPost("/api/credentials", { path, username: user.value, password: pass.value });
+        pass.value = "";
+        onWritten(reply.path);
+        note.textContent = "written to " + reply.path;
+      } catch (err) {
+        note.textContent = "not written: " + err.message;
+      }
+    });
+    return el("div", {}, [
+      el("div", { class: "field" }, [el("label", { text: "Username" }), user]),
+      el("div", { class: "field" }, [el("label", { text: "Password" }), pass]),
+      el("div", { class: "field" }, [el("div", { class: "inline" }, [write, note]),
+        el("div", { class: "help", text: "Written once, by the daemon on this machine, to the credentials file above with owner only permissions. The password is never kept in the config." })]),
+    ]);
+  }
+  /**
+   * <summary>A password box and a button that has the daemon write the password alone to a file.</summary>
+   * <param name="currentPath">Returns the path typed in the file field, or "".</param>
+   * <param name="defaultPath">Returns the path to use when none is typed.</param>
+   * <param name="onWritten">Called with the path once the file is written.</param>
+   * <returns>The fields.</returns>
+   * <remarks>The credentials writer's twin for an API that takes the bare
+   * password rather than a Basic header, which is Pi-hole's. The daemon
+   * writes the file with owner only permissions and the password is never
+   * kept in the config.</remarks>
+   */
+  function passwordFields(currentPath, defaultPath, onWritten) {
+    const pass = el("input", { type: "password", autocomplete: "new-password", placeholder: "password" });
+    const write = el("button", { type: "button", class: "ghost small", text: "Write password file" });
+    const note = el("span", { class: "muted", text: "" });
+    write.addEventListener("click", async () => {
+      const path = currentPath() || defaultPath();
+      note.textContent = "writing";
+      try {
+        const reply = await apiPost("/api/credentials", { path, password: pass.value, raw: true });
+        pass.value = "";
+        onWritten(reply.path);
+        note.textContent = "written to " + reply.path;
+      } catch (err) {
+        note.textContent = "not written: " + err.message;
+      }
+    });
+    return el("div", {}, [
+      el("div", { class: "field" }, [el("label", { text: "Password" }), pass]),
+      el("div", { class: "field" }, [el("div", { class: "inline" }, [write, note]),
+        el("div", { class: "help", text: "Written once, by the daemon on this machine, to the password file above with owner only permissions. The password is never kept in the config." })]),
+    ]);
+  }
+  /**
+   * <summary>The default credentials file for a Kodi address: one per player, under the tokens folder.</summary>
+   * <param name="url">The player's JSON RPC address, or "" for the Kodi in the settings.</param>
+   * <returns>A path under ~/.deckplate-tokens.</returns>
+   */
+  function kodiTokenPath(url) {
+    let host = "";
+    try { host = new URL(url).hostname; } catch (err) { host = ""; }
+    return "~/.deckplate-tokens/kodi" + (host ? "-" + host.replace(/[^A-Za-z0-9.]/g, "_") : "");
+  }
   const textField = (section, name, labelText) => {
     const input = el("input", { type: "text", value: doc[section][name] || "" });
     input.addEventListener("input", () => change(d => { d[section][name] = input.value; }, { silent: true }));
@@ -2345,6 +3351,16 @@
       textField("weather", "location_name", "Shown as"),
       el("div", { class: "row" }, [numberField("weather", "latitude", "Latitude", -90, 90), numberField("weather", "longitude", "Longitude", -180, 180)]),
       selectField("weather", "units", "Units", [["metric", "Celsius"], ["imperial", "Fahrenheit"]]),
+      (() => {
+        const select = el("select", {}, [
+          el("option", { value: "", text: "Follow the units above" }),
+          el("option", { value: "kmh", text: "km/h" }),
+          el("option", { value: "mph", text: "mph" }),
+        ]);
+        select.value = doc.weather.wind_units || "";
+        select.addEventListener("change", () => change(d => { d.weather.wind_units = select.value || null; }, { silent: true }));
+        return el("div", { class: "field" }, [el("label", { text: "Wind speed" }), select]);
+      })(),
       numberField("weather", "refresh_minutes", "Refresh every (minutes)", 1, 1440,
         "The weather is one setting, shared by every panel that shows it."),
     ]);
@@ -2410,6 +3426,8 @@
       el("h3", { text: "Deck" }),
       numberField("deck", "brightness", "Brightness at start", 0, 100),
       numberField("deck", "sleep_after_minutes", "Screens off after (minutes)", 0, 1440, "0 never sleeps. Any key wakes the deck."),
+      numberField("deck", "night_brightness", "Brightness after sunset", 0, 100,
+        "0 leaves the brightness alone. Otherwise the deck dims to this between sunset and sunrise at the weather coordinates."),
       selectField("deck", "official_software", "If the official app is running", [
         ["ask", "Ask in the terminal"], ["stop", "Stop it"], ["keep", "Leave it running"]]),
       colourField("Background for the whole deck",
@@ -2506,6 +3524,33 @@
     ]));
 
     // Server, read only
+    const kodiTokenField = textField("kodi", "token_file", "Credentials file");
+    root.append(el("div", {}, [
+      el("h3", { text: "Media centre" }),
+      el("p", { class: "muted", text: "Where Kodi answers, for every key that sends it a remote control action." }),
+      textField("kodi", "url", "JSON RPC address"),
+      kodiTokenField,
+      el("div", { class: "help", text: "A file outside the config folder holding \"Basic\" and the base64 of user:password, as Kodi's web interface wants. Leave empty for none, or write one from a username and password below." }),
+      credentialsFields(() => (doc.kodi.token_file || "").trim(), () => kodiTokenPath(doc.kodi.url || ""), path => {
+        kodiTokenField.querySelector("input").value = path;
+        change(d => { d.kodi.token_file = path; }, { silent: true });
+      }),
+    ]));
+
+    // The tray icon. The daemon follows the saved config, so the tick works
+    // without a restart; whether the machine can show one is the daemon's
+    // log's business.
+    root.append(el("div", {}, [
+      el("h3", { text: "Tray icon" }),
+      (() => {
+        const tray = el("input", { type: "checkbox", id: "trayEnabled" });
+        tray.checked = !doc.tray || doc.tray.enabled !== false;
+        tray.addEventListener("change", () => change(d => { d.tray = d.tray || {}; d.tray.enabled = tray.checked; }, { silent: true }));
+        return el("label", { class: "check", for: "trayEnabled" }, [tray, el("span", { text: "Show a Deckplate icon in the system tray while the daemon runs" })]);
+      })(),
+      el("p", { class: "muted", text: "The icon opens this window or quits the daemon. It needs the pystray package, and on Linux a tray to sit in; the daemon says in its log when it cannot show one." }),
+    ]));
+
     root.append(el("div", {}, [
       el("h3", { text: "Local API" }),
       el("p", { class: "muted", html: "Listening on <span class='kbd'>" + doc.server.bind + ":" + doc.server.port + "</span>. Change <span class='kbd'>[server]</span> in the config file and restart the daemon to alter it." }),
@@ -2554,9 +3599,11 @@
         case "hello":
           state = data.state;
           noteAnimated(state.animated);
+          noteShown();
           fitDeck();
           renderHeader();
           renderTabs();
+          renderPageMenu();
           refreshTiles();
           updateCropOverlay();
           break;
@@ -2570,7 +3617,15 @@
         case "page":
           state.page = data.page;
           state.page_index = data.page_index;
+          noteShown();
+          if (pendingSelect && pendingSelect.page === data.page) {
+            selected = { row: pendingSelect.row, column: pendingSelect.column };
+            pendingSelect = null;
+            applySelection();
+            markEditorAttention();
+          }
           renderTabs();
+          renderPageMenu();
           renderEditor();
           break;
         case "brightness":
@@ -2592,6 +3647,7 @@
           if (ours) {
             renderHeader();
             renderTabs();
+            renderPageMenu();
           } else {
             await loadDocument();
             renderAll();
@@ -2692,6 +3748,23 @@
     $("#undoBtn").addEventListener("click", undo);
     $("#settingsBtn").addEventListener("click", openSettings);
 
+    // The side panes come up as they were left, without being seen to slide
+    // there: "booting" holds the transitions off until the first paint is done.
+    const main = document.querySelector("main");
+    setPane("pages", panes.pages);
+    setPane("editor", panes.editor);
+    requestAnimationFrame(() => requestAnimationFrame(() => main.classList.remove("booting")));
+    $("#pagesBtn").addEventListener("click", () => setPane("pages", !panes.pages));
+    $("#editorBtn").addEventListener("click", () => setPane("editor", !panes.editor));
+    const search = $("#pagesSearch");
+    search.addEventListener("input", () => { pagesSearch = search.value; renderPageMenu(); });
+    search.addEventListener("keydown", e => { if (e.key === "Escape" && search.value) { e.preventDefault(); e.stopPropagation(); search.value = ""; pagesSearch = ""; renderPageMenu(); } });
+    const sort = $("#pagesSort");
+    sort.value = pagesSort;
+    if (sort.value !== pagesSort) { pagesSort = "deck"; sort.value = pagesSort; }
+    sort.addEventListener("change", () => { pagesSort = sort.value; remembered.set("pages.sort", pagesSort); renderPageMenu(); });
+    $("#pagesAdd").addEventListener("click", addPage);
+
     // Two more ways back to nothing selected, so the page settings and the
     // wallpaper are always one obvious move away: click the empty space around
     // the keys, or press Escape.
@@ -2726,6 +3799,7 @@
     try {
       state = await apiGet("/api/state");
       noteAnimated(state.animated);
+      noteShown();
     } catch (err) {
       setStatus("deck not connected", "bad");
     }

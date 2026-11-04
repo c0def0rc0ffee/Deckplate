@@ -2,6 +2,120 @@
 
 ## Unreleased
 
+- The README rewritten shorter: one table of every action type, the
+  page, the pages list and the chooser in fresh screenshots taken over the
+  in memory stand in with sample readings, and a home lab page drawn from
+  the same. No address in any picture is real.
+- A `synology` key for a Synology NAS: the free space of every volume, or
+  one named volume, drawn large with a gauge that turns red past nine
+  tenths full, or the processor and memory loads, or the model,
+  temperature and uptime; a lamp that is green while every volume and
+  disk is normal and red when DSM reports trouble; and a press that opens
+  DSM. Signs in to DSM's web API with an account and a password file the
+  configuration page writes, asks `SYNO.API.Info` where the APIs live
+  rather than assuming, and polls on a thread of its own.
+- The configuration page's editor slides in and out on the right, and a
+  new pages list slides in and out on the left, each from its own button
+  in the header and only when clicked; the page remembers which are open.
+  The pages list has every page with its key count and when it was last
+  edited, a search that finds pages by name and keys by label, action or
+  the page they switch to, with a click on a key taking the deck to its
+  page and selecting it, and a sort by deck order, name, last edited or
+  last shown. A page now carries a `changed` stamp, written by the page on
+  every edit of that page and checked by the daemon as a date and time,
+  which is what last edited sorts by.
+- A Deckplate icon in the system tray while the daemon runs, with Open,
+  which starts the configuration window as the desktop icon does, and
+  Quit, which stops the daemon cleanly. On by default under a new `[tray]`
+  table and turned off there or under Tray icon in Settings, which the
+  daemon follows at the next save without a restart. Needs the `pystray`
+  package, listed with `pywebview`, and on Linux a tray to sit in; without
+  either the daemon logs one line and runs as before.
+- A `pihole` key for a Pi-hole 6: today's share blocked large on the face
+  with the queries and blocked counts, a lamp that is green while blocking
+  is on and red while paused, and a press that pauses blocking for a while
+  and resumes it, or opens the admin page. The box's password lives in a
+  file alone, which the configuration page writes with `raw` on
+  `POST /api/credentials`; the session is signed in and renewed as Pi-hole
+  asks, on a thread of its own.
+- Any key may carry a `lamp`: an address it watches, with the status key's
+  `every_ms`, `insecure` and `expect` and a kodi key's `token_file`, and
+  wears the green, red or grey lamp for it whatever its action is, so the
+  page key that leads to the Kodi page shows whether the Kodi in the other
+  room is there. With `kind = "wled"` it reads a WLED device instead and
+  is green while the lights are on, red while off, grey while unreachable.
+  A fold on every key on the configuration page.
+- A `playing` strip panel can show what a Kodi player is playing:
+  `{ kind = "playing", source = "kodi", url = "...", token_file = "..." }`,
+  asked every few seconds on a thread of its own so a player that is off
+  never holds the deck up. A source choice on the panel's editor on the
+  configuration page.
+- The `playing` panel shows the album cover or poster of what is playing,
+  from the desktop player's art address or Kodi's own web server, fetched
+  on a thread of its own and kept by address, with the title on a band
+  across it. `art = false` on the panel keeps it to words, and so does a
+  tick on the configuration page.
+- Any key may follow a player with `playing`, the same source, `url` and
+  `token_file` as the panel, and wears the picture of what that player is
+  playing as its whole face while it plays something, with the lamp still
+  in the corner; it looks as it always does the rest of the time. A `kodi`
+  key may leave the `url` out and follow the player it talks to, and
+  `label = "band"` or `"scroll"` names what is playing along the bottom,
+  scrolling when it is too long to fit. A fold on every key on the
+  configuration page.
+- Right click a key on the configuration page to move it or copy it to
+  another page: a window offers the page and its fifteen positions, a
+  free one takes the key, and a taken one asks whether to replace what
+  is there or, for a move, swap the two keys over. One edit, so Undo
+  puts it all back.
+- A `wled` key for WLED lights: the lights' own colour behind a lamp, lit
+  or dark, with the brightness as a bar and a percentage, polled on a
+  timer; the press toggles them, turns them on or off, picks a preset or
+  steps the brightness, and the key follows the press at once.
+- A `kodi` key can name its own `url`, and a `token_file` beside it, for a
+  second Kodi in another room; the `[kodi]` credentials are never sent to
+  a key's own address. New `pause` and `play` shorthands, which leave the
+  player paused or playing rather than toggling it.
+- The configuration page takes a username and password for Kodi, on a key
+  or in the Kodi settings, and has the daemon write them as a `Basic`
+  credentials file under `~/.deckplate-tokens` with owner only permissions,
+  storing only the file's path. New `POST /api/credentials` behind it, which
+  refuses a relative path or one inside the config folder.
+- A `weather` key: the conditions glyph, temperature and wind speed drawn
+  on the key, redrawn as the reading changes, and a weather site opened on
+  the press, a map at the coordinates unless the key names a `url`. The
+  weather reading now carries the wind speed, in km/h or mph by the units
+  setting, or by `wind_units` in `[weather]` when that is set on its own.
+- A `system` key: the processor temperature, load and memory drawn on the
+  key as the strip's system panel draws them, and the system monitor
+  launched on the press, the first desktop monitor found unless the key
+  names a `command`.
+- Four more action types. `stay_awake` keeps the machine from going idle
+  until pressed again, through the desktop's screensaver inhibit and a
+  pointer nudge through the X test extension, either half optional. `dnd`
+  holds notifications back through the notification server's inhibit.
+  `status` watches a web address on a thread of its own and shows the
+  answer as a lamp in the key's top right corner, green, red or grey, or
+  swaps the key's whole face when it has an active picture or label, with
+  `expect`, `insecure` and `open` to tune it; the press opens the address. `kodi` sends Kodi a remote
+  control action or any JSON RPC method, with the player's address and
+  credentials file in a new `[kodi]` table. All four are on the
+  configuration page.
+- Two more strip panels: `playing`, what the desktop's media player is
+  playing, read over the session bus, and `system`, the processor
+  temperature, load and memory from the kernel's own files.
+- `night_brightness` in `[deck]`: the deck dims to it between sunset and
+  sunrise at the weather coordinates, worked out locally, and comes back to
+  `brightness` in the morning.
+- Three more icons in Desktop, Sherbet, Lagoon and Amber Console: a coffee
+  mug, a struck through bell and a remote control, for the new keys.
+- Fifteen more icons in Controls and Desktop, and so in Sherbet, Lagoon
+  and Amber Console too: a page and the next and previous page, a key
+  sequence and a held key, server, network storage, firewall, network,
+  router, VPN, cloud, database, and a film reel and a television set for
+  the movie and series libraries, and five launchers: a game controller, a
+  meeting, a file sync, an assistant and a rocket. Every icon that was
+  there before is unchanged.
 - A boost can build up first, holding its key alone for `start_ms` to
   `start_max_ms` before the first boost, and can tap a third key once in
   each off phase: `between = "tab"`, a random `between_after_ms` to

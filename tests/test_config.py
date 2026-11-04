@@ -1273,3 +1273,185 @@ action = { type = "boost", hold = "w", keys = "shift", start_ms = 5000, between 
     assert (p["start_ms"], p["start_max_ms"], p["between"], p["between_after_ms"], p["between_after_max_ms"]) == (5000, 7000, "tab", 1000, 3000)
     q = keys[(0, 1)].action.params
     assert (q["start_ms"], q["start_max_ms"], q["between_after_ms"], q["between_after_max_ms"]) == (5000, 5000, 1000, 1000)
+
+
+def test_desktop_toggles_status_and_kodi_actions_parse_with_defaults():
+    """<summary>
+    The four newer action types read their fields and default the rest, and
+    the [kodi] table and night brightness come through with the config.
+    </summary>
+    """
+    config = cfg.parse(MINIMAL + """
+[deck]
+night_brightness = 25
+
+[kodi]
+url = "http://player.test:8080/jsonrpc"
+token_file = "~/.deckplate-tokens/kodi"
+
+[[pages.keys]]
+row = 0
+column = 0
+action = { type = "stay_awake" }
+
+[[pages.keys]]
+row = 0
+column = 1
+action = { type = "stay_awake", inhibit = false, every_ms = 5000 }
+
+[[pages.keys]]
+row = 0
+column = 2
+action = { type = "dnd" }
+
+[[pages.keys]]
+row = 0
+column = 3
+action = { type = "status", url = "https://box.test/", insecure = true, expect = "ok", open = false }
+
+[[pages.keys]]
+row = 0
+column = 4
+action = { type = "kodi", do = "play_pause" }
+
+[[pages.keys]]
+row = 1
+column = 0
+action = { type = "kodi", method = "GUI.ShowNotification", params = { title = "a", message = "b" } }
+
+[[pages.keys]]
+row = 1
+column = 1
+action = { type = "kodi", do = "pause", url = "http://other.test/jsonrpc", token_file = "~/.deckplate-tokens/other" }
+
+[[pages.keys]]
+row = 1
+column = 2
+action = { type = "wled", url = "http://lamp.test/" }
+
+[[pages.keys]]
+row = 1
+column = 3
+action = { type = "wled", url = "http://lamp.test/", do = "preset", preset = 3, every_ms = 5000 }
+
+[[pages.keys]]
+row = 1
+column = 4
+action = { type = "wled", url = "http://lamp.test/", do = "dimmer" }
+""", "/base")
+    keys = config.pages[0].keys
+    assert keys[(0, 0)].action.params == {"inhibit": True, "nudge": True, "every_ms": 60000}
+    assert keys[(0, 1)].action.params == {"inhibit": False, "nudge": True, "every_ms": 5000}
+    assert keys[(0, 2)].action.params == {}
+    assert keys[(0, 3)].action.params == {"url": "https://box.test/", "every_ms": 60000, "insecure": True,
+                                          "open": False, "expect": "ok"}
+    assert keys[(0, 4)].action.params == {"do": "play_pause"}
+    assert keys[(1, 0)].action.params == {"method": "GUI.ShowNotification", "params": {"title": "a", "message": "b"}}
+    assert keys[(1, 1)].action.params == {"do": "pause", "url": "http://other.test/jsonrpc",
+                                          "token_file": "~/.deckplate-tokens/other"}
+    assert keys[(1, 2)].action.params == {"url": "http://lamp.test/", "do": "toggle", "every_ms": 10000}
+    assert keys[(1, 3)].action.params == {"url": "http://lamp.test/", "do": "preset", "preset": 3, "every_ms": 5000}
+    assert keys[(1, 4)].action.params == {"url": "http://lamp.test/", "do": "dimmer", "step": 32, "every_ms": 10000}
+    assert config.deck.night_brightness == 25
+    assert config.kodi.url == "http://player.test:8080/jsonrpc" and config.kodi.token_file == "~/.deckplate-tokens/kodi"
+    document = cfg.document_from_config(config)
+    again = cfg.parse(cfg.to_toml(document), "/base")
+    assert again == config
+
+
+@pytest.mark.parametrize("text, message", [
+    ('action = { type = "status" }', "'url'"),
+    ('action = { type = "status", url = "https://a.test/", every_ms = 10 }', "every_ms"),
+    ('action = { type = "stay_awake", nudge = "yes" }', "'nudge' must be true or false"),
+    ('action = { type = "kodi", do = "dance" }', "unknown kodi action"),
+    ('action = { type = "kodi", params = 3 }', "'params' must be a table"),
+    ('action = { type = "kodi", do = "pause", url = "player:8080" }', "'url' must start with http"),
+    ('action = { type = "wled" }', "'url'"),
+    ('action = { type = "wled", url = "http://lamp.test/", do = "disco" }', "'do' must be one of"),
+    ('action = { type = "wled", url = "http://lamp.test/", do = "preset" }', "'preset'"),
+    ('action = { type = "wled", url = "http://lamp.test/", do = "brighter", step = 0 }', "step"),
+    ('action = { type = "multi", steps = [{ type = "wled", url = "http://lamp.test/" }] }', "cannot be a step"),
+    ('action = { type = "multi", steps = [{ type = "dnd" }] }', "cannot be a step"),
+    ('action = { type = "toggle", on = { type = "status", url = "https://a.test/" } }', "cannot be a step"),
+])
+def test_bad_desktop_status_and_kodi_actions_are_reported(text, message):
+    """<summary>Each fault in the newer action types is named at load.</summary>"""
+    with pytest.raises(cfg.ConfigError, match=message):
+        cfg.parse(MINIMAL + f"\n[[pages.keys]]\nrow = 0\ncolumn = 0\n{text}\n", "/base")
+
+
+def test_the_playing_and_system_strip_kinds_parse_and_round_trip():
+    """<summary>The two newer strip kinds are accepted bare and with a background.</summary>"""
+    config = cfg.parse(MINIMAL + '\n[strip]\ntiles = ["playing", { kind = "system", background = "#102030" }, "clock"]\n', "/base")
+    assert [tile.kind for tile in config.strip] == ["playing", "system", "clock"]
+    assert config.strip[1].background == "#102030"
+    again = cfg.parse(cfg.to_toml(cfg.document_from_config(config)), "/base")
+    assert again.strip == config.strip
+    with pytest.raises(cfg.ConfigError, match="[kodi]"):
+        cfg.parse(MINIMAL + '\n[kodi]\nurl = "player.test"\n', "/base")
+
+
+def test_weather_and_system_keys_survive_the_page_round_trip_with_empty_fields():
+    """<summary>
+    The configuration page writes a weather key's ``url`` and a system key's
+    ``command`` as empty text when nothing was typed, and the parser must
+    accept that, since the page saves the whole document back.
+    </summary>
+    <remarks>Found on the page itself: a weather key saved with no site
+    refused to load with "'url' must be text", so every edit after it was
+    lost.</remarks>"""
+    config = cfg.parse(MINIMAL + """
+[[pages.keys]]
+row = 0
+column = 0
+label = "Weather"
+action = { type = "weather", url = "" }
+
+[[pages.keys]]
+row = 0
+column = 1
+action = { type = "system", command = "" }
+""", "/base")
+    keys = config.pages[0].keys
+    assert keys[(0, 0)].action.params == {"url": ""}
+    assert keys[(0, 1)].action.params == {"command": ""}
+    again = cfg.parse(cfg.to_toml(cfg.document_from_config(config)), "/base")
+    assert again.pages == config.pages
+    with pytest.raises(cfg.ConfigError, match="'url' must be text"):
+        cfg.parse(MINIMAL + '\n[[pages.keys]]\nrow = 0\ncolumn = 0\naction = { type = "weather", url = 3 }\n', "/base")
+
+
+def test_wind_units_follow_the_units_unless_set():
+    """<summary>The wind unit is kmh with metric and mph with imperial, or whatever is written.</summary>"""
+    assert cfg.parse(MINIMAL, "/base").weather.wind_unit_code == "kmh"
+    assert cfg.parse(MINIMAL + '\n[weather]\nunits = "imperial"\n', "/base").weather.wind_unit_code == "mph"
+    config = cfg.parse(MINIMAL + '\n[weather]\nunits = "metric"\nwind_units = "mph"\n', "/base")
+    assert config.weather.wind_units == "mph" and config.weather.wind_unit_code == "mph"
+    again = cfg.parse(cfg.to_toml(cfg.document_from_config(config)), "/base")
+    assert again.weather == config.weather
+    with pytest.raises(cfg.ConfigError, match="wind_units"):
+        cfg.parse(MINIMAL + '\n[weather]\nwind_units = "knots"\n', "/base")
+
+
+def test_the_tray_table_is_read_and_checked():
+    """<summary>[tray] is on by default, can be turned off, and refuses anything but true or false.</summary>"""
+    assert cfg.parse('[[pages]]\nname = "A"', Path("/base")).tray.enabled is True
+    assert cfg.parse('[tray]\nenabled = false\n[[pages]]\nname = "A"', Path("/base")).tray.enabled is False
+    with pytest.raises(cfg.ConfigError, match=r"\[tray\].*true or false"):
+        cfg.parse('[tray]\nenabled = "yes"\n[[pages]]\nname = "A"', Path("/base"))
+
+
+def test_a_page_changed_stamp_is_kept_as_written_and_checked():
+    """<summary>A page's changed stamp is optional, kept exactly, and must be a date and time.</summary>
+    <remarks>Kept as text rather than parsed, because the page sorts and
+    rewrites the stamps as text and a round trip through a datetime would
+    change the form of one written with an offset.</remarks>"""
+    text = '[[pages]]\nname = "A"\nchanged = "2026-11-03T19:31:00Z"\n[[pages]]\nname = "B"\n'
+    pages = cfg.parse(text, Path("/base")).pages
+    assert pages[0].changed == "2026-11-03T19:31:00Z" and pages[1].changed is None
+    offset = cfg.parse('[[pages]]\nname = "A"\nchanged = "2026-11-03T19:31:00+01:00"', Path("/base"))
+    assert offset.pages[0].changed == "2026-11-03T19:31:00+01:00"
+    with pytest.raises(cfg.ConfigError, match=r"\[\[pages\]\] #1: 'changed' must be an ISO 8601 date and time"):
+        cfg.parse('[[pages]]\nname = "A"\nchanged = "yesterday"', Path("/base"))
+    with pytest.raises(cfg.ConfigError):
+        cfg.parse('[[pages]]\nname = "A"\nchanged = 5', Path("/base"))

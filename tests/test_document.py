@@ -252,6 +252,7 @@ def test_document_shape():
                            "long_press_ms": cfg.LONG_PRESS_DEFAULT_MS,
                            "double_press_ms": cfg.DOUBLE_PRESS_DEFAULT_MS,
                            "follow_focus": False, "focus_poll_ms": cfg.FOCUS_POLL_DEFAULT_MS,
+                           "night_brightness": 0,
                            "key_pitch_x": None, "key_pitch_y": None}
     assert doc["server"]["port"] == 9000 and doc["server"]["token"] is None
     assert doc["weather"]["location_name"] == "St Peter Port"
@@ -445,3 +446,167 @@ def test_new_action_types_and_active_face_round_trip_through_the_document():
     back = cfg.document_from_config(c)["pages"][0]["keys"]
     assert [key["action"] for key in back] == actions
     assert all(key["image_active"] == "images/on.png" and key["label_active"] == "On" for key in back)
+
+
+def test_a_lamp_and_a_kodi_playing_panel_round_trip_through_the_document():
+    """<summary>
+    A key's lamp and a playing panel that names a Kodi player survive the
+    save loop whole, and a plain playing panel stays the bare word.
+    </summary>
+    <remarks>The lamp is the one way a key that is not a status or kodi key
+    gets the lamp, and the panel's source is the one way the strip reaches
+    another machine, so losing either would quietly turn them off.</remarks>
+    """
+    lamp = {"kind": "web", "url": "http://p.test/jsonrpc", "every_ms": 30000, "insecure": True, "expect": "", "token_file": "~/t"}
+    strip = ["clock", {"kind": "playing", "source": "kodi", "url": "http://p.test/jsonrpc", "token_file": "~/t"}, "playing"]
+    doc = {"strip": strip, "pages": [{"name": "A", "keys": [
+        {"row": 0, "column": 0, "label": "Kodi", "action": {"type": "page", "page": "A"}, "lamp": lamp}]}]}
+    c = cfg.parse(cfg.to_toml(doc), Path("/base"))
+    assert c.pages[0].keys[(0, 0)].lamp == cfg.LampSettings("http://p.test/jsonrpc", 30000, True, "", "~/t", "web")
+    wled = cfg.parse(cfg.to_toml({"pages": [{"name": "A", "keys": [
+        {"row": 0, "column": 0, "lamp": {"kind": "wled", "url": "http://lights.test/"}}]}]}), Path("/base"))
+    assert wled.pages[0].keys[(0, 0)].lamp == cfg.LampSettings("http://lights.test/", 10000, False, "", None, "wled")
+    assert cfg.document_from_config(wled)["pages"][0]["keys"][0]["lamp"]["kind"] == "wled"
+    assert c.strip[1].source == "kodi" and c.strip[1].url == "http://p.test/jsonrpc" and c.strip[1].token_file == "~/t"
+    assert c.strip[2].source == "local" and c.strip[2].url is None
+    back = cfg.document_from_config(c)
+    assert back["pages"][0]["keys"][0]["lamp"] == lamp
+    assert back["strip"] == strip
+    bare = cfg.document_from_config(cfg.parse(cfg.to_toml({"pages": [{"name": "A", "keys": [
+        {"row": 0, "column": 0, "label": "x"}]}]}), Path("/base")))
+    assert bare["pages"][0]["keys"][0]["lamp"] is None
+
+
+def test_a_bad_lamp_or_playing_source_is_refused():
+    """<summary>A lamp without an http address, a source that is not known,
+    a source on a panel that is not a playing one, and a Kodi source without
+    an address are all refused at load with the field named.</summary>"""
+    import pytest
+    page = lambda key: {"pages": [{"name": "A", "keys": [dict({"row": 0, "column": 0}, **key)]}]}
+    with pytest.raises(cfg.ConfigError, match="lamp.*http"):
+        cfg.parse(cfg.to_toml(page({"lamp": {"url": "player"}})), Path("/base"))
+    with pytest.raises(cfg.ConfigError, match="lamp.*kind"):
+        cfg.parse(cfg.to_toml(page({"lamp": {"url": "http://p.test/", "kind": "candle"}})), Path("/base"))
+    with pytest.raises(cfg.ConfigError, match="lamp.*insecure"):
+        cfg.parse(cfg.to_toml(page({"lamp": {"url": "http://p.test/", "insecure": "yes"}})), Path("/base"))
+    with pytest.raises(cfg.ConfigError, match="source"):
+        cfg.parse(cfg.to_toml({"strip": ["clock", {"kind": "playing", "source": "tape"}, "date"], "pages": []}), Path("/base"))
+    with pytest.raises(cfg.ConfigError, match="only a playing tile"):
+        cfg.parse(cfg.to_toml({"strip": ["clock", {"kind": "clock", "source": "kodi", "url": "http://p.test/"}, "date"], "pages": []}), Path("/base"))
+    with pytest.raises(cfg.ConfigError, match="url"):
+        cfg.parse(cfg.to_toml({"strip": ["clock", {"kind": "playing", "source": "kodi"}, "date"], "pages": []}), Path("/base"))
+
+
+def test_a_playing_panel_without_the_picture_round_trips_and_art_is_refused_elsewhere():
+    """<summary>``art = false`` on a playing panel survives the save loop as
+    an object, true folds back to the bare word, and the field on another
+    kind of panel is refused.</summary>"""
+    import pytest
+    strip = ["clock", {"kind": "playing", "art": False}, "playing"]
+    c = cfg.parse(cfg.to_toml({"strip": strip, "pages": [{"name": "A", "keys": []}]}), Path("/base"))
+    assert c.strip[1].art is False and c.strip[2].art is True
+    assert cfg.document_from_config(c)["strip"] == strip
+    with pytest.raises(cfg.ConfigError, match="only a playing tile takes 'art'"):
+        cfg.parse(cfg.to_toml({"strip": ["clock", {"kind": "date", "art": False}, "date"], "pages": []}), Path("/base"))
+
+
+def test_a_player_a_key_follows_round_trips_and_is_checked():
+    """<summary>A key's ``playing`` survives the save loop for both sources,
+    a key without one carries None, and a Kodi source without an address is
+    refused.</summary>"""
+    import pytest
+    keys = [{"row": 0, "column": 0, "label": "Kodi", "playing": {"source": "kodi", "url": "http://p.test/jsonrpc", "token_file": "~/t"}},
+            {"row": 0, "column": 1, "label": "Local", "playing": {"source": "local"}},
+            {"row": 0, "column": 2, "label": "Plain"}]
+    c = cfg.parse(cfg.to_toml({"pages": [{"name": "A", "keys": keys}]}), Path("/base"))
+    assert c.pages[0].keys[(0, 0)].playing == cfg.PlayingSource("kodi", "http://p.test/jsonrpc", "~/t")
+    assert c.pages[0].keys[(0, 1)].playing == cfg.PlayingSource("local")
+    assert c.pages[0].keys[(0, 2)].playing is None
+    back = cfg.document_from_config(c)["pages"][0]["keys"]
+    assert [key["playing"] for key in back] == [keys[0]["playing"], {"source": "local"}, None]
+    with pytest.raises(cfg.ConfigError, match="playing.*url"):
+        cfg.parse(cfg.to_toml({"pages": [{"name": "A", "keys": [{"row": 0, "column": 0, "playing": {"source": "kodi"}}]}]}), Path("/base"))
+    with pytest.raises(cfg.ConfigError, match="playing.*source"):
+        cfg.parse(cfg.to_toml({"pages": [{"name": "A", "keys": [{"row": 0, "column": 0, "playing": {"source": "tape"}}]}]}), Path("/base"))
+
+
+def test_a_kodi_key_may_follow_its_own_player_and_the_label_round_trips():
+    """<summary>``playing = { source = "kodi" }`` with no address is accepted
+    on a key with a kodi action and refused on one without; the label
+    survives the save loop and an unknown one is refused.</summary>"""
+    import pytest
+    page = lambda key: {"pages": [{"name": "A", "keys": [dict({"row": 0, "column": 0}, **key)]}]}
+    c = cfg.parse(cfg.to_toml(page({"action": {"type": "kodi", "do": "play_pause"}, "playing": {"source": "kodi", "label": "scroll"}})), Path("/base"))
+    assert c.pages[0].keys[(0, 0)].playing == cfg.PlayingSource("kodi", None, None, "scroll")
+    assert cfg.document_from_config(c)["pages"][0]["keys"][0]["playing"] == {"source": "kodi", "label": "scroll"}
+    with pytest.raises(cfg.ConfigError, match="kodi action"):
+        cfg.parse(cfg.to_toml(page({"label": "x", "playing": {"source": "kodi"}})), Path("/base"))
+    with pytest.raises(cfg.ConfigError, match="playing.*label"):
+        cfg.parse(cfg.to_toml(page({"playing": {"source": "local", "label": "neon"}})), Path("/base"))
+
+
+def test_a_pihole_key_round_trips_and_its_faults_are_named():
+    """<summary>The pihole action's fields survive the save loop with their
+    defaults filled in, and a bad address, doing or pause length is refused.</summary>"""
+    import pytest
+    page = lambda action: {"pages": [{"name": "A", "keys": [{"row": 0, "column": 0, "action": action}]}]}
+    c = cfg.parse(cfg.to_toml(page({"type": "pihole", "url": "http://pi.hole/", "token_file": "~/t"})), Path("/base"))
+    action = c.pages[0].keys[(0, 0)].action
+    assert action.type == "pihole"
+    assert action.params == {"url": "http://pi.hole/", "token_file": "~/t", "insecure": False, "do": "toggle", "seconds": 300, "every_ms": 10000}
+    back = cfg.document_from_config(c)["pages"][0]["keys"][0]["action"]
+    assert back == dict(action.params, type="pihole")
+    for action, message in (({"type": "pihole", "url": "pi.hole"}, "http"),
+                            ({"type": "pihole", "url": "http://pi.hole/", "do": "flush"}, "'do'"),
+                            ({"type": "pihole", "url": "http://pi.hole/", "seconds": 1}, "seconds"),
+                            ({"type": "multi", "steps": [{"type": "pihole", "url": "http://pi.hole/"}]}, "step")):
+        with pytest.raises(cfg.ConfigError, match=message):
+            cfg.parse(cfg.to_toml(page(action)), Path("/base"))
+
+
+def test_the_tray_setting_and_page_stamps_round_trip_through_the_document():
+    """<summary>The page receives [tray] and each page's changed stamp, and both come back out as TOML.</summary>
+    <remarks>The tray table is written even when it holds the default, so
+    the page always has a value for its tick; a page with no stamp gets
+    None in the document and no line in the file.</remarks>"""
+    text = ('[tray]\nenabled = false\n\n[[pages]]\nname = "Main"\nchanged = "2026-11-03T19:31:00Z"\n\n'
+            '[[pages]]\nname = "Second"\n')
+    c = cfg.parse(text, Path("/base"))
+    doc = cfg.document_from_config(c)
+    assert doc["tray"] == {"enabled": False}
+    assert doc["pages"][0]["changed"] == "2026-11-03T19:31:00Z" and doc["pages"][1]["changed"] is None
+    out = cfg.to_toml(doc)
+    assert "[tray]\nenabled = false\n" in out
+    assert 'name = "Main"\nchanged = "2026-11-03T19:31:00Z"\n' in out
+    assert out.count("changed =") == 1
+    again = cfg.parse(out, Path("/base"))
+    assert again.tray == c.tray and again.pages == c.pages
+    # The default is materialised, as every other setting the page draws a control for.
+    assert cfg.document_from_config(cfg.parse('[[pages]]\nname = "A"', Path("/base")))["tray"] == {"enabled": True}
+
+
+def test_a_synology_key_round_trips_and_its_faults_are_named():
+    """<summary>The synology action's fields survive the save loop with their
+    defaults filled in, and a bad address, a missing account, an unknown view
+    or doing, and nesting are refused.</summary>"""
+    import pytest
+    page = lambda action: {"pages": [{"name": "A", "keys": [{"row": 0, "column": 0, "action": action}]}]}
+    c = cfg.parse(cfg.to_toml(page({"type": "synology", "url": "http://nas.test:5000/", "account": "deck", "token_file": "~/t"})), Path("/base"))
+    action = c.pages[0].keys[(0, 0)].action
+    assert action.type == "synology"
+    assert action.params == {"url": "http://nas.test:5000/", "account": "deck", "token_file": "~/t", "insecure": False,
+                             "show": "space", "volume": None, "do": "open", "every_ms": 30000}
+    assert 'account = "deck"' in cfg.to_toml(cfg.document_from_config(c))
+    back = cfg.document_from_config(c)["pages"][0]["keys"][0]["action"]
+    assert back == dict(action.params, type="synology")
+    again = cfg.parse(cfg.to_toml(page(dict(back, show="load", volume="volume_1"))), Path("/base")).pages[0].keys[(0, 0)].action
+    assert again.params["show"] == "load" and again.params["volume"] == "volume_1"
+    bare = cfg.parse(cfg.to_toml(page({"type": "synology", "url": "http://nas.test:5000/"})), Path("/base"))
+    assert bare.pages[0].keys[(0, 0)].action.params["account"] is None  # still being set up on the page
+    assert "account" not in cfg.to_toml(cfg.document_from_config(bare))
+    for action, message in (({"type": "synology", "url": "nas.test", "account": "deck"}, "http"),
+                            ({"type": "synology", "url": "http://nas.test:5000/", "account": "deck", "show": "films"}, "'show'"),
+                            ({"type": "synology", "url": "http://nas.test:5000/", "account": "deck", "do": "reboot"}, "'do'"),
+                            ({"type": "multi", "steps": [{"type": "synology", "url": "http://nas.test:5000/", "account": "deck"}]}, "step")):
+        with pytest.raises(cfg.ConfigError, match=message):
+            cfg.parse(cfg.to_toml(page(action)), Path("/base"))

@@ -1022,7 +1022,7 @@ def test_hardware_strip_render_keeps_the_visible_window_unchanged(setup):
     seen = []
     original = tiles_module.strip_tile
 
-    def record(tile, now, observation, size, location, visible=None, default_background=None):
+    def record(tile, now, observation, size, location, visible=None, default_background=None, **readings):
         """
         <summary>
         Note the size and visibility asked for, then pass the call on to the real renderer.
@@ -1037,7 +1037,7 @@ def test_hardware_strip_render_keeps_the_visible_window_unchanged(setup):
         <returns>The real renderer's result.</returns>
         """
         seen.append((size, visible))
-        return original(tile, now, observation, size, location, visible, default_background)
+        return original(tile, now, observation, size, location, visible, default_background, **readings)
 
     tiles_module.strip_tile = record
     try:
@@ -2133,3 +2133,705 @@ def test_a_reopened_deck_is_initialised_and_redrawn(setup):
     assert deck.calls.count(("init",)) == 1
     assert deck.calls.index(("init",)) < deck.calls.index(deck.tiles()[0])
     assert len({c[1:3] for c in deck.tiles()}) == 18
+
+
+def test_status_keys_are_watched_and_light_when_their_address_answers(setup):
+    """<summary>
+    A status key's address is handed to the monitor at reload, the key draws
+    its active face once the monitor says it is up, and pressing it opens
+    the address.
+    </summary>
+    """
+    from deckplate.status import StatusMonitor, Watch
+    controller, deck, clock, urls, path = setup
+    answers = {}
+    monitor = StatusMonitor(prober=lambda w: answers[w.url], monotonic=lambda: clock.mono, log=lambda t: None,
+                            threaded=False)
+    controller.status = monitor
+    status_config = cfg.parse(TEXT + """
+[[pages.keys]]
+row = 0
+column = 1
+label = "Box"
+label_active = "Box up"
+action = { type = "status", url = "http://box.test/", every_ms = 5000 }
+""", path.parent, path)
+    controller.reload(status_config)
+    controller.switch_page("Second")
+    assert monitor.ok("http://box.test/") is None
+    active, _face = controller._key_face(controller.page.keys[(0, 1)], (0, 1), set(), controller.page)
+    assert active is False
+    answers["http://box.test/"] = True
+    monitor.poll_once()
+    active, _face = controller._key_face(controller.page.keys[(0, 1)], (0, 1), set(), controller.page)
+    assert active is True
+    controller.handle_event(KeyEvent(10, True))
+    assert urls == ["http://box.test/"]
+    # With an active label the key swaps its face and wears no lamp.
+    assert controller._key_dot(controller.page.keys[(0, 1)]) is None
+    controller.reload(cfg.parse(TEXT, path.parent, path))
+    assert monitor.ok("http://box.test/") is None
+
+
+def test_a_status_key_without_an_active_face_wears_the_lamp(setup):
+    """<summary>
+    A status key with no active picture or label shows a grey lamp before
+    the first answer, green once up and red once down, drawn in the key's
+    top right corner, and the lamp is part of what decides a redraw.
+    </summary>
+    """
+    from deckplate import tiles as tiles_module
+    from deckplate.status import StatusMonitor
+    controller, deck, clock, urls, path = setup
+    answers = {"http://box.test/": True}
+    monitor = StatusMonitor(prober=lambda w: answers[w.url], monotonic=lambda: clock.mono, log=lambda t: None,
+                            threaded=False)
+    controller.status = monitor
+    controller.reload(cfg.parse(TEXT + """
+[[pages.keys]]
+row = 0
+column = 1
+label = "Box"
+action = { type = "status", url = "http://box.test/" }
+""", path.parent, path))
+    controller.switch_page("Second")
+    key = controller.page.keys[(0, 1)]
+    assert controller._key_dot(key) == tiles_module.DOT_UNKNOWN
+    monitor.poll_once()
+    assert controller._key_dot(key) == tiles_module.DOT_UP
+    size = controller.deck.image_size
+    image, frames, _fps = controller._draw_key(0, 1, size, set())
+    cx, cy = size - round(size * tiles_module.DOT_INSET), round(size * tiles_module.DOT_INSET)
+    assert image.getpixel((cx, cy)) == tiles_module.DOT_UP and frames is None
+    before = controller._face_signature(0, 1, set())
+    answers["http://box.test/"] = False
+    clock.advance(61)
+    monitor.poll_once()
+    assert controller._key_dot(key) == tiles_module.DOT_DOWN
+    assert controller._face_signature(0, 1, set()) != before
+
+
+def test_a_kodi_key_with_its_own_player_is_watched_and_wears_the_lamp(setup):
+    """<summary>
+    A kodi key that names its own player is handed to the status monitor
+    with its credentials file, draws the lamp from the answer, and keeps
+    the lamp even with an active picture; a kodi key for the local player
+    is neither watched nor lamped, which is how the two are told apart.
+    </summary>
+    """
+    from deckplate import tiles as tiles_module
+    from deckplate.status import StatusMonitor
+    controller, deck, clock, urls, path = setup
+    answers = {"http://player.test/jsonrpc": True}
+    watched = []
+
+    def prober(watch):
+        watched.append((watch.url, watch.token_file))
+        return answers[watch.url]
+
+    monitor = StatusMonitor(prober=prober, monotonic=lambda: clock.mono, log=lambda t: None, threaded=False)
+    controller.status = monitor
+    controller.reload(cfg.parse(TEXT + """
+[[pages.keys]]
+row = 0
+column = 1
+label = "Remote"
+label_active = "Remote lit"
+action = { type = "kodi", do = "play_pause", url = "http://player.test/jsonrpc", token_file = "~/tokens/kodi-other" }
+
+[[pages.keys]]
+row = 0
+column = 2
+label = "Local"
+action = { type = "kodi", do = "play_pause" }
+""", path.parent, path))
+    controller.switch_page("Second")
+    remote = controller.page.keys[(0, 1)]
+    local = controller.page.keys[(0, 2)]
+    assert controller._key_dot(remote) == tiles_module.DOT_UNKNOWN
+    assert controller._key_dot(local) is None
+    monitor.poll_once()
+    assert watched == [("http://player.test/jsonrpc", "~/tokens/kodi-other")]
+    assert controller._key_dot(remote) == tiles_module.DOT_UP
+    assert controller._key_dot(local) is None
+    size = controller.deck.image_size
+    image, _frames, _fps = controller._draw_key(0, 1, size, set())
+    cx, cy = size - round(size * tiles_module.DOT_INSET), round(size * tiles_module.DOT_INSET)
+    assert image.getpixel((cx, cy)) == tiles_module.DOT_UP
+    answers["http://player.test/jsonrpc"] = False
+    clock.advance(61)
+    monitor.poll_once()
+    assert controller._key_dot(remote) == tiles_module.DOT_DOWN
+    controller.reload(cfg.parse(TEXT, path.parent, path))
+    assert monitor.ok("http://player.test/jsonrpc") is None
+
+
+def test_night_brightness_dims_after_sunset_and_restores_at_sunrise(setup, monkeypatch):
+    """<summary>
+    With a night brightness set the deck dims when the sun goes down and
+    comes back to the configured level when it rises, checked once a minute
+    and sent only on the change.
+    </summary>
+    """
+    from deckplate import controller as controller_module
+    controller, deck, clock, urls, path = setup
+    night = {"on": False}
+    monkeypatch.setattr(controller_module.sun, "is_night", lambda lat, lon, now: night["on"])
+    text = TEXT.replace("brightness = 70", "brightness = 70\nnight_brightness = 20")
+    text = text.replace("sleep_after_minutes = 1", "sleep_after_minutes = 0")  # the check only runs awake
+    controller.reload(cfg.parse(text, path.parent, path))
+    controller.start()
+    deck.reset()
+    controller.tick()
+    assert controller.brightness == 70
+    night["on"] = True
+    controller.tick()  # within the minute: not checked again
+    assert controller.brightness != 20
+    clock.advance(61)
+    controller.tick()
+    assert controller.brightness == 20
+    assert ("brightness", 20) in deck.calls
+    clock.advance(61)
+    controller.tick()
+    assert controller.brightness == 20  # no change, nothing resent
+    night["on"] = False
+    clock.advance(61)
+    controller.tick()
+    assert controller.brightness == controller.config.deck.brightness
+
+
+def test_a_weather_key_draws_the_reading_and_opens_the_site(setup):
+    """<summary>
+    A weather key with no picture draws the reading on its face, is
+    redrawn when the reading changes, and opens the map site at the
+    coordinates when pressed, or its own url when it names one.
+    </summary>
+    """
+    from deckplate import actions as actions_module
+    controller, deck, clock, urls, path = setup
+    controller.reload(cfg.parse(TEXT + """
+[[pages.keys]]
+row = 0
+column = 1
+label = "Weather"
+action = { type = "weather" }
+
+[[pages.keys]]
+row = 0
+column = 2
+action = { type = "weather", url = "https://weather.test/" }
+""", path.parent, path))
+    controller.switch_page("Second")
+    key = controller.page.keys[(0, 1)]
+    assert controller._key_weather(key) == controller.weather.observation
+    before = controller._face_signature(0, 1, set())
+    image, frames, _fps = controller._draw_key(0, 1, controller.deck.image_size, set())
+    assert frames is None
+    controller.weather.observation = Observation(25, 0, "Clear", "sun", "°C", wind_speed=30)
+    assert controller._face_signature(0, 1, set()) != before
+    controller.handle_event(KeyEvent(10, True))
+    assert urls == [actions_module.weather_site(controller.config.weather)]
+    controller.handle_event(KeyEvent(7, True))  # key 7 is row 0 column 2
+    assert urls[-1] == "https://weather.test/"
+
+
+def test_a_system_key_draws_the_machine_and_opens_the_monitor(setup, monkeypatch):
+    """<summary>
+    A system key with no picture draws the machine reading, keeps the
+    reader refreshing while it is on the page, is redrawn when the reading
+    changes, and launches its command, or the first monitor found, on the press.
+    </summary>
+    """
+    from deckplate import actions as actions_module
+    from deckplate.system import SystemReading
+    controller, deck, clock, urls, path = setup
+    launched = []
+    controller.runner.launch = launched.append
+    controller.reload(cfg.parse(TEXT + """
+[[pages.keys]]
+row = 0
+column = 1
+label = "Machine"
+action = { type = "system" }
+
+[[pages.keys]]
+row = 0
+column = 2
+action = { type = "system", command = "htop" }
+""", path.parent, path))
+    controller.switch_page("Second")
+    key = controller.page.keys[(0, 1)]
+    readings = iter([SystemReading(10, 20, 40), SystemReading(50, 20, 41)])
+    controller.system.read = lambda: next(readings)
+    controller.system._next_due = 0.0
+    controller.tick()
+    assert controller._key_system(key) == SystemReading(10, 20, 40)
+    before = controller._face_signature(0, 1, set())
+    image, frames, _fps = controller._draw_key(0, 1, controller.deck.image_size, set())
+    assert frames is None
+    clock.advance(3)
+    controller.tick()
+    assert controller._face_signature(0, 1, set()) != before
+    monkeypatch.setattr(actions_module, "default_monitor", lambda: "fake-monitor")
+    controller.handle_event(KeyEvent(10, True))
+    controller.handle_event(KeyEvent(7, True))
+    assert launched == ["fake-monitor", "htop"]
+
+
+def test_a_wled_key_draws_the_lights_lights_when_on_and_follows_the_press(setup):
+    """<summary>
+    A wled key's device is handed to the lights monitor at reload, the key
+    draws the lights' state with no picture, counts as active while they
+    are on, and a press posts the change whose reply redraws the key.
+    </summary>
+    """
+    from deckplate.lights import LightState, LightsMonitor
+    controller, deck, clock, urls, path = setup
+    answers = {"http://lamp.test/": LightState(True, 128, (255, 160, 0))}
+    monitor = LightsMonitor(prober=lambda url: answers[url], monotonic=lambda: clock.mono, log=lambda t: None,
+                            threaded=False)
+    controller.lights = monitor
+    controller.runner.lights = monitor
+    sent = []
+    controller.runner.send_json = lambda url, headers, body, timeout: sent.append((url, body)) or {
+        "on": False, "bri": 128, "seg": [{"col": [[255, 160, 0]]}]}
+    controller.reload(cfg.parse(TEXT + """
+[[pages.keys]]
+row = 0
+column = 1
+label = "Lounge"
+action = { type = "wled", url = "http://lamp.test/", every_ms = 5000 }
+""", path.parent, path))
+    controller.switch_page("Second")
+    key = controller.page.keys[(0, 1)]
+    assert controller._key_lights(key) is None
+    monitor.poll_once()
+    assert controller._key_lights(key) == LightState(True, 128, (255, 160, 0))
+    active, _face = controller._key_face(key, (0, 1), set(), controller.page)
+    assert active is True
+    before = controller._face_signature(0, 1, set())
+    image, frames, _fps = controller._draw_key(0, 1, controller.deck.image_size, set())
+    assert frames is None and image.getpixel((2, 2)) != controller._draw_key(0, 2, controller.deck.image_size, set())[0].getpixel((2, 2))
+    controller.handle_event(KeyEvent(10, True))
+    assert sent == [("http://lamp.test/json/state", {"v": True, "on": "t"})]
+    assert controller._face_signature(0, 1, set()) != before
+    active, _face = controller._key_face(key, (0, 1), set(), controller.page)
+    assert active is False
+    controller.reload(cfg.parse(TEXT, path.parent, path))
+    assert monitor.state("http://lamp.test/") is None
+
+
+def test_a_key_with_its_own_lamp_is_watched_and_wears_it(setup):
+    """<summary>
+    A page key carrying a lamp is handed to the status monitor with the
+    lamp's interval and credentials file, wears the lamp from the answer,
+    and keeps it over the one its action would bring.
+    </summary>
+    """
+    from deckplate import tiles as tiles_module
+    from deckplate.status import StatusMonitor
+    controller, deck, clock, urls, path = setup
+    answers = {"http://p.test/jsonrpc": True}
+    watched = []
+
+    def prober(watch):
+        watched.append((watch.url, watch.every_ms, watch.token_file))
+        return answers[watch.url]
+
+    monitor = StatusMonitor(prober=prober, monotonic=lambda: clock.mono, log=lambda t: None, threaded=False)
+    controller.status = monitor
+    controller.reload(cfg.parse(TEXT + """
+[[pages.keys]]
+row = 0
+column = 1
+label = "Kodi"
+action = { type = "page", page = "Main" }
+lamp = { url = "http://p.test/jsonrpc", every_ms = 30000, token_file = "~/tokens/kodi-other" }
+""", path.parent, path))
+    controller.switch_page("Second")
+    key = controller.page.keys[(0, 1)]
+    assert controller._key_dot(key) == tiles_module.DOT_UNKNOWN
+    monitor.poll_once()
+    assert watched == [("http://p.test/jsonrpc", 30000, "~/tokens/kodi-other")]
+    assert controller._key_dot(key) == tiles_module.DOT_UP
+    size = controller.deck.image_size
+    image, _frames, _fps = controller._draw_key(0, 1, size, set())
+    cx, cy = size - round(size * tiles_module.DOT_INSET), round(size * tiles_module.DOT_INSET)
+    assert image.getpixel((cx, cy)) == tiles_module.DOT_UP
+    answers["http://p.test/jsonrpc"] = False
+    clock.advance(31)
+    monitor.poll_once()
+    assert controller._key_dot(key) == tiles_module.DOT_DOWN
+
+
+def test_a_playing_panel_can_read_a_kodi_player_through_its_monitor(setup):
+    """<summary>
+    A playing panel that names a Kodi player is handed to the Kodi playing
+    monitor with its credentials file, draws that monitor's reading rather
+    than the desktop's, and the panel's signature follows the reading; the
+    probe behind the monitor goes through the runner's own sender.
+    </summary>
+    """
+    from deckplate import media as media_module
+    controller, deck, clock, urls, path = setup
+    track = media_module.NowPlaying("Song", "Band", "Playing", "kodi")
+    watched = []
+
+    def prober(url, token_file):
+        watched.append((url, token_file))
+        return track
+
+    monitor = media_module.KodiPlayingMonitor(prober=prober, monotonic=lambda: clock.mono, log=lambda t: None, threaded=False)
+    controller.kodi_media = monitor
+    controller.media.reading = media_module.NowPlaying("Local", "Desk", "Playing", "vlc")
+    controller.reload(cfg.parse(TEXT + """
+[strip]
+tiles = ["clock", { kind = "playing", source = "kodi", url = "http://p.test/jsonrpc", token_file = "~/t" }, "playing"]
+""", path.parent, path))
+    kodi_tile, local_tile = controller.config.strip[1], controller.config.strip[2]
+    assert controller._playing_reading(kodi_tile) is None
+    assert controller._playing_reading(local_tile) == controller.media.reading
+    before = controller._draw_strip(1, controller.deck.image_size)[0]
+    monitor.poll_once()
+    assert watched == [("http://p.test/jsonrpc", "~/t")]
+    assert controller._playing_reading(kodi_tile) == track
+    after = controller._draw_strip(1, controller.deck.image_size)[0]
+    assert before.tobytes() != after.tobytes()
+    sent = []
+    replies = iter([{"result": [{"playerid": 0, "type": "audio"}]},
+                    {"result": {"item": {"title": "Other", "artist": ["B"]}}}, {"result": {"speed": 0}}])
+    controller.runner.send_json = lambda url, headers, body, timeout: sent.append((url, headers, timeout)) or next(replies)
+    controller.runner.read_token = lambda p: "Basic xyz"
+    reading = controller._probe_kodi_playing("http://p.test/jsonrpc", "~/t")
+    assert reading == media_module.NowPlaying("Other", "B", "Paused", "kodi")
+    assert sent[0] == ("http://p.test/jsonrpc", {"Authorization": "Basic xyz"}, controller.config.kodi.timeout_s)
+    controller.reload(cfg.parse(TEXT, path.parent, path))
+    assert monitor.reading("http://p.test/jsonrpc") is None
+
+
+def test_a_wled_lamp_reads_the_lights_monitor_and_is_green_while_the_lights_are_on(setup):
+    """<summary>
+    A lamp of kind wled is handed to the lights monitor rather than the
+    status monitor, on the wled key's interval, and the dot is green while
+    the lights are on, red while they are off and grey while the device
+    cannot be reached.
+    </summary>
+    """
+    from deckplate import tiles as tiles_module
+    from deckplate.lights import LightState, LightsMonitor
+    from deckplate.status import StatusMonitor
+    controller, deck, clock, urls, path = setup
+    answers = {"http://lights.test/": LightState(True, 200, (255, 160, 0))}
+    asked = []
+
+    def prober(url):
+        asked.append(url)
+        if url not in answers:
+            raise ConnectionError("refused")
+        return answers[url]
+
+    lights = LightsMonitor(prober=prober, monotonic=lambda: clock.mono, log=lambda t: None, threaded=False)
+    status_watched = []
+    status = StatusMonitor(prober=lambda w: status_watched.append(w.url) or True, monotonic=lambda: clock.mono,
+                           log=lambda t: None, threaded=False)
+    controller.lights = lights
+    controller.status = status
+    controller.reload(cfg.parse(TEXT + """
+[[pages.keys]]
+row = 0
+column = 1
+label = "Lights"
+lamp = { kind = "wled", url = "http://lights.test/" }
+""", path.parent, path))
+    controller.switch_page("Second")
+    key = controller.page.keys[(0, 1)]
+    assert key.lamp.kind == "wled" and key.lamp.every_ms == 10_000
+    assert controller._key_dot(key) == tiles_module.DOT_UNKNOWN
+    lights.poll_once()
+    status.poll_once()
+    assert asked == ["http://lights.test/"] and status_watched == []
+    assert controller._key_dot(key) == tiles_module.DOT_UP
+    answers["http://lights.test/"] = LightState(False, 200, (255, 160, 0))
+    clock.advance(11)
+    lights.poll_once()
+    assert controller._key_dot(key) == tiles_module.DOT_DOWN
+    del answers["http://lights.test/"]
+    clock.advance(11)
+    lights.poll_once()
+    assert controller._key_dot(key) == tiles_module.DOT_UNKNOWN
+
+
+def test_a_playing_panel_draws_the_picture_once_the_cache_has_it(setup):
+    """<summary>
+    A panel asks the art cache for the reading's picture and draws words
+    until it arrives; the signature changes when it does, so the panel is
+    sent again; a panel with the picture off never asks.
+    </summary>
+    """
+    from PIL import Image
+    from deckplate import media as media_module
+    controller, deck, clock, urls, path = setup
+    fetched = []
+
+    def fetcher(url, token_file):
+        fetched.append((url, token_file))
+        return Image.new("RGB", (30, 30), (200, 20, 20))
+
+    controller.art = media_module.ArtCache(fetcher=fetcher, monotonic=lambda: clock.mono, log=lambda t: None, threaded=False)
+    controller.media.reading = media_module.NowPlaying("Song", "Band", "Playing", "vlc", art="file:///tmp/c.jpg")
+    controller.reload(cfg.parse(TEXT + """
+[strip]
+tiles = ["clock", "playing", { kind = "playing", art = false }]
+""", path.parent, path))
+    on, off = controller.config.strip[1], controller.config.strip[2]
+    assert controller._playing_art(on) is None and controller._playing_art(off) is None
+    before = controller._draw_strip(1, controller.deck.image_size)[0]
+    assert controller.art.fetch_once() is True
+    assert fetched == [("file:///tmp/c.jpg", None)]
+    assert controller._playing_art(on) is not None and controller._playing_art(off) is None
+    after = controller._draw_strip(1, controller.deck.image_size)[0]
+    assert before.tobytes() != after.tobytes()
+    assert after.getpixel((controller.deck.image_size // 2, 12)) == (200, 20, 20)
+    assert controller._draw_strip(2, controller.deck.image_size)[0].getpixel((controller.deck.image_size // 2, 12)) != (200, 20, 20)
+
+
+def test_a_key_following_a_player_wears_its_picture_while_it_plays(setup):
+    """<summary>
+    A key that follows a Kodi player is handed to the Kodi playing monitor,
+    draws its ordinary face while nothing plays or the picture has not
+    arrived, draws the picture as its whole face once it has, keeps the
+    lamp on top, and goes back to its own face when the player stops.
+    </summary>
+    """
+    from PIL import Image
+    from deckplate import media as media_module
+    from deckplate import tiles as tiles_module
+    from deckplate.status import StatusMonitor
+    controller, deck, clock, urls, path = setup
+    track = {"value": media_module.NowPlaying("Film", "", "Playing", "kodi", art="http://p.test/image/x", art_token_file="~/t")}
+    watched = []
+    monitor = media_module.KodiPlayingMonitor(prober=lambda url, token_file: watched.append((url, token_file)) or track["value"],
+                                              monotonic=lambda: clock.mono, log=lambda t: None, threaded=False)
+    fetched = []
+    cache = media_module.ArtCache(fetcher=lambda url, token_file: fetched.append((url, token_file)) or Image.new("RGB", (20, 30), (0, 0, 250)),
+                                  monotonic=lambda: clock.mono, log=lambda t: None, threaded=False)
+    status = StatusMonitor(prober=lambda w: True, monotonic=lambda: clock.mono, log=lambda t: None, threaded=False)
+    controller.kodi_media = monitor
+    controller.art = cache
+    controller.status = status
+    controller.reload(cfg.parse(TEXT + """
+[[pages.keys]]
+row = 0
+column = 1
+label = "Kodi"
+action = { type = "page", page = "Main" }
+lamp = { url = "http://p.test/jsonrpc", token_file = "~/t" }
+playing = { source = "kodi", url = "http://p.test/jsonrpc", token_file = "~/t" }
+""", path.parent, path))
+    controller.switch_page("Second")
+    key = controller.page.keys[(0, 1)]
+    size = controller.deck.image_size
+    plain = controller._draw_key(0, 1, size, set())[0]
+    assert controller._key_playing_signature(key) == (None, False)
+    monitor.poll_once()
+    assert watched == [("http://p.test/jsonrpc", "~/t")]
+    assert controller._key_playing_signature(key) == (track["value"], False)
+    assert controller._draw_key(0, 1, size, set())[0].tobytes() == plain.tobytes()  # words until the picture lands
+    cache.fetch_once()
+    assert fetched == [("http://p.test/image/x", "~/t")]
+    assert controller._key_playing_signature(key) == (track["value"], True)
+    status.poll_once()
+    image = controller._draw_key(0, 1, size, set())[0]
+    assert image.getpixel((size // 2, size // 2)) == (0, 0, 250)
+    cx, cy = size - round(size * tiles_module.DOT_INSET), round(size * tiles_module.DOT_INSET)
+    assert image.getpixel((cx, cy)) == tiles_module.DOT_UP
+    track["value"] = None
+    clock.advance(4)
+    monitor.poll_once()
+    assert controller._key_playing_signature(key) == (None, False)
+    assert controller._draw_key(0, 1, size, set())[0].getpixel((size // 2, size // 2)) != (0, 0, 250)
+
+
+def test_a_kodi_key_follows_its_own_player_and_scrolls_the_name_along_the_bottom(setup):
+    """<summary>
+    A play key with ``playing = { source = "kodi" }`` follows the player its
+    action talks to, the [kodi] one for a plain key and its own address for
+    a remote one, both watched; with a scrolling label a long name comes
+    out as frames over the picture, a short one as a still captioned band.
+    </summary>
+    """
+    from PIL import Image
+    from deckplate import media as media_module
+    controller, deck, clock, urls, path = setup
+    readings = {
+        "http://shared.test/jsonrpc": media_module.NowPlaying("A Very Long Film Title Indeed", "Someone", "Playing", "kodi", art="http://shared.test/image/a"),
+        "http://other.test/jsonrpc": media_module.NowPlaying("Hi", "", "Playing", "kodi", art="http://other.test/image/b", art_token_file="~/o"),
+    }
+    watched = []
+    monitor = media_module.KodiPlayingMonitor(prober=lambda url, token_file: watched.append((url, token_file)) or readings[url],
+                                              monotonic=lambda: clock.mono, log=lambda t: None, threaded=False)
+    cache = media_module.ArtCache(fetcher=lambda url, token_file: Image.new("RGB", (30, 30), (0, 200, 0)),
+                                  monotonic=lambda: clock.mono, log=lambda t: None, threaded=False)
+    controller.kodi_media = monitor
+    controller.art = cache
+    controller.reload(cfg.parse(TEXT + """
+[kodi]
+url = "http://shared.test/jsonrpc"
+token_file = "~/s"
+
+[[pages.keys]]
+row = 0
+column = 1
+label = "Play"
+action = { type = "kodi", do = "play_pause" }
+playing = { source = "kodi", label = "scroll" }
+
+[[pages.keys]]
+row = 0
+column = 2
+label = "Remote"
+action = { type = "kodi", do = "play_pause", url = "http://other.test/jsonrpc", token_file = "~/o" }
+playing = { source = "kodi", label = "scroll" }
+""", path.parent, path))
+    controller.switch_page("Second")
+    shared, remote = controller.page.keys[(0, 1)], controller.page.keys[(0, 2)]
+    assert controller._key_player(shared) == ("http://shared.test/jsonrpc", "~/s")
+    assert controller._key_player(remote) == ("http://other.test/jsonrpc", "~/o")
+    monitor.poll_once()
+    assert sorted(watched) == [("http://other.test/jsonrpc", "~/o"), ("http://shared.test/jsonrpc", "~/s")]
+    controller._draw_key(0, 1, controller.deck.image_size, set())
+    controller._draw_key(0, 2, controller.deck.image_size, set())
+    cache.fetch_once()
+    size = controller.deck.image_size
+    image, frames, fps = controller._draw_key(0, 1, size, set())
+    assert frames is not None and len(frames) > 4 and fps > 0
+    assert frames[0].getpixel((size // 2, 8)) == (0, 200, 0)
+    assert frames[0].tobytes() != frames[len(frames) // 2].tobytes()
+    image, frames, fps = controller._draw_key(0, 2, size, set())
+    assert frames is None
+    assert image.getpixel((size // 2, 8)) == (0, 200, 0)
+    assert image.getpixel((size // 2, size - 4)) != (0, 200, 0)  # the band carries the short name
+
+
+def test_a_pihole_key_is_watched_draws_the_figures_and_wears_the_blocking_lamp(setup):
+    """<summary>
+    A pihole key's box is handed to the Pi-hole monitor with its file,
+    certificate setting and interval; the key draws the figures once the
+    reading is in, wears a green lamp while blocking is on, red while
+    paused and grey before the first answer; and a key with a picture
+    keeps the picture and wears only the lamp.
+    </summary>
+    """
+    from deckplate import tiles as tiles_module
+    from deckplate.pihole import PiholeMonitor, PiholeReading
+    controller, deck, clock, urls, path = setup
+    answers = {"http://pi.hole/": PiholeReading(True, None, 12345, 2345, 19.0, 150000)}
+    watched = []
+
+    def prober(url, token_file, insecure):
+        watched.append((url, token_file, insecure))
+        return answers[url]
+
+    monitor = PiholeMonitor(prober=prober, monotonic=lambda: clock.mono, log=lambda t: None, threaded=False)
+    controller.pihole = monitor
+    controller.runner.pihole = monitor
+    controller.reload(cfg.parse(TEXT + """
+[[pages.keys]]
+row = 0
+column = 1
+label = "Pi-hole"
+action = { type = "pihole", url = "http://pi.hole/", token_file = "~/p", insecure = true, every_ms = 15000 }
+
+[[pages.keys]]
+row = 0
+column = 2
+image = "images/shield.png"
+action = { type = "pihole", url = "http://pi.hole/" }
+""", path.parent, path))
+    controller.switch_page("Second")
+    plain, pictured = controller.page.keys[(0, 1)], controller.page.keys[(0, 2)]
+    size = controller.deck.image_size
+    assert controller._key_dot(plain) == tiles_module.DOT_UNKNOWN
+    before = controller._draw_key(0, 1, size, set())[0]
+    monitor.poll_once()
+    assert watched == [("http://pi.hole/", "~/p", True)]
+    assert controller._key_dot(plain) == tiles_module.DOT_UP and controller._key_dot(pictured) == tiles_module.DOT_UP
+    after = controller._draw_key(0, 1, size, set())[0]
+    assert before.tobytes() != after.tobytes()
+    cx, cy = size - round(size * tiles_module.DOT_INSET), round(size * tiles_module.DOT_INSET)
+    assert after.getpixel((cx, cy)) == tiles_module.DOT_UP
+    monitor.update("http://pi.hole/", False, 300)
+    assert controller._key_dot(plain) == tiles_module.DOT_DOWN
+    assert controller._draw_key(0, 1, size, set())[0].tobytes() != after.tobytes()
+
+
+def test_the_reload_hook_is_called_with_the_new_config(setup):
+    """<summary>A reload ends by handing the new config to the hook the daemon gave, after the redraw.</summary>
+    <remarks>The daemon passes the tray icon's follow here, which is how the
+    tick on the configuration page shows or removes the icon without a
+    restart. The hook is optional and a controller built without one, as
+    every other test here is, must reload exactly as before.</remarks>"""
+    controller, deck, clock, urls, path = setup
+    controller.start()
+    seen = []
+    controller.on_reload = seen.append
+    fresh = cfg.load(path)
+    controller.reload(fresh)
+    assert seen == [fresh]
+    controller.on_reload = None
+    controller.reload(fresh)
+    assert seen == [fresh]
+
+
+def test_a_synology_key_is_watched_draws_the_reading_and_wears_the_health_lamp(setup):
+    """<summary>
+    A synology key's box is handed to the monitor with its account, file,
+    certificate setting and interval; the key draws the reading once it is
+    in, wears a green lamp while every volume is normal, red once one is
+    not, and grey before the first answer; a key with a picture keeps the
+    picture and wears only the lamp; and the view is the key's own.
+    </summary>
+    """
+    from deckplate import tiles as tiles_module
+    from deckplate.synology import SynologyMonitor, SynologyReading, Volume
+    controller, deck, clock, urls, path = setup
+    well = SynologyReading((Volume("volume_1", "normal", 8_000_000_000_000, 5_000_000_000_000),), True, 38, 12, 45, 46, False, 300000, "DS923+")
+    answers = {"http://nas.test:5000/": well}
+    watched = []
+
+    def prober(url, account, token_file, insecure):
+        watched.append((url, account, token_file, insecure))
+        return answers[url]
+
+    monitor = SynologyMonitor(prober=prober, monotonic=lambda: clock.mono, log=lambda t: None, threaded=False)
+    controller.synology = monitor
+    controller.reload(cfg.parse(TEXT + """
+[[pages.keys]]
+row = 0
+column = 1
+label = "NAS"
+action = { type = "synology", url = "http://nas.test:5000/", account = "deck", token_file = "~/s", insecure = true, every_ms = 15000 }
+
+[[pages.keys]]
+row = 0
+column = 2
+image = "images/shield.png"
+action = { type = "synology", url = "http://nas.test:5000/", account = "deck", show = "load" }
+""", path.parent, path))
+    controller.switch_page("Second")
+    plain, pictured = controller.page.keys[(0, 1)], controller.page.keys[(0, 2)]
+    size = controller.deck.image_size
+    assert controller._key_dot(plain) == tiles_module.DOT_UNKNOWN
+    before = controller._draw_key(0, 1, size, set())[0]
+    monitor.poll_once()
+    assert watched == [("http://nas.test:5000/", "deck", "~/s", True)]
+    assert controller._key_dot(plain) == tiles_module.DOT_UP and controller._key_dot(pictured) == tiles_module.DOT_UP
+    after = controller._draw_key(0, 1, size, set())[0]
+    assert before.tobytes() != after.tobytes()
+    cx, cy = size - round(size * tiles_module.DOT_INSET), round(size * tiles_module.DOT_INSET)
+    assert after.getpixel((cx, cy)) == tiles_module.DOT_UP
+    answers["http://nas.test:5000/"] = SynologyReading((Volume("volume_1", "degraded", 8_000_000_000_000, 5_000_000_000_000),))
+    clock.mono += 16
+    monitor.poll_once()
+    assert controller._key_dot(plain) == tiles_module.DOT_DOWN
+    assert controller._draw_key(0, 1, size, set())[0].tobytes() != after.tobytes()

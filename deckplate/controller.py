@@ -33,11 +33,17 @@ from dataclasses import replace
 from datetime import datetime
 from typing import Callable
 
-from . import animations, audio, focus, holds, images, layout, live, tiles
+from . import animations, audio, focus, holds, images, layout, live, sun, tiles
 from .actions import ActionRunner
 from .config import MARK_DEFAULT_FLASH_MS, POSITIONAL_ACTIONS, Action, Config, load
+from .media import ArtCache, KodiPlayingMonitor, MediaService, fetch_kodi
+from .pihole import PiholeMonitor
+from .synology import SynologyMonitor
 from .presses import Actions, PressRouter
 from .protocol import KeyEvent
+from .lights import LightsMonitor
+from .status import StatusMonitor, Watch
+from .system import SystemService
 from .weather import WeatherService
 
 # How often the handshake goes out. The deck only needs to hear from the host
@@ -47,7 +53,9 @@ from .weather import WeatherService
 KEEPALIVE_SECONDS = 20
 # Actions that switch something on and off rather than firing once. A key
 # bound to one of these carries a border while its task is running.
-TOGGLING_ACTIONS = ("hold", "boost", "repeat")
+TOGGLING_ACTIONS = ("hold", "boost", "repeat", "stay_awake", "dnd")
+# How often the sun's position is checked for the night brightness.
+NIGHT_CHECK_SECONDS = 60.0
 # A key that is holding something down keeps a steady border. A repeat is not
 # holding anything, it fires now and then, so its border blinks instead and the
 # two read differently across the deck. Each key may set its own style, colour
@@ -357,7 +365,16 @@ class Controller:
                  monotonic: Callable[[], float] = time.monotonic,
                  log: Callable[[str], None] = print,
                  watch_config: bool = True,
-                 watcher: "focus.FocusWatcher | None" = None) -> None:
+                 watcher: "focus.FocusWatcher | None" = None,
+                 status: StatusMonitor | None = None,
+                 media: MediaService | None = None,
+                 system: SystemService | None = None,
+                 lights: LightsMonitor | None = None,
+                 kodi_media: KodiPlayingMonitor | None = None,
+                 art: ArtCache | None = None,
+                 pihole: PiholeMonitor | None = None,
+                 synology: SynologyMonitor | None = None,
+                 on_reload: Callable[[Config], None] | None = None) -> None:
         """<summary>
         Wire a deck to a config, without drawing anything yet.
         </summary>
@@ -377,6 +394,25 @@ class Controller:
         changes. Ignored when the config did not come from a file.</param>
         <param name="watcher">The focus watcher. Made here if not given, and
         not started unless the config asks to follow the focused window.</param>
+        <param name="status">The monitor behind status keys. Made here if not
+        given; it polls nothing until a status key is configured.</param>
+        <param name="lights">The monitor behind wled keys, likewise.</param>
+        <param name="media">The now playing reader for the strip. Made here if
+        not given; asked only while a panel shows it.</param>
+        <param name="kodi_media">The monitor behind a playing panel that
+        names a Kodi player. Made here if not given; it polls nothing until
+        such a panel is configured.</param>
+        <param name="art">The cache of pictures of what is playing. Made
+        here if not given; it fetches nothing until a panel asks.</param>
+        <param name="pihole">The monitor behind pihole keys, likewise.</param>
+        <param name="synology">The monitor behind synology keys, likewise.</param>
+        <param name="system">The machine reader for the strip. Made here if
+        not given; read only while a panel shows it.</param>
+        <param name="on_reload">Called with the new config at the end of
+        every <see cref="reload"/>, on the deck loop, after the deck has
+        been redrawn from it. The daemon hands in the tray icon's follow,
+        so a setting that lives outside the controller still takes effect
+        at the next save. None does nothing.</param>
         <remarks>
         Nothing is sent to the deck from here. That matters for the tests and
         for the configuration page, both of which build a controller before
@@ -388,8 +424,22 @@ class Controller:
         self.now = now
         self.monotonic = monotonic
         self.log = log
-        self.runner = runner or ActionRunner(self, log=log)
+        self.runner = runner or ActionRunner(self, log=log, kodi=config.kodi, weather=config.weather)
         self.weather = weather or WeatherService(config.weather, monotonic=monotonic, log=log)
+        self.status = status or StatusMonitor(monotonic=monotonic, log=log)
+        self.media = media or MediaService(monotonic=monotonic, log=log)
+        self.kodi_media = kodi_media or KodiPlayingMonitor(prober=self._probe_kodi_playing, monotonic=monotonic, log=log)
+        self.art = art or ArtCache(monotonic=monotonic, log=log)
+        self.system = system or SystemService(monotonic=monotonic)
+        self.lights = lights or LightsMonitor(monotonic=monotonic, log=log)
+        self.runner.lights = self.lights
+        self.pihole = pihole or PiholeMonitor(monotonic=monotonic, log=log)
+        self.runner.pihole = self.pihole
+        self.synology = synology or SynologyMonitor(monotonic=monotonic, log=log)
+        self.on_reload = on_reload
+        # Whether the night brightness is in force, None until first checked.
+        self._night: bool | None = None
+        self._last_night_check: float | None = None
         self.page_index = 0
         self.brightness = config.deck.brightness
         self.asleep = False
@@ -465,6 +515,12 @@ class Controller:
         self.deck.set_brightness(self.brightness)
         self._blank_screen()
         self.weather.refresh_if_due()
+        self._refresh_readings()
+        self._watch_status()
+        self._watch_lights()
+        self._watch_media()
+        self._watch_pihole()
+        self._watch_synology()
         self.render_all()
         self.log(f"showing page '{self.page.name}' with {len(self.page.keys)} keys")
         if self.config.deck.follow_focus:
@@ -788,6 +844,11 @@ class Controller:
                 _muted, default, outputs = self._audio_state()
                 chosen = audio.pick_output(outputs, action.params["device"])
                 active = active or (chosen is not None and chosen.id == default)
+            elif kind == "status":
+                active = active or bool(self.status.ok(action.params["url"]))
+            elif kind == "wled":
+                state = self.lights.state(action.params["url"])
+                active = active or (state is not None and state.on)
         return active, face
 
     def _face_signature(self, row: int, column: int, holding) -> tuple:
@@ -797,7 +858,8 @@ class Controller:
         <param name="row">Row from 0 at the top.</param>
         <param name="column">Column from 0 at the left.</param>
         <param name="holding">The task keys running now.</param>
-        <returns>(border colour, active, face).</returns>
+        <returns>(border colour, active, face, status dot colour, weather reading,
+        machine reading, lights state).</returns>
         <remarks>Compared with the last one drawn to decide whether the key
         needs sending again. A face changes once a second at most, since its
         text is whole seconds and its ring is rounded to the pixel.</remarks>
@@ -807,7 +869,208 @@ class Controller:
         active, face = self._key_face(key, (row, column), holding, self.page)
         if face is not None and face.ring is not None:
             face = replace(face, ring=round(face.ring * 100) / 100)
-        return mark, active, face
+        return (mark, active, face, self._key_dot(key), self._key_weather(key), self._key_system(key),
+                self._key_lights(key), self._key_playing_signature(key), self._key_pihole(key),
+                self._key_synology(key))
+
+    def _key_pihole(self, key):
+        """<summary>
+        The Pi-hole reading a key draws or wears, or None for a key with no
+        pihole action.
+        </summary>
+        <param name="key">The key to judge, or None for an empty position.</param>
+        <returns>The latest reading for a key whose plain action is pihole;
+        otherwise None.</returns>
+        <remarks>In the signature whether or not the key has a picture: a
+        key with one wears only the lamp, and the lamp follows the reading.</remarks>"""
+        if key is None or key.action is None or key.action.type != "pihole":
+            return None
+        return self.pihole.state(key.action.params["url"])
+
+    def _key_synology(self, key):
+        """<summary>
+        The NAS reading a key draws or wears, or None for a key with no
+        synology action.
+        </summary>
+        <param name="key">The key to judge, or None for an empty position.</param>
+        <returns>The latest reading for a key whose plain action is synology;
+        otherwise None.</returns>
+        <remarks>As <see cref="_key_pihole"/>: in the signature whether or
+        not the key has a picture, since the lamp follows the reading.</remarks>"""
+        if key is None or key.action is None or key.action.type != "synology":
+            return None
+        return self.synology.state(key.action.params["url"])
+
+    def _key_player(self, key) -> tuple[str, str | None] | None:
+        """<summary>
+        The Kodi player a key follows: its address and credentials file.
+        </summary>
+        <param name="key">The key, or None.</param>
+        <returns>(url, token_file), or None when the key follows no Kodi
+        player.</returns>
+        <remarks>The ``playing`` table's own address first. Without one, the
+        key's kodi action lends its player: the address and credentials
+        file on the action, else the [kodi] table's, which is what a plain
+        play or pause key talks to. So a play key follows whatever it
+        plays without the address being written twice.</remarks>"""
+        if key is None or key.playing is None or key.playing.source != "kodi":
+            return None
+        if key.playing.url:
+            return key.playing.url, key.playing.token_file
+        for action in key.actions():
+            if action is not None and action.type == "kodi":
+                if action.params.get("url"):
+                    return action.params["url"], action.params.get("token_file")
+                return self.config.kodi.url, self.config.kodi.token_file
+        return None
+
+    def _key_playing_reading(self, key):
+        """<summary>
+        The now playing reading of the player a key follows, or None.
+        </summary>
+        <param name="key">The key, or None.</param>
+        <returns>The reading, or None when the key follows no player or
+        nothing is playing on it.</returns>"""
+        if key is None or key.playing is None:
+            return None
+        if key.playing.source == "kodi":
+            player = self._key_player(key)
+            return self.kodi_media.reading(player[0]) if player else None
+        return self.media.reading
+
+    def _key_playing_art(self, key):
+        """<summary>
+        The picture a key wears for what its player is playing, once it is here.
+        </summary>
+        <param name="key">The key, or None.</param>
+        <returns>The picture, or None when the key follows no player,
+        nothing is playing, the player names no picture, or the fetch has
+        not come back yet. With None the key draws its ordinary face.</returns>"""
+        reading = self._key_playing_reading(key)
+        if reading is None or not reading.art:
+            return None
+        return self.art.image(reading.art, reading.art_token_file)
+
+    def _key_playing_signature(self, key) -> tuple | None:
+        """<summary>
+        What decides the picture a key wears for its player, for the face signature.
+        </summary>
+        <param name="key">The key, or None.</param>
+        <returns>(the reading, whether its picture has arrived), or None
+        for a key that follows no player and (None, False) for one whose
+        player has nothing on.</returns>
+        <remarks>The reading rather than the picture, so a new track changes
+        the signature the moment it is read, its name included for the
+        caption, and the arrival flag so the key is drawn again when the
+        picture lands.</remarks>"""
+        if key is None or key.playing is None:
+            return None
+        reading = self._key_playing_reading(key)
+        if reading is None or not reading.art:
+            return (None, False)
+        return (reading, self.art.image(reading.art, reading.art_token_file) is not None)
+
+    def _key_dot(self, key) -> tuple[int, int, int] | None:
+        """<summary>
+        The colour of the status lamp for this key, or None for no lamp.
+        </summary>
+        <param name="key">The key to judge, or None for an empty position.</param>
+        <returns>Green while the address answers, red while it does not, grey
+        before the first answer; None for a key with no status action, or
+        one that swaps its picture instead.</returns>
+        <remarks>
+        A key with a ``lamp`` of its own wears that, whatever its actions
+        are: it is how a page key that leads to the Kodi page shows whether
+        the player in the other room is there, and how a key with a picture
+        of a light shows whether the lounge lights are on. A wled lamp
+        reads the lights monitor, as a wled key does, and is green while
+        the lights are on, red while off and grey while unreachable. Otherwise a status key that
+        carries an active picture or label has chosen to show its state by
+        swapping the whole face, so it gets no lamp on top: one indicator
+        per key. A kodi key with its own ``url`` is a player in another
+        room, and it always wears the lamp, so the keys for the player
+        across the house can be told from the ones for this machine at a
+        glance; a kodi key without one is local and wears none. The first
+        such action among the three gestures is the one shown.
+        </remarks>
+        """
+        if key is None:
+            return None
+        if key.lamp is not None:
+            if key.lamp.kind == "wled":
+                state = self.lights.state(key.lamp.url)
+                if state is None:
+                    return tiles.DOT_UNKNOWN
+                return tiles.DOT_UP if state.on else tiles.DOT_DOWN
+            up = self.status.ok(key.lamp.url)
+            if up is None:
+                return tiles.DOT_UNKNOWN
+            return tiles.DOT_UP if up else tiles.DOT_DOWN
+        for action in key.actions():
+            if action is None:
+                continue
+            if action.type == "status" and not (key.image_active or key.label_active):
+                up = self.status.ok(action.params["url"])
+            elif action.type == "kodi" and action.params.get("url"):
+                up = self.status.ok(action.params["url"])
+            elif action.type == "pihole":
+                reading = self.pihole.state(action.params["url"])
+                up = None if reading is None else reading.blocking
+            elif action.type == "synology":
+                reading = self.synology.state(action.params["url"])
+                up = None if reading is None else reading.healthy
+            else:
+                continue
+            if up is None:
+                return tiles.DOT_UNKNOWN
+            return tiles.DOT_UP if up else tiles.DOT_DOWN
+        return None
+
+    def _key_weather(self, key):
+        """<summary>
+        The weather reading a key draws on its face, or None for a key that
+        draws none.
+        </summary>
+        <param name="key">The key to judge, or None for an empty position.</param>
+        <returns>The latest observation for a key whose plain action is
+        weather and which has no picture of its own; otherwise None.</returns>
+        <remarks>A picture on the key wins: the user chose it, and the
+        press still opens the site. In the signature, so the face is redrawn
+        when the reading changes and not otherwise.</remarks>
+        """
+        if key is None or key.image is not None or key.action is None or key.action.type != "weather":
+            return None
+        return self.weather.observation
+
+    def _key_system(self, key):
+        """<summary>
+        The machine reading a key draws on its face, or None for a key that
+        draws none.
+        </summary>
+        <param name="key">The key to judge, or None for an empty position.</param>
+        <returns>The latest reading for a key whose plain action is system
+        and which has no picture of its own; otherwise None.</returns>
+        <remarks>As <see cref="_key_weather"/>: a picture wins, and the
+        reading is in the signature so the face follows it.</remarks>
+        """
+        if key is None or key.image is not None or key.action is None or key.action.type != "system":
+            return None
+        return self.system.reading
+
+    def _key_lights(self, key):
+        """<summary>
+        The lights state a key draws on its face, or None for a key that
+        draws none.
+        </summary>
+        <param name="key">The key to judge, or None for an empty position.</param>
+        <returns>The latest state for a key whose plain action is wled and
+        which has no picture of its own; otherwise None.</returns>
+        <remarks>As <see cref="_key_system"/>. A wled key with a picture
+        keeps it and shows the lights through its active face instead.</remarks>
+        """
+        if key is None or key.image is not None or key.action is None or key.action.type != "wled":
+            return None
+        return self.lights.state(key.action.params["url"])
 
     def _draw_key(self, row: int, column: int, size: int, holding, page=None, config=None) -> tuple:
         """<summary>
@@ -832,8 +1095,77 @@ class Controller:
         page = self.page if page is None else page
         config = self.config if config is None else config
         key = page.keys.get((row, column))
+        image, frames, fps = self._draw_key_face(key, row, column, size, holding, page, config)
+        dot = self._key_dot(key)
+        if dot is not None:
+            image = tiles.with_dot(image, dot)
+            if frames is not None:
+                frames = [tiles.with_dot(frame, dot) for frame in frames]
+        return image, frames, fps
+
+    def _draw_key_face(self, key, row: int, column: int, size: int, holding, page, config) -> tuple:
+        """<summary>
+        Draw a key's face before the status lamp goes on: picture, label,
+        border, live text and ring.
+        </summary>
+        <param name="key">The key's config, or None for an empty position.</param>
+        <param name="row">Row from 0 at the top.</param>
+        <param name="column">Column from 0 at the left.</param>
+        <param name="size">Pixel size to draw at.</param>
+        <param name="holding">Hold combos currently down.</param>
+        <param name="page">The page the key is on.</param>
+        <param name="config">The config to read the background from.</param>
+        <returns>(image, frames, fps), as <see cref="_draw_key"/> returns.</returns>
+        <remarks>Split from <see cref="_draw_key"/> only so the lamp can be
+        laid over every return path, still and animated alike.</remarks>
+        """
         mark = self._key_mark(key, holding)
         active, face = self._key_face(key, (row, column), holding, page)
+        drawn = None
+        playing_art = self._key_playing_art(key)
+        if playing_art is not None:
+            # The picture of what the key's player is playing is the whole
+            # face while it plays: no label of the key's own, no live text,
+            # the lamp still on top from the caller, the border for a
+            # running task kept, and the name of what is playing on a band
+            # or sliding along the bottom when the key asks for it.
+            tile = tiles.picture_face(playing_art, size)
+            caption = tiles.playing_caption(self._key_playing_reading(key))
+            if key.playing.label == "scroll":
+                scrolled = tiles.scrolling_label_frames(tile, caption)
+                if scrolled is not None:
+                    frames, fps = scrolled
+                    if mark is not None:
+                        frames = [tiles.with_mark(frame, mark) for frame in frames]
+                    return frames[0], frames, fps
+            if key.playing.label in ("band", "scroll"):
+                tile = tiles.with_label(tile, caption)
+            if mark is not None:
+                tile = tiles.with_mark(tile, mark)
+            return tile, None, 0
+        if key is not None and key.image is None and key.action is not None and key.action.type == "weather":
+            drawn = tiles.weather_key_tile(self.weather.observation, size,
+                                           tiles.key_background(key, config.deck.background), labelled=bool(key.label))
+        elif key is not None and key.image is None and key.action is not None and key.action.type == "system":
+            drawn = tiles.system_tile(self.system.reading, size,
+                                      tiles.key_background(key, config.deck.background), labelled=bool(key.label))
+        elif key is not None and key.image is None and key.action is not None and key.action.type == "wled":
+            drawn = tiles.lights_tile(self.lights.state(key.action.params["url"]), size,
+                                      tiles.key_background(key, config.deck.background), labelled=bool(key.label))
+        elif key is not None and key.image is None and key.action is not None and key.action.type == "pihole":
+            drawn = tiles.pihole_tile(self.pihole.state(key.action.params["url"]), size,
+                                      tiles.key_background(key, config.deck.background), labelled=bool(key.label))
+        elif key is not None and key.image is None and key.action is not None and key.action.type == "synology":
+            drawn = tiles.synology_tile(self.synology.state(key.action.params["url"]), size,
+                                        key.action.params.get("show", "space"), key.action.params.get("volume"),
+                                        tiles.key_background(key, config.deck.background), labelled=bool(key.label))
+        if drawn is not None:
+            tile = drawn
+            if key.label:
+                tile = tiles.with_label(tile, key.label)
+            if mark is not None:
+                tile = tiles.with_mark(tile, mark)
+            return tile, None, 0
         if active and key is not None and (key.image_active or key.label_active):
             key = replace(key, image=key.image_active or key.image, label=key.label_active or key.label)
         default_bg = config.deck.background
@@ -902,7 +1234,8 @@ class Controller:
             return frames[0], frames, fps
         image = tiles.strip_tile(tile, now, observation, size,
                                  config.weather.location_name, visible,
-                                 default_bg)
+                                 default_bg, playing=self._playing_reading(tile), system=self.system.reading,
+                                 playing_art=self._playing_art(tile))
         return image, None, 0
 
     def _scaled_visible(self, visible, size: int):
@@ -978,7 +1311,8 @@ class Controller:
         observation = self.weather.observation
         sent = False
         for row, tile in enumerate(self.config.strip):
-            signature = tiles.strip_signature(tile, now, observation)
+            signature = tiles.strip_signature(tile, now, observation, self._playing_reading(tile), self.system.reading,
+                                              playing_art_ready=self._playing_art(tile) is not None)
             if not force and signature == self._strip_signatures[row]:
                 continue
             image, frames, fps = self._draw_strip(row, self.deck.image_size, now, observation)
@@ -1108,7 +1442,7 @@ class Controller:
         else:
             key = page.keys.get((row, column))
             holding = self.runner.holds.active_combos()
-            signature = (repr(key), config.deck.background, tuple(sorted(holding)))
+            signature = (repr(key), config.deck.background, tuple(sorted(holding)), self._key_playing_signature(key))
             frames_of = lambda: self._draw_key(row, column, size, holding, page=page, config=config)
         cache_key = (row, column, scale)
         with self._preview_lock:
@@ -1511,6 +1845,8 @@ class Controller:
             self._follow_focus()
         if not self.asleep:
             self.weather.refresh_if_due()
+            self._refresh_readings()
+            self._night_brightness(now)
             self.render_strip()
             sent = self._end_flashes()
             if self.animator.tick():
@@ -1536,6 +1872,195 @@ class Controller:
         if self.watch_config and now - self.last_config_poll >= CONFIG_POLL_SECONDS:
             self.last_config_poll = now
             self._reload_if_changed()
+
+    def _refresh_readings(self) -> None:
+        """<summary>
+        Read the media players and the machine, but only while a strip panel
+        shows them.
+        </summary>
+        <remarks>Both readers decide for themselves whether they are due, so
+        this is cheap on every pass; the kind check is what keeps a deck with
+        no such panel from ever touching the bus or the kernel files. A
+        system key on the page showing counts like a system panel.</remarks>
+        """
+        kinds = {tile.kind for tile in self.config.strip}
+        if any(tile.kind == "playing" and tile.source == "local" for tile in self.config.strip) \
+                or any(key.playing is not None and key.playing.source == "local" for key in self.page.keys.values()):
+            self.media.refresh_if_due()
+        if "system" in kinds or any(key.action is not None and key.action.type == "system"
+                                    for key in self.page.keys.values()):
+            self.system.refresh_if_due()
+
+    def _playing_reading(self, tile):
+        """<summary>
+        The now playing reading a strip tile draws: the desktop's players,
+        or the Kodi player the tile names.
+        </summary>
+        <param name="tile">The strip tile.</param>
+        <returns>The reading, or None when nothing is playing or the tile is
+        not a playing tile.</returns>"""
+        if tile.kind != "playing":
+            return None
+        if tile.source == "kodi":
+            return self.kodi_media.reading(tile.url)
+        return self.media.reading
+
+    def _playing_art(self, tile):
+        """<summary>
+        The picture of what a playing panel is showing, once it is here.
+        </summary>
+        <param name="tile">The strip tile.</param>
+        <returns>The picture, or None when the tile is not a playing one,
+        has the picture turned off, the player names none, or the fetch has
+        not come back yet.</returns>
+        <remarks>Asking the cache queues the fetch, so the first draw of a
+        new track goes out as words and the picture follows on the next
+        pass after it lands.</remarks>"""
+        if tile.kind != "playing" or not tile.art:
+            return None
+        reading = self._playing_reading(tile)
+        if reading is None or not reading.art:
+            return None
+        return self.art.image(reading.art, reading.art_token_file)
+
+    def _probe_kodi_playing(self, url: str, token_file: str | None):
+        """<summary>
+        Ask one Kodi player what it is playing, through the runner's own
+        request function and credentials reader.
+        </summary>
+        <param name="url">The player's JSON RPC address.</param>
+        <param name="token_file">Its credentials file, or None.</param>
+        <returns>The reading, or None when nothing is playing.</returns>
+        <remarks>Goes through the runner so a test that swaps the runner's
+        sender sees these requests too, and so the [kodi] timeout governs
+        a panel as it governs a press. Runs on the monitor's thread, never
+        the deck's loop.</remarks>"""
+        return fetch_kodi(url, token_file, self.runner.send_json, self.runner.read_token, self.config.kodi.timeout_s)
+
+    def _watch_media(self) -> None:
+        """<summary>
+        Hand the Kodi playing monitor every player a playing panel names,
+        and every one a key follows for its picture, on any page.
+        </summary>
+        <remarks>Called at start and after a reload, like the status and
+        lights monitors. A panel or key reading the desktop's players is
+        not a watch: that reading is taken on the loop itself.</remarks>"""
+        players = [(tile.url, tile.token_file) for tile in self.config.strip
+                   if tile.kind == "playing" and tile.source == "kodi" and tile.url]
+        for page in self.config.pages:
+            for key in page.keys.values():
+                player = self._key_player(key)
+                if player is not None:
+                    players.append(player)
+        self.kodi_media.watch(players)
+
+    def _watch_status(self) -> None:
+        """<summary>
+        Hand the status monitor every address a status key on any page
+        names, every player a kodi key names for itself, and every lamp a
+        key carries of its own.
+        </summary>
+        <remarks>Every page, not only the one showing, so a key's state is
+        already known when its page comes up. Called at start and after a
+        reload, which is when the set can change. A remote kodi key is
+        asked on the default interval with its own credentials file, since
+        Kodi answers a plain GET on its JSON RPC address only when the
+        password is right; the [kodi] credentials are never sent to it, as
+        a press never sends them either.</remarks>
+        """
+        watches = []
+        for page in self.config.pages:
+            for key in page.keys.values():
+                if key.lamp is not None and key.lamp.kind == "web":
+                    lamp = key.lamp
+                    watches.append(Watch(lamp.url, lamp.every_ms, lamp.insecure, lamp.expect, lamp.token_file))
+                for action in key.actions():
+                    if action is None:
+                        continue
+                    params = action.params
+                    if action.type == "status":
+                        watches.append(Watch(params["url"], params["every_ms"], params["insecure"], params["expect"]))
+                    elif action.type == "kodi" and params.get("url"):
+                        watches.append(Watch(params["url"], token_file=params.get("token_file")))
+        self.status.watch(watches)
+
+    def _watch_lights(self) -> None:
+        """<summary>
+        Hand the lights monitor every device a wled key on any page names,
+        and every device a wled lamp watches.
+        </summary>
+        <remarks>As <see cref="_watch_status"/>: every page, at start and
+        after a reload.</remarks>
+        """
+        devices = []
+        for page in self.config.pages:
+            for key in page.keys.values():
+                if key.lamp is not None and key.lamp.kind == "wled":
+                    devices.append((key.lamp.url, key.lamp.every_ms))
+                for action in key.actions():
+                    if action is not None and action.type == "wled":
+                        devices.append((action.params["url"], action.params["every_ms"]))
+        self.lights.watch(devices)
+
+    def _watch_pihole(self) -> None:
+        """<summary>
+        Hand the Pi-hole monitor every box a pihole key on any page names.
+        </summary>
+        <remarks>As <see cref="_watch_lights"/>: every page, at start and
+        after a reload, so a key's reading is known when its page comes up.</remarks>"""
+        boxes = []
+        for page in self.config.pages:
+            for key in page.keys.values():
+                for action in key.actions():
+                    if action is not None and action.type == "pihole":
+                        p = action.params
+                        boxes.append((p["url"], p.get("token_file"), bool(p.get("insecure")), p["every_ms"]))
+        self.pihole.watch(boxes)
+
+    def _watch_synology(self) -> None:
+        """<summary>
+        Hand the Synology monitor every box a synology key on any page names.
+        </summary>
+        <remarks>As <see cref="_watch_pihole"/>: every page, at start and
+        after a reload, so a key's reading is known when its page comes up.</remarks>"""
+        boxes = []
+        for page in self.config.pages:
+            for key in page.keys.values():
+                for action in key.actions():
+                    if action is not None and action.type == "synology":
+                        p = action.params
+                        boxes.append((p["url"], p.get("account"), p.get("token_file"), bool(p.get("insecure")), p["every_ms"]))
+        self.synology.watch(boxes)
+
+    def _night_brightness(self, now: float) -> None:
+        """<summary>
+        Dim the deck after sunset and brighten it after sunrise, when the
+        config asks for it.
+        </summary>
+        <param name="now">The monotonic time, for the once a minute check.</param>
+        <remarks>
+        The sun is worked out from the weather coordinates. The brightness
+        is only sent when day turns to night or back, so a level set by a
+        key in between stays until the next change, and a config with no
+        night brightness never reaches here at all.
+        </remarks>
+        """
+        level = self.config.deck.night_brightness
+        if not level:
+            self._night = None
+            return
+        if self._last_night_check is not None and now - self._last_night_check < NIGHT_CHECK_SECONDS:
+            return
+        self._last_night_check = now
+        night = sun.is_night(self.config.weather.latitude, self.config.weather.longitude, self.now())
+        if night == self._night:
+            return
+        self._night = night
+        target = level if night else self.config.deck.brightness
+        self.log(f"{'sunset' if night else 'sunrise'}: brightness {target}")
+        self.brightness = target
+        self.deck.set_brightness(target)
+        self.hub.publish({"type": "brightness", "value": target})
 
     # Per application pages
 
@@ -1720,6 +2245,12 @@ class Controller:
         self.runner.holds.stop_all()
         self.router.clear()
         self.watcher.stop()
+        self.status.stop()
+        self.lights.stop()
+        self.kodi_media.stop()
+        self.art.stop()
+        self.pihole.stop()
+        self.synology.stop()
 
     def reload(self, config: Config) -> None:
         """<summary>
@@ -1767,12 +2298,23 @@ class Controller:
             self.watcher.stop()
         self.brightness = config.deck.brightness
         self.deck.set_brightness(self.brightness)
+        self._night = None
+        self._last_night_check = None
+        self.runner.kodi = config.kodi
+        self.runner.weather = config.weather
+        self._watch_status()
+        self._watch_lights()
+        self._watch_media()
+        self._watch_pihole()
+        self._watch_synology()
         self._strip_signatures = [None] * layout.ROWS
         self.animator.clear_all()
         self._flashes.clear()
         self.render_all()
         self.hub.publish({"type": "config", "page": self.page.name})
         self.log("config reloaded")
+        if self.on_reload is not None:
+            self.on_reload(config)
 
     def reload_from_disk(self) -> None:
         """<summary>

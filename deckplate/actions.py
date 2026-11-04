@@ -29,6 +29,7 @@ from __future__ import annotations
 import os
 import random
 import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -38,11 +39,15 @@ from typing import Callable, Protocol
 import requests
 
 from . import audio as audio_module
+from . import awake
+from . import lights as lights_module
+from . import pihole as pihole_module
 from . import desktop as desktop_module
 from . import hotkeys
+from . import kodi as kodi_module
 from .audio import AudioError
-from .config import POSITIONAL_ACTIONS, Action
-from .holds import HoldManager
+from .config import POSITIONAL_ACTIONS, Action, KodiSettings, WeatherSettings
+from .holds import HoldManager, task_key
 
 
 class ActionContext(Protocol):
@@ -173,6 +178,51 @@ def default_request(method: str, url: str, headers: dict, body: str | None, time
     response.raise_for_status()
 
 
+def default_json_request(url: str, headers: dict, body: dict, timeout: float) -> dict:
+    """<summary>
+    Post one JSON body and decode the JSON that comes back.
+    </summary>
+    <param name="url">Where to send it.</param>
+    <param name="headers">The headers, Authorization included when there is one.</param>
+    <param name="body">The request as a dict, sent as JSON.</param>
+    <param name="timeout">Seconds to wait.</param>
+    <returns>The decoded reply.</returns>
+    <remarks>The Kodi door. Unlike <see cref="default_request"/> the answer
+    matters, because a player action needs the player id Kodi reports.</remarks>
+    <exception cref="requests.RequestException">The request failed or came
+    back with an error status.</exception>
+    <exception cref="ValueError">The reply is not JSON.</exception>"""
+    sent = {"Content-Type": "application/json", **headers}
+    response = requests.post(url, headers=sent, json=body, timeout=timeout)
+    response.raise_for_status()
+    return response.json()
+
+
+WEATHER_SITE = "https://www.windy.com/?{latitude:.4f},{longitude:.4f},9"
+
+
+def weather_site(settings: WeatherSettings) -> str:
+    """<summary>The weather page a weather key opens when it names none.</summary>
+    <param name="settings">The coordinates to open it at.</param>
+    <returns>A URL on a map site, centred on the coordinates.</returns>"""
+    return WEATHER_SITE.format(latitude=settings.latitude, longitude=settings.longitude)
+
+
+# The system monitors a system key tries, first found wins. Linux desktops
+# first, each desktop's own, then Windows' task manager.
+MONITORS = ("plasma-systemmonitor", "gnome-system-monitor", "xfce4-taskmanager", "mate-system-monitor",
+            "lxtask", "ksysguard", "taskmgr")
+
+
+def default_monitor() -> str | None:
+    """<summary>The first system monitor installed here, or None.</summary>
+    <returns>A command name on the path, or None when none of the known ones is.</returns>"""
+    for name in MONITORS:
+        if shutil.which(name):
+            return name
+    return None
+
+
 def platform_command(params: dict) -> str:
     """<summary>
     The command for this platform, falling back to the shared one.
@@ -227,6 +277,13 @@ class ActionRunner:
                  read_token: Callable[[str], str] = read_token,
                  audio=None,
                  desktop=None,
+                 kodi: KodiSettings | None = None,
+                 weather: WeatherSettings | None = None,
+                 send_json: Callable[[str, dict, dict, float], dict] = default_json_request,
+                 screensaver=None,
+                 notifier=None,
+                 nudge: Callable[[], None] | None = None,
+                 lights=None,
                  log: Callable[[str], None] = print) -> None:
         """<summary>
         Build a runner, taking its deck context and its way out to the machine.
@@ -236,6 +293,20 @@ class ActionRunner:
         controller's own so that a hold started on one page can be stopped from
         another; leaving it None makes a private one, which is right for a test
         and wrong for the daemon.</param>
+        <param name="kodi">Where Kodi is, from the config's [kodi] table, or
+        None for the defaults. Replaced by the controller on a reload.</param>
+        <param name="weather">The weather coordinates, for the site a
+        weather key opens by default. Replaced by the controller on a reload.</param>
+        <param name="send_json">How a kodi or wled action posts and reads JSON.</param>
+        <param name="lights">The lights monitor, with ``state(url)`` and
+        ``update(url, state)``, or None when no key draws the lights. Set by
+        the controller, which owns the monitor.</param>
+        <param name="screensaver">The screensaver inhibitor for Stay Awake,
+        or None for the desktop's own.</param>
+        <param name="notifier">The notification inhibitor for Do Not Disturb,
+        or None for the desktop's own.</param>
+        <param name="nudge">How Stay Awake moves the pointer, or None for the
+        X test nudge.</param>
         <param name="log">Where a failed action goes. Defaults to print because
         the daemon runs in the foreground under its unit.</param>
         <remarks>
@@ -272,6 +343,14 @@ class ActionRunner:
         self.read_token = read_token
         self._audio = audio
         self._desktop = desktop
+        self.kodi = kodi or KodiSettings()
+        self.weather = weather or WeatherSettings()
+        self.send_json = send_json
+        self.screensaver = screensaver
+        self.notifier = notifier
+        self.nudge = nudge
+        self.lights = lights
+        self.pihole = None  # the controller's Pi-hole monitor, set after construction like lights
         self.log = log
 
     @property
@@ -415,6 +494,33 @@ class ActionRunner:
             self._audio_output(params)
         elif action.type == "window":
             self._window(params)
+        elif action.type == "stay_awake":
+            self.holds.toggle_task(task_key("stay_awake", params), lambda: awake.stay_awake(
+                params, inhibitor=self.screensaver, nudge=self.nudge, log=self.log), "stay awake")
+        elif action.type == "dnd":
+            self.holds.toggle_task(task_key("dnd", params), lambda: awake.do_not_disturb(
+                params, inhibitor=self.notifier, log=self.log), "do not disturb")
+        elif action.type == "status":
+            # The watching is the controller's; the press just opens the page.
+            if params.get("open", True):
+                self.open_url(params["url"])
+        elif action.type == "kodi":
+            self._kodi(params)
+        elif action.type == "wled":
+            self._wled(params)
+        elif action.type == "pihole":
+            self._pihole(params)
+        elif action.type == "synology":
+            # The watching is the controller's; the press opens DSM.
+            self.open_url(params["url"])
+        elif action.type == "weather":
+            self.open_url(params.get("url") or weather_site(self.weather))
+        elif action.type == "system":
+            command = params.get("command") or default_monitor()
+            if command:
+                self.launch(command)
+            else:
+                self.log("system: no system monitor found; give the key a command")
         elif action.type in POSITIONAL_ACTIONS:
             raise ValueError(f"a {action.type} action acts on its key and must be run by the controller")
         else:
@@ -495,6 +601,84 @@ class ActionRunner:
             self.launch(command)
         else:
             self.log(f"window: nothing matches '{params['match']}' and no command to launch")
+
+    def _kodi(self, params: dict) -> None:
+        """<summary>
+        Send one request to Kodi, finding the active player first when the
+        action needs one.
+        </summary>
+        <param name="params">A kodi action's params: ``do``, or ``method``
+        with ``params``, and an optional ``url`` and ``token_file`` for a
+        player other than the one in [kodi].</param>
+        <remarks>A player action with nothing playing is logged and dropped:
+        Kodi would answer with an error for a missing player id, and the log
+        line says why in plain words instead.
+
+        A key with its own ``url`` is another machine, so the [kodi]
+        credentials are not sent to it; only a ``token_file`` on the key is.
+        A key without a ``url`` uses the [kodi] address and credentials.</remarks>
+        <exception cref="ValueError">The action names nothing Kodi knows.</exception>
+        <exception cref="requests.RequestException">Kodi could not be reached.</exception>"""
+        method, body_params, needs_player = kodi_module.resolve(params)
+        url = params.get("url") or self.kodi.url
+        token_file = params.get("token_file") or (self.kodi.token_file if not params.get("url") else None)
+        headers = {}
+        if token_file:
+            headers["Authorization"] = self.read_token(token_file)
+        if needs_player:
+            reply = self.send_json(url, headers, kodi_module.payload("Player.GetActivePlayers"), self.kodi.timeout_s)
+            player = kodi_module.first_player(reply)
+            if player is None:
+                self.log(f"kodi {params.get('do', method)}: nothing is playing")
+                return
+            body_params["playerid"] = player
+        self.send_json(url, headers, kodi_module.payload(method, body_params), self.kodi.timeout_s)
+
+    def _wled(self, params: dict) -> None:
+        """<summary>
+        Post one change to a WLED device and hand the state it answers with
+        to the lights monitor, so the key follows the press at once.
+        </summary>
+        <param name="params">A wled action's params: ``url``, ``do`` and
+        ``preset`` or ``step``.</param>
+        <remarks>The body asks for the state back; a reply that is not one
+        is ignored rather than failing the press, since the change was made.</remarks>
+        <exception cref="ValueError">The action names nothing WLED knows.</exception>
+        <exception cref="requests.RequestException">The device could not be reached.</exception>"""
+        url = params["url"]
+        known = self.lights.state(url) if self.lights is not None else None
+        reply = self.send_json(lights_module.state_url(url), {}, lights_module.command(params, known),
+                               lights_module.TIMEOUT_S)
+        if self.lights is not None:
+            try:
+                self.lights.update(url, lights_module.parse_state(reply))
+            except ValueError:
+                pass
+
+    def _pihole(self, params: dict) -> None:
+        """<summary>
+        Pause a Pi-hole's blocking for a while, resume it, or open its admin page.
+        </summary>
+        <param name="params">A pihole action's params: ``url``, ``token_file``,
+        ``insecure``, ``do`` and ``seconds``.</param>
+        <remarks>A toggle goes by the latest reading: blocking on means
+        pause for ``seconds``, off means resume. With no reading yet the box
+        is asked first, so the first press after a start still does the
+        right thing. The state the box answers with goes to the monitor, so
+        the lamp follows the press at once.</remarks>
+        <exception cref="ValueError">The box refused the password.</exception>
+        <exception cref="requests.RequestException">The box could not be reached.</exception>"""
+        url = params["url"]
+        if params.get("do") == "open":
+            self.open_url(pihole_module.admin_url(url))
+            return
+        session = pihole_module.session_for(url, params.get("token_file"), bool(params.get("insecure")))
+        known = self.pihole.state(url) if self.pihole is not None else None
+        blocking = known.blocking if known is not None else pihole_module.fetch(session).blocking
+        now_blocking, timer = pihole_module.set_blocking(session, not blocking, int(params.get("seconds", pihole_module.DEFAULT_PAUSE_S)))
+        self.log(f"pi-hole blocking {'resumed' if now_blocking else 'paused'}")
+        if self.pihole is not None:
+            self.pihole.update(url, now_blocking, timer)
 
     def _chord(self, params: dict) -> None:
         """<summary>

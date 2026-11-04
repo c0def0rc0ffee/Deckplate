@@ -419,8 +419,9 @@ def task_key(action_type: str, params: dict) -> str:
     """<summary>
     The manager key for a toggling action.
     </summary>
-    <param name="action_type">One of hold, boost or repeat. Anything else gives
-    an empty string, because no other action type has a running state.</param>
+    <param name="action_type">One of hold, boost or repeat, or one of the two
+    desktop toggles, stay_awake and dnd. Anything else gives an empty string,
+    because no other action type has a running state.</param>
     <param name="params">That action's params, read leniently so a partly
     filled in binding still produces a stable key.</param>
     <returns>The string the manager files the task under.</returns>
@@ -445,6 +446,10 @@ def task_key(action_type: str, params: dict) -> str:
         return f"boost:{params.get('hold', '')}+{params.get('keys', '')}"
     if action_type == "repeat":
         return f"repeat:{params.get('keys', '')}"
+    if action_type == "stay_awake":
+        return "awake"
+    if action_type == "dnd":
+        return "dnd"
     return ""
 
 
@@ -563,6 +568,22 @@ class HoldManager:
             task.start()
             self.log(started)
             return True
+
+    def toggle_task(self, key: str, make: Callable[[], threading.Thread], what: str) -> bool:
+        """<summary>
+        Start any thread with a stop method under a task key, or stop the one
+        already running there.
+        </summary>
+        <param name="key">The task key, as <see cref="task_key"/> gives it.</param>
+        <param name="make">Builds the thread when one is to be started.</param>
+        <param name="what">The task's name for the log.</param>
+        <returns>True when it is now running.</returns>
+        <remarks>The door for the desktop toggles, Stay Awake and Do Not
+        Disturb, which are threads like a repeat but press nothing. They
+        live here so a key marks them as running and a reload stops them
+        along with every hold.</remarks>
+        """
+        return self._toggle(key, make, f"{what} on", f"{what} off")
 
     def toggle(self, combo: str, hold_ms: tuple[int, int], release_ms: tuple[int, int]) -> bool:
         """<summary>
