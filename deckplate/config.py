@@ -413,6 +413,8 @@ class Page:
     its own. Scaled to cover the grid at the deck's key pitch so it reads as
     continuous through the gaps; without a measured pitch the keys are treated
     as touching.</param>
+    <param name="theme">The look for this page's drawn tiles, overriding the
+    deck's; see <see cref="DeckSettings"/>. None follows the deck.</param>
     <param name="changed">When the configuration page last edited this page,
     as ISO 8601 text, or None for a page it has never touched. Written by
     the page so its list can be sorted by what was worked on last; the
@@ -435,6 +437,7 @@ class Page:
     match_window: str | None = None
     wallpaper: Path | None = None
     changed: str | None = None
+    theme: str | None = None
 
 
 @dataclass(frozen=True)
@@ -527,6 +530,10 @@ class DeckSettings:
     <param name="night_brightness">The backlight between sunset and sunrise
     at the weather coordinates, or 0 to leave the brightness alone at
     night.</param>
+    <param name="theme">The slug of an icon theme whose look the deck's own
+    drawn tiles take, the clock, the date, the weather and the gauges, so
+    they match that theme's icons; None draws them plain. Only a theme
+    whose manifest declares a look is accepted. A page may name its own.</param>
     <remarks>
     These apply to the whole deck and not to one page, so switching pages
     never changes any of them. An action may change the brightness at run
@@ -551,6 +558,7 @@ class DeckSettings:
     key_pitch_x: int | None = None
     key_pitch_y: int | None = None
     night_brightness: int = 0
+    theme: str | None = None
 
     @property
     def key_pitch(self) -> tuple[int, int] | None:
@@ -940,7 +948,29 @@ def _parse_deck(table: dict) -> DeckSettings:
         key_pitch_x=_int(table, "key_pitch_x", "[deck]", 0, *KEY_PITCH_RANGE) if "key_pitch_x" in table else None,
         key_pitch_y=_int(table, "key_pitch_y", "[deck]", 0, *KEY_PITCH_RANGE) if "key_pitch_y" in table else None,
         night_brightness=_int(table, "night_brightness", "[deck]", 0, 0, 100),
+        theme=_theme(table, "[deck]"),
     )
+
+
+def _theme(table: dict, where: str) -> str | None:
+    """<summary>
+    The ``theme`` field: the slug of a shipped theme that declares a look.
+    </summary>
+    <param name="table">The table to read from.</param>
+    <param name="where">Which table, for the error.</param>
+    <returns>The slug, or None when the field is absent or empty.</returns>
+    <exception cref="ConfigError">Not a string, or no shipped theme of that
+    name has a look to lend.</exception>
+    <remarks>Checked against the installed themes now rather than at draw
+    time, in keeping with everything else here: a theme that is not there
+    would otherwise draw plain tiles with no word of why.</remarks>
+    """
+    value = _str(table, "theme", where)
+    if not value:
+        return None
+    if themes.look(value) is None:
+        raise ConfigError(f"{where}: 'theme' names no installed theme with a look: '{value}'")
+    return value
 
 
 def _colour(table: dict, key: str, where: str, default: str | None = None) -> str | None:
@@ -1273,7 +1303,7 @@ def _parse_pages(raw: Any, base_dir: Path) -> tuple[Page, ...]:
         pages.append(Page(name=name, keys=_parse_keys(table.get("keys", []), f"page '{name}'", base_dir),
                           match_window=_pattern(table, "match_window", where),
                           wallpaper=_resolve(wallpaper, base_dir) if wallpaper else None,
-                          changed=_changed(table, where)))
+                          changed=_changed(table, where), theme=_theme(table, where)))
 
     for page in pages:
         for key in page.keys.values():
@@ -2182,7 +2212,7 @@ def document_from_config(config: Config) -> dict:
             })
         pages.append({"name": page.name, "keys": keys, "match_window": page.match_window,
                       "wallpaper": _relative(page.wallpaper, config.base_dir),
-                      "changed": page.changed})
+                      "changed": page.changed, "theme": page.theme})
     strip: list[Any] = []
     for tile in config.strip:
         if tile.kind == "image":
@@ -2218,6 +2248,7 @@ def document_from_config(config: Config) -> dict:
             "key_pitch_x": config.deck.key_pitch_x,
             "key_pitch_y": config.deck.key_pitch_y,
             "night_brightness": config.deck.night_brightness,
+            "theme": config.deck.theme,
         },
         "kodi": {
             "url": config.kodi.url,
@@ -2416,6 +2447,8 @@ def to_toml(document: dict) -> str:
             lines.append(f"match_window = {_toml_value(page['match_window'])}")
         if page.get("wallpaper"):
             lines.append(f"wallpaper = {_toml_value(page['wallpaper'])}")
+        if page.get("theme"):
+            lines.append(f"theme = {_toml_value(page['theme'])}")
         if page.get("changed"):
             lines.append(f"changed = {_toml_value(page['changed'])}")
         lines.append("")

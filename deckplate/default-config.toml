@@ -44,6 +44,10 @@ focus_poll_ms = 200
 # The colour behind every key and panel that does not set its own
 # background = "#rrggbb". This is the original navy.
 background = "#141c28"
+# An icon theme whose look the clock, date, weather and gauges are drawn in,
+# so they match its icons. Today only wrist-console carries one. A page may
+# set its own theme the same way.
+# theme = "wrist-console"
 # The official SOOMFON app (and OpenDeck or StreamController on Linux) fights
 # over the deck if it is running at the same time. What to do when one is
 # found at start: "ask" in the terminal, "stop" it without asking, or "keep"

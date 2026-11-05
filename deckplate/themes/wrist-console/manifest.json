@@ -1,6 +1,27 @@
 {
   "name": "Wrist Console",
   "file_prefix": "",
+  "look": {
+    "ink": [
+      96,
+      255,
+      128
+    ],
+    "black": [
+      5,
+      16,
+      9
+    ],
+    "alert": [
+      255,
+      110,
+      80
+    ],
+    "glow": 0.5,
+    "pitch": 4,
+    "lines": 96,
+    "fall": 110
+  },
   "icons": [
     {
       "id": "volume-up",

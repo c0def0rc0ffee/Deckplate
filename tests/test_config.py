@@ -743,6 +743,7 @@ def test_following_the_focus_is_off_unless_asked_for():
     </remarks>
     """
     assert cfg.parse(MINIMAL, "/base").deck.follow_focus is False
+    assert cfg.parse(MINIMAL, "/base").deck.theme is None
     assert cfg.parse("[deck]\nfollow_focus = true\n" + MINIMAL, "/base").deck.follow_focus is True
     with pytest.raises(cfg.ConfigError, match="follow_focus"):
         cfg.parse("[deck]\nfollow_focus = 'yes'\n" + MINIMAL, "/base")
@@ -1455,3 +1456,27 @@ def test_a_page_changed_stamp_is_kept_as_written_and_checked():
         cfg.parse('[[pages]]\nname = "A"\nchanged = "yesterday"', Path("/base"))
     with pytest.raises(cfg.ConfigError):
         cfg.parse('[[pages]]\nname = "A"\nchanged = 5', Path("/base"))
+
+
+def test_theme_names_a_shipped_look_on_the_deck_or_a_page():
+    """<summary>
+    The theme field takes the slug of a theme with a look, on the deck and
+    on a page, and refuses anything else at load.
+    </summary>
+    <remarks>Refused at load like every other field, so a misspelt theme is
+    a message rather than a deck quietly drawn plain.</remarks>
+    """
+    config = cfg.parse("[deck]\ntheme = 'wrist-console'\n" + MINIMAL, "/base")
+    assert config.deck.theme == "wrist-console"
+    assert config.pages[0].theme is None
+    config = cfg.parse(MINIMAL + "theme = 'wrist-console'\n", "/base")
+    assert config.deck.theme is None and config.pages[0].theme == "wrist-console"
+    with pytest.raises(cfg.ConfigError, match="theme"):
+        cfg.parse("[deck]\ntheme = 'controls'\n" + MINIMAL, "/base")
+    with pytest.raises(cfg.ConfigError, match="theme"):
+        cfg.parse("[deck]\ntheme = 7\n" + MINIMAL, "/base")
+    document = cfg.document_from_config(config)
+    assert document["pages"][0]["theme"] == "wrist-console"
+    text = cfg.to_toml(document)
+    assert "theme = \"wrist-console\"" in text
+    assert cfg.parse(text, "/base").pages[0].theme == "wrist-console"

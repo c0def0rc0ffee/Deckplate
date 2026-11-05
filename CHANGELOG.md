@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- A theme can lend its look to the tiles the daemon draws from a reading:
+  `theme = "wrist-console"` under `[deck]`, or on a page, draws the clock,
+  the date, the weather, the machine gauges, the lights, the Pi-hole, the
+  NAS, a label only key and a timer's face in that theme's green phosphor
+  and puts them through the same glow, corner fall and scan lines as its
+  icons, at three times the size and shrunk as the icons were. On the
+  configuration page as the Look choice in the deck settings and in each
+  page's settings; a page's choice overrides the deck's. Wrist Console is
+  the one theme carrying a `look` block in its manifest today, and the
+  icon tool writes the block for a tube style so a regenerated theme keeps
+  it. A bar or figure past its limit is drawn in a warm red, the one colour
+  a monochrome tube is lent, since an alarm in the same green would not be
+  seen as one. Plain decks draw exactly as before.
 - A `shimmer` animation kind: a soft band of light rolling down the key's
   own picture with the faint flicker of an old screen, the one animation
   that plays over the picture rather than in its place, so a Wrist Console

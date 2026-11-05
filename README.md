@@ -158,6 +158,7 @@ complete setups drawn below. In short:
 [deck]
 brightness = 70
 background = "#141c28"
+theme = "wrist-console"   # the clock, date, weather and gauges drawn in this theme's look
 
 [strip]
 tiles = ["clock", "date", "weather"]
@@ -231,6 +232,17 @@ compass, the words STATUS, ITEMS, DATA, MAP and RADIO) drawn smooth in green
 phosphor on a dark tube with scan lines and a glow, as a wrist worn
 computer from a retro future would show them. The whole set is on one sheet in
 [docs/images/themes.png](docs/images/themes.png).
+
+A theme can lend its look to the tiles the daemon draws itself, the clock,
+the date, the weather, the machine, the lights, the Pi-hole and the NAS,
+which cannot be pictures because they are drawn from a reading. Wrist
+Console does: set `theme = "wrist-console"` under `[deck]`, or on one page
+to override the deck, and those tiles come out in the same green phosphor,
+with the same glow, corner fall and scan lines, drawn at three times the
+size and shrunk exactly as the icons were. On the page it is the Look
+choice in the deck settings and in each page's own settings. A theme
+declares its look as a `look` block in its manifest, so another theme can
+carry one too.
 
 ## The local API
 

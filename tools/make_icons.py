@@ -3361,6 +3361,21 @@ class Tube(Console):
         self.lines = lines
         self.fall = fall
 
+    def look(self) -> dict:
+        """<summary>
+        The manifest's ``look`` block for this style: what the daemon needs
+        to draw its own tiles, the clock and the gauges, in the same
+        phosphor and through the same finish as these icons.
+        </summary>
+        <returns>A JSON ready dict; see deckplate.looks.parse for the fields.</returns>
+        <remarks>The alert colour is the one thing not taken from the style:
+        a tube has one phosphor, and an alarm drawn in it would not be seen
+        as one, so the look names a warm red for the bars and figures that
+        have gone past their limit.</remarks>
+        """
+        return {"ink": list(self.amber), "black": list(self.black), "alert": [255, 110, 80],
+                "glow": self.glow, "pitch": self.pitch, "lines": self.lines, "fall": self.fall}
+
     def draw(self, glyph, lit: bool = False, t: float | None = None) -> Image.Image:
         """<summary>
         Draw one glyph as a finished key face.
@@ -3504,7 +3519,11 @@ def write_theme(folder: Path, set_name: str = "space-game") -> int:
             style.draw(icons[icon], lit=True).save(folder / f"{icon}{LIT_SUFFIX}.png")
         lit = {icon: {"id": f"{icon}{LIT_SUFFIX}", "label": f"{labels[icon]} Lit"} for icon in icons}
         listed = [entry for item in listed for entry in ([item, lit[item["id"]]] if item["id"] in lit else [item])]
-    manifest = {"name": name, "file_prefix": prefix, "icons": listed}
+    manifest = {"name": name, "file_prefix": prefix}
+    if hasattr(style, "look"):
+        # The style can say how the daemon's own tiles should be drawn to match.
+        manifest["look"] = style.look()
+    manifest["icons"] = listed
     (folder / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     return len(icons) + len(animated)
 

@@ -252,7 +252,7 @@ def test_document_shape():
                            "long_press_ms": cfg.LONG_PRESS_DEFAULT_MS,
                            "double_press_ms": cfg.DOUBLE_PRESS_DEFAULT_MS,
                            "follow_focus": False, "focus_poll_ms": cfg.FOCUS_POLL_DEFAULT_MS,
-                           "night_brightness": 0,
+                           "night_brightness": 0, "theme": None,
                            "key_pitch_x": None, "key_pitch_y": None}
     assert doc["server"]["port"] == 9000 and doc["server"]["token"] is None
     assert doc["weather"]["location_name"] == "St Peter Port"

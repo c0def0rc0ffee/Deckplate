@@ -1502,6 +1502,11 @@
         ? "The key pitch is set, so the picture runs straight through the gaps between keys."
         : "Measure the key pitch with  deckplate calibrate-grid  and put it in the config so the picture runs straight through the gaps; until then the keys are treated as touching.") }));
     editor.append(field);
+    editor.append(lookField("Look for the drawn tiles",
+      () => page.theme || null,
+      value => change(d => { d.pages[pageIndex()].theme = value; }),
+      "Same as the deck",
+      "The clock face of a timer, the weather, the gauges and any label only key on this page drawn in a theme's own look."));
   }
 
   /**
@@ -3307,6 +3312,48 @@
    * <param name="options">Pairs of stored value and label, in the order shown.</param>
    * <returns>The field element.</returns>
    */
+  /**
+   * <summary>A choice of theme look for the drawn tiles, filled in once the
+   * themes have loaded.</summary>
+   * <param name="labelText">The field's label.</param>
+   * <param name="get">Reads the current slug, or null for none.</param>
+   * <param name="set">Writes a slug, or null for none.</param>
+   * <param name="noneText">What the empty choice is called: plain for the
+   * deck, following the deck for a page.</param>
+   * <param name="help">The help line under the field.</param>
+   * <returns>The field element.</returns>
+   * <remarks>
+   * Only themes whose manifest carries a look are offered, which is what the
+   * themes listing's look flag is for; a theme of icons alone cannot draw a
+   * clock. The select is built with the current value as its only option
+   * first, so a slug the daemon reported stays shown while the listing is
+   * fetched, and is kept if the listing fails.
+   * </remarks>
+   */
+  const lookField = (labelText, get, set, noneText, help) => {
+    const select = el("select");
+    const current = get() || "";
+    select.append(el("option", { value: "", text: noneText }));
+    if (current) select.append(el("option", { value: current, text: current }));
+    select.value = current;
+    select.addEventListener("change", () => set(select.value || null));
+    loadThemes().then(themes => {
+      select.innerHTML = "";
+      select.append(el("option", { value: "", text: noneText }));
+      let seen = false;
+      for (const theme of themes) {
+        if (!theme.look) continue;
+        select.append(el("option", { value: theme.slug, text: theme.name }));
+        if (theme.slug === current) seen = true;
+      }
+      if (current && !seen) select.append(el("option", { value: current, text: current }));
+      select.value = current;
+    }).catch(() => {});
+    const parts = [el("label", { text: labelText }), select];
+    if (help) parts.push(el("div", { class: "help", text: help }));
+    return el("div", { class: "field" }, parts);
+  };
+
   const selectField = (section, name, labelText, options) => {
     const select = el("select");
     for (const [value, label] of options) select.append(el("option", { value, text: label }));
@@ -3436,6 +3483,11 @@
         value => change(d => { d.deck.background = value || BUILT_IN_BACKGROUND; }, { silent: true }),
         () => BUILT_IN_BACKGROUND,
         "Used by every key and strip panel without its own colour. Set to default restores the original navy."),
+      lookField("Look for the drawn tiles",
+        () => doc.deck.theme || null,
+        value => change(d => { d.deck.theme = value; }, { silent: true }),
+        "Plain",
+        "The clock, date, weather and gauges drawn in a theme's own colours and finish, so they match its icons. A page can choose its own."),
       (() => {
         const flash = el("input", { type: "checkbox", id: "pressFlash" });
         flash.checked = doc.deck.press_flash !== false;
