@@ -61,7 +61,8 @@ PLAYING_LABELS = ("none", "band", "scroll")
 ACTION_TYPES = ("hotkey", "sequence", "chord", "hold", "boost", "repeat",
                 "text", "launch", "url", "request", "page", "brightness", "sleep", "multi",
                 "toggle", "volume", "audio_output", "window", "timer", "stopwatch", "counter",
-                "stay_awake", "dnd", "status", "kodi", "weather", "system", "wled", "pihole", "synology")
+                "stay_awake", "dnd", "status", "kodi", "weather", "system", "wled", "pihole", "synology",
+                "homeassistant")
 # The toggling desktop actions: like a hold they run until pressed again,
 # so they cannot be a step of another action either.
 DESKTOP_TOGGLES = ("stay_awake", "dnd")
@@ -1888,6 +1889,45 @@ def _parse_action(table: Any, where: str, nested: bool = False) -> Action:
         params["do"] = do
         params["seconds"] = _int(table, "seconds", where, pihole_module.DEFAULT_PAUSE_S, *pihole_module.PAUSE_RANGE)
         params["every_ms"] = _int(table, "every_ms", where, pihole_module.DEFAULT_EVERY_MS, *STATUS_EVERY_RANGE)
+    elif kind == "homeassistant":
+        # The key draws one Home Assistant entity's state and wears a lamp
+        # for an entity that is on or off; the press toggles it, turns it on
+        # or off, calls a service, or opens Home Assistant.
+        if nested:
+            raise ConfigError(f"{where}: a homeassistant action cannot be a step of another action")
+        from . import homeassistant as ha_module
+        url = _str(table, "url", where, required=True) or ""
+        if not url.startswith(("http://", "https://")):
+            raise ConfigError(f"{where}: 'url' must start with http:// or https://")
+        params["url"] = url
+        params["token_file"] = _str(table, "token_file", where) or None
+        insecure = table.get("insecure", False)
+        if not isinstance(insecure, bool):
+            raise ConfigError(f"{where}: 'insecure' must be true or false")
+        params["insecure"] = insecure
+        # Not required at load, like the token file: a key being set up on
+        # the page has neither yet, and the face says so until it does.
+        entity = _str(table, "entity", where) or None
+        if entity is not None and ("." not in entity or " " in entity):
+            raise ConfigError(f"{where}: 'entity' must be an entity id such as light.lounge")
+        params["entity"] = entity
+        do = _str(table, "do", where, "toggle") or "toggle"
+        if do not in ha_module.DOINGS:
+            raise ConfigError(f"{where}: 'do' must be one of {', '.join(ha_module.DOINGS)}")
+        params["do"] = do
+        service = _str(table, "service", where) or None
+        if do == "service" and not service:
+            raise ConfigError(f"{where}: 'do' = \"service\" needs 'service', such as script.turn_on")
+        if service is not None and "." not in service:
+            raise ConfigError(f"{where}: 'service' must be domain.service, such as light.turn_on")
+        params["service"] = service
+        data = _str(table, "data", where) or None
+        try:
+            ha_module.parse_data(data)
+        except ValueError as err:
+            raise ConfigError(f"{where}: {err}") from None
+        params["data"] = data
+        params["every_ms"] = _int(table, "every_ms", where, ha_module.DEFAULT_EVERY_MS, *STATUS_EVERY_RANGE)
     elif kind == "synology":
         # The key draws free space, load or temperature from a Synology NAS
         # and wears its health as the lamp; the press opens DSM.

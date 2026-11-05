@@ -2920,3 +2920,63 @@ lamp = { kind = "page", page = "Second" }
     # two keys alone, both down: so summing Second is red.
     assert controller._page_dot(cfg.LampSettings(kind="page", page="Second")) == tiles_module.DOT_DOWN
     assert controller._page_dot(cfg.LampSettings(kind="page", page="Nowhere")) == tiles_module.DOT_UNKNOWN
+
+
+def test_a_homeassistant_key_is_watched_draws_the_state_and_wears_the_lamp_for_an_on_or_off_entity(setup):
+    """<summary>
+    A homeassistant key's entity is handed to the monitor with its server,
+    token file, certificate setting and interval; a key with no entity yet
+    is not; the key draws the state once the reading is in; a light wears a
+    green lamp while on and red while off, a sensor wears none, and both
+    are grey before the first answer.
+    </summary>
+    """
+    from deckplate import tiles as tiles_module
+    from deckplate.homeassistant import HomeAssistantMonitor, HomeAssistantReading
+    controller, deck, clock, urls, path = setup
+    answers = {"light.lounge": HomeAssistantReading("light.lounge", "on", "Lounge"),
+               "sensor.office": HomeAssistantReading("sensor.office", "21.4", "Office", "°C")}
+    watched = []
+
+    def prober(url, token_file, insecure, entity):
+        watched.append((url, token_file, insecure, entity))
+        return answers[entity]
+
+    monitor = HomeAssistantMonitor(prober=prober, monotonic=lambda: clock.mono, log=lambda t: None, threaded=False)
+    controller.homeassistant = monitor
+    controller.runner.homeassistant = monitor
+    controller.reload(cfg.parse(TEXT + """
+[[pages.keys]]
+row = 0
+column = 1
+label = "Lounge"
+action = { type = "homeassistant", url = "http://ha.test/", token_file = "~/h", insecure = true, entity = "light.lounge", every_ms = 15000 }
+
+[[pages.keys]]
+row = 0
+column = 2
+action = { type = "homeassistant", url = "http://ha.test/", entity = "sensor.office" }
+
+[[pages.keys]]
+row = 0
+column = 3
+action = { type = "homeassistant", url = "http://ha.test/" }
+""", path.parent, path))
+    controller.switch_page("Second")
+    light, sensor, bare = (controller.page.keys[(0, c)] for c in (1, 2, 3))
+    size = controller.deck.image_size
+    assert controller._key_dot(light) == tiles_module.DOT_UNKNOWN and controller._key_dot(sensor) == tiles_module.DOT_UNKNOWN
+    before = controller._draw_key(0, 1, size, set())[0]
+    monitor.poll_once()
+    assert sorted(watched, key=str) == sorted([("http://ha.test/", None, False, "sensor.office"), ("http://ha.test/", "~/h", True, "light.lounge")], key=str)
+    assert controller._key_dot(light) == tiles_module.DOT_UP
+    assert controller._key_dot(sensor) is None
+    assert controller._key_dot(bare) == tiles_module.DOT_UNKNOWN
+    after = controller._draw_key(0, 1, size, set())[0]
+    assert before.tobytes() != after.tobytes()
+    cx, cy = size - round(size * tiles_module.DOT_INSET), round(size * tiles_module.DOT_INSET)
+    assert after.getpixel((cx, cy)) == tiles_module.DOT_UP
+    monitor.update("http://ha.test/", HomeAssistantReading("light.lounge", "off", "Lounge"))
+    assert controller._key_dot(light) == tiles_module.DOT_DOWN
+    assert controller._draw_key(0, 1, size, set())[0].tobytes() != after.tobytes()
+    assert controller._draw_key(0, 2, size, set())[0].getpixel((cx, cy)) != tiles_module.DOT_UP

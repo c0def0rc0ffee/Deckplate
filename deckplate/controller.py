@@ -39,6 +39,7 @@ from .config import MARK_DEFAULT_FLASH_MS, POSITIONAL_ACTIONS, Action, Config, l
 from .media import ArtCache, KodiPlayingMonitor, MediaService, fetch_kodi
 from .pihole import PiholeMonitor
 from .synology import SynologyMonitor
+from .homeassistant import HomeAssistantMonitor
 from .presses import Actions, PressRouter
 from .protocol import KeyEvent
 from .lights import LightsMonitor
@@ -374,6 +375,7 @@ class Controller:
                  art: ArtCache | None = None,
                  pihole: PiholeMonitor | None = None,
                  synology: SynologyMonitor | None = None,
+                 homeassistant: HomeAssistantMonitor | None = None,
                  on_reload: Callable[[Config], None] | None = None) -> None:
         """<summary>
         Wire a deck to a config, without drawing anything yet.
@@ -406,6 +408,7 @@ class Controller:
         here if not given; it fetches nothing until a panel asks.</param>
         <param name="pihole">The monitor behind pihole keys, likewise.</param>
         <param name="synology">The monitor behind synology keys, likewise.</param>
+        <param name="homeassistant">The monitor behind homeassistant keys, likewise.</param>
         <param name="system">The machine reader for the strip. Made here if
         not given; read only while a panel shows it.</param>
         <param name="on_reload">Called with the new config at the end of
@@ -436,6 +439,8 @@ class Controller:
         self.pihole = pihole or PiholeMonitor(monotonic=monotonic, log=log)
         self.runner.pihole = self.pihole
         self.synology = synology or SynologyMonitor(monotonic=monotonic, log=log)
+        self.homeassistant = homeassistant or HomeAssistantMonitor(monotonic=monotonic, log=log)
+        self.runner.homeassistant = self.homeassistant
         self.on_reload = on_reload
         # Whether the night brightness is in force, None until first checked.
         self._night: bool | None = None
@@ -524,6 +529,7 @@ class Controller:
         self._watch_media()
         self._watch_pihole()
         self._watch_synology()
+        self._watch_homeassistant()
         self.render_all()
         self.log(f"showing page '{self.page.name}' with {len(self.page.keys)} keys")
         if self.config.deck.follow_focus:
@@ -874,7 +880,7 @@ class Controller:
             face = replace(face, ring=round(face.ring * 100) / 100)
         return (mark, active, face, self._key_dot(key), self._key_weather(key), self._key_system(key),
                 self._key_lights(key), self._key_playing_signature(key), self._key_pihole(key),
-                self._key_synology(key), self.page.theme or self.config.deck.theme)
+                self._key_synology(key), self._key_homeassistant(key), self.page.theme or self.config.deck.theme)
 
     def _key_pihole(self, key):
         """<summary>
@@ -889,6 +895,21 @@ class Controller:
         if key is None or key.action is None or key.action.type != "pihole":
             return None
         return self.pihole.state(key.action.params["url"])
+
+    def _key_homeassistant(self, key):
+        """<summary>
+        The Home Assistant reading a key draws or wears, or None for a key
+        with no homeassistant action.
+        </summary>
+        <param name="key">The key to judge, or None for an empty position.</param>
+        <returns>The latest reading for a key whose plain action is
+        homeassistant; otherwise None.</returns>
+        <remarks>As <see cref="_key_pihole"/>: in the signature whether or
+        not the key has a picture, since the lamp follows the reading.</remarks>
+        """
+        if key is None or key.action is None or key.action.type != "homeassistant":
+            return None
+        return self.homeassistant.state(key.action.params["url"], key.action.params.get("entity") or "")
 
     def _key_synology(self, key):
         """<summary>
@@ -1029,6 +1050,12 @@ class Controller:
             elif action.type == "synology":
                 reading = self.synology.state(action.params["url"])
                 up = None if reading is None else reading.healthy
+            elif action.type == "homeassistant":
+                # A figure or a word that is neither on nor off wears no lamp.
+                reading = self.homeassistant.state(action.params["url"], action.params.get("entity") or "")
+                if reading is not None and reading.on is None:
+                    return None
+                up = None if reading is None else reading.on
             else:
                 continue
             if up is None:
@@ -1226,6 +1253,9 @@ class Controller:
         elif key is not None and key.image is None and key.action is not None and key.action.type == "pihole":
             drawn = tiles.pihole_tile(self.pihole.state(key.action.params["url"]), size,
                                       tiles.key_background(key, default_bg), labelled=bool(key.label), look=look)
+        elif key is not None and key.image is None and key.action is not None and key.action.type == "homeassistant":
+            drawn = tiles.homeassistant_tile(self.homeassistant.state(key.action.params["url"], key.action.params.get("entity") or ""),
+                                             size, tiles.key_background(key, default_bg), labelled=bool(key.label), look=look)
         elif key is not None and key.image is None and key.action is not None and key.action.type == "synology":
             drawn = tiles.synology_tile(self.synology.state(key.action.params["url"]), size,
                                         key.action.params.get("show", "space"), key.action.params.get("volume"),
@@ -2090,6 +2120,23 @@ class Controller:
                         boxes.append((p["url"], p.get("token_file"), bool(p.get("insecure")), p["every_ms"]))
         self.pihole.watch(boxes)
 
+    def _watch_homeassistant(self) -> None:
+        """<summary>
+        Hand the Home Assistant monitor every entity a homeassistant key on
+        any page names.
+        </summary>
+        <remarks>As <see cref="_watch_pihole"/>: every page, at start and
+        after a reload. A key with no entity yet is left out, since there
+        is nothing to ask for.</remarks>"""
+        entities = []
+        for page in self.config.pages:
+            for key in page.keys.values():
+                for action in key.actions():
+                    if action is not None and action.type == "homeassistant" and action.params.get("entity"):
+                        p = action.params
+                        entities.append((p["url"], p.get("token_file"), bool(p.get("insecure")), p["entity"], p["every_ms"]))
+        self.homeassistant.watch(entities)
+
     def _watch_synology(self) -> None:
         """<summary>
         Hand the Synology monitor every box a synology key on any page names.
@@ -2324,6 +2371,7 @@ class Controller:
         self.art.stop()
         self.pihole.stop()
         self.synology.stop()
+        self.homeassistant.stop()
 
     def reload(self, config: Config) -> None:
         """<summary>
@@ -2380,6 +2428,7 @@ class Controller:
         self._watch_media()
         self._watch_pihole()
         self._watch_synology()
+        self._watch_homeassistant()
         self._strip_signatures = [None] * layout.ROWS
         self.animator.clear_all()
         self._flashes.clear()

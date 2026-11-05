@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- A `homeassistant` key: one entity's state drawn on the face, its name,
+  the state large and what kind of thing it is, with a lamp that is green
+  while the entity is on and red while it is off and none for a figure; a
+  press that toggles it, turns it on or off, calls a service of the key's
+  choosing with its own data, or opens Home Assistant; and a monitor that
+  polls every watched entity on a thread of its own, with a press's answer
+  landing at once. The long lived access token lives in a file alone,
+  written by the page. On the configuration page as Home Assistant under
+  Programs and the web.
 - The configuration page puts the editor under the deck by default rather
   than beside it, across the page's whole width, with the deck drawn
   smaller so the editor's top stays in view; the editor had grown too long

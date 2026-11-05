@@ -171,6 +171,10 @@ tiles = ["clock", "date", "weather"]
 #              (the password alone)  show = "space" (free space, volume = "volume_1" for one volume) |
 #              "load" (processor and memory) | "system" (temperature and uptime); wears a lamp,
 #              green while every volume and disk is normal; the press opens DSM
+#   homeassistant  url = "http://homeassistant.local:8123/"  token_file = "~/.deckplate-tokens/homeassistant"
+#              (a long lived access token alone)  entity = "light.lounge"  do = "toggle" | "turn_on" |
+#              "turn_off" | "service" (service = "script.turn_on", data = '{"x": 1}') | "open";
+#              draws the entity's state and wears a lamp while it is on or off
 #   kodi       do = "play_pause" | "pause" | "play" | "stop" | "next" | "previous" | "up" |
 #              "down" | "left" | "right" | "select" | "back" | "home" | "info" | "context" |
 #              "osd" | "volume_up" | "volume_down" | "mute", or method = "..." with

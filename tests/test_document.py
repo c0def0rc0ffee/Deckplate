@@ -610,3 +610,29 @@ def test_a_synology_key_round_trips_and_its_faults_are_named():
                             ({"type": "multi", "steps": [{"type": "synology", "url": "http://nas.test:5000/", "account": "deck"}]}, "step")):
         with pytest.raises(cfg.ConfigError, match=message):
             cfg.parse(cfg.to_toml(page(action)), Path("/base"))
+
+
+def test_a_homeassistant_key_round_trips_and_its_faults_are_named():
+    """<summary>The homeassistant action's fields survive the save loop with
+    their defaults filled in, and a bad address, entity, doing, service,
+    data or nesting is refused.</summary>"""
+    import pytest
+    page = lambda action: {"pages": [{"name": "A", "keys": [{"row": 0, "column": 0, "action": action}]}]}
+    c = cfg.parse(cfg.to_toml(page({"type": "homeassistant", "url": "http://ha.test:8123/", "token_file": "~/t", "entity": "light.lounge"})), Path("/base"))
+    action = c.pages[0].keys[(0, 0)].action
+    assert action.type == "homeassistant"
+    assert action.params == {"url": "http://ha.test:8123/", "token_file": "~/t", "insecure": False, "entity": "light.lounge",
+                             "do": "toggle", "service": None, "data": None, "every_ms": 10000}
+    back = cfg.document_from_config(c)["pages"][0]["keys"][0]["action"]
+    assert back == dict(action.params, type="homeassistant")
+    full = cfg.parse(cfg.to_toml(page({"type": "homeassistant", "url": "http://ha.test/", "entity": "script.bedtime",
+                                       "do": "service", "service": "script.turn_on", "data": '{"variables": {"x": 1}}'})), Path("/base"))
+    assert full.pages[0].keys[(0, 0)].action.params["data"] == '{"variables": {"x": 1}}'
+    for action, message in (({"type": "homeassistant", "url": "ha.test"}, "http"),
+                            ({"type": "homeassistant", "url": "http://ha.test/", "entity": "lounge"}, "entity"),
+                            ({"type": "homeassistant", "url": "http://ha.test/", "do": "flush"}, "'do'"),
+                            ({"type": "homeassistant", "url": "http://ha.test/", "do": "service"}, "service"),
+                            ({"type": "homeassistant", "url": "http://ha.test/", "data": "nope"}, "JSON"),
+                            ({"type": "multi", "steps": [{"type": "homeassistant", "url": "http://ha.test/"}]}, "step")):
+        with pytest.raises(cfg.ConfigError, match=message):
+            cfg.parse(cfg.to_toml(page(action)), Path("/base"))

@@ -40,6 +40,7 @@ from .config import AnimationConfig, KeyConfig, StripTile
 from .media import NowPlaying
 from .lights import LightState
 from .pihole import PiholeReading
+from .homeassistant import HomeAssistantReading
 from .synology import SynologyReading
 from .system import SystemReading
 from .weather import Observation
@@ -1234,6 +1235,53 @@ def pihole_tile(reading: PiholeReading | None, size: int,
         counts = f"{compact_count(reading.queries)} asked, {compact_count(reading.blocked)} out"
         font = images.load_font(_fit_font_size(counts, size - 8, int(room * 0.13)))
         draw.text((size / 2, room * 0.74), counts, fill=p.muted, font=font, anchor="mm")
+        return tile
+    return looks.render(face, size, background, look)
+
+
+def homeassistant_tile(reading: HomeAssistantReading | None, size: int,
+                       background: tuple[int, int, int] | None = None, labelled: bool = False,
+                       look: looks.Look | None = None) -> Image.Image:
+    """<summary>
+    One Home Assistant entity on a key: its name, its state large, and
+    what kind of thing it is.
+    </summary>
+    <param name="reading">The latest reading, or None when unknown or unreachable.</param>
+    <param name="size">The tile size in pixels.</param>
+    <param name="background">RGB tuple behind everything, or None for the palette's own ground.</param>
+    <param name="labelled">True when a label band will go along the bottom,
+    which squeezes everything into the space above it.</param>
+    <param name="look">The theme's look to draw in, or None for the plain drawing.</param>
+    <returns>An upright tile, always.</returns>
+    <remarks>
+    The state is the figure worth a glance, so it gets the big type: a
+    temperature with its unit, or the word On, Off, Home. An off state is
+    drawn muted so a dark room reads dark across the desk. No reading draws
+    a quiet "no answer", as the other watched things say they have none.
+    The lamp in the corner is the controller's and goes on top of this.
+    </remarks>
+    """
+    def face(size: int, p: looks.Palette) -> Image.Image:
+        """<summary>The reading drawn at one size in one palette.</summary>
+        <param name="size">The size to draw at.</param>
+        <param name="p">The colours.</param>
+        <returns>An RGB tile.</returns>"""
+        tile = images.solid(p.background, size)
+        draw = ImageDraw.Draw(tile)
+        room = size * (0.74 if labelled else 1.0)
+        if reading is None:
+            draw.text((size / 2, room * 0.5), "no answer", fill=p.muted, font=images.load_font(int(size * 0.14)), anchor="mm")
+            return tile
+        name = reading.name
+        draw.text((size / 2, room * 0.16), name, fill=p.muted,
+                  font=images.load_font(_fit_font_size(name, size - 8, int(room * 0.13))), anchor="mm")
+        state = reading.text
+        colour = p.muted if reading.on is False else p.foreground
+        draw.text((size / 2, room * 0.5), state, fill=colour,
+                  font=images.load_font(_fit_font_size(state, size - 8, int(room * 0.28))), anchor="mm")
+        kind = reading.domain.replace("_", " ")
+        draw.text((size / 2, room * 0.82), kind, fill=p.muted,
+                  font=images.load_font(_fit_font_size(kind, size - 8, int(room * 0.11))), anchor="mm")
         return tile
     return looks.render(face, size, background, look)
 

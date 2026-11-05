@@ -48,6 +48,7 @@ colour, and a page may lay one wallpaper across all fifteen keys.
 | `system` | draws the processor temperature, load and memory; the press opens the system monitor |
 | `wled` | draws a WLED light's colour and brightness; the press toggles it, turns it on or off, picks a preset or steps the brightness |
 | `pihole` | draws today's share blocked on a Pi-hole 6 with a lamp for the blocking state; the press pauses and resumes it |
+| `homeassistant` | draws one Home Assistant entity's state, a light, a sensor, a door, with a lamp while it is on or off; the press toggles it, turns it on or off, or calls a service |
 | `synology` | draws a Synology NAS over DSM's API: free space with a gauge, the processor and memory loads, or the model, temperature and uptime, with a lamp for its health; the press opens DSM |
 | `kodi` | a remote control action for Kodi over its JSON RPC, play, pause, next, up, select and the rest, on the Kodi in `[kodi]` or on a second player the key names |
 
@@ -284,7 +285,7 @@ top of `deckplate/server.py` lists every route.
 | `deckplate/controller.py` | the daemon loop: render, presses, idle sleep, live reload |
 | `deckplate/actions.py`, `presses.py`, `holds.py`, `hotkeys.py` | what a press does, press or hold or double, the held keys, key names and the X test, pynput and xdotool backends |
 | `deckplate/tiles.py`, `animations.py`, `themes.py`, `live.py` | every picture a panel shows |
-| `deckplate/weather.py`, `status.py`, `lights.py`, `pihole.py`, `synology.py`, `kodi.py`, `media.py`, `system.py` | the things the deck watches, each polled on a thread of its own |
+| `deckplate/weather.py`, `status.py`, `lights.py`, `pihole.py`, `synology.py`, `homeassistant.py`, `kodi.py`, `media.py`, `system.py` | the things the deck watches, each polled on a thread of its own |
 | `deckplate/focus.py`, `awake.py`, `desktop.py`, `audio.py`, `conflicts.py` | the desktop: the focused window, idle and notifications, windows and sound, other deck software |
 | `deckplate/server.py`, `web/`, `gui.py`, `tray.py`, `cli.py` | the API, the page, its window, the tray icon, the command line |
 | `examples/`, `deploy/`, `tools/` | example setups, the udev rule and installers, the icon, theme and picture tools and the build |

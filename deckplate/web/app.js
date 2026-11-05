@@ -1910,7 +1910,7 @@
       if (!action) continue;
       if (action.type === "status" && !key.image_active && !key.label_active) return true;
       if (action.type === "kodi" && action.url) return true;
-      if (action.type === "pihole" || action.type === "synology") return true;
+      if (action.type === "pihole" || action.type === "synology" || action.type === "homeassistant") return true;
     }
     return false;
   }
@@ -1964,6 +1964,7 @@
       case "kodi": return { type, do: "play_pause" };
       case "pihole": return { type, url: "http://", do: "toggle", seconds: 300, every_ms: 10000, insecure: false };
       case "synology": return { type, url: "http://", show: "space", do: "open", every_ms: 30000, insecure: false };
+      case "homeassistant": return { type, url: "http://", do: "toggle", every_ms: 10000, insecure: false };
       case "weather": return { type };
       case "system": return { type };
     }
@@ -2054,6 +2055,8 @@
       icon: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 00-3.5 10.9c.8.6 1.5 1.6 1.5 2.6h4c0-1 .7-2 1.5-2.6A6 6 0 0012 3z"/>' },
     pihole: { label: "Pi-hole", help: "Shows today's queries and the share blocked; the press pauses blocking for a while and resumes it.", nested: false,
       icon: '<path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/>' },
+    homeassistant: { label: "Home Assistant", help: "Shows one entity's state, a light, a sensor, a door; the press toggles it, turns it on or off, or calls a service.", nested: false,
+      icon: '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M12 7v9"/><circle cx="12" cy="12" r="1.5"/><circle cx="9" cy="15" r="1.2"/><circle cx="15" cy="15" r="1.2"/>' },
     synology: { label: "Synology NAS", help: "Shows free space, the load or the temperature of a Synology NAS; the press opens DSM.", nested: false,
       icon: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7.5h8M8 11.5h8M8 15.5h4"/><circle cx="16" cy="16.5" r="0.9"/>' },
     kodi: { label: "Media centre", help: "Sends play, pause, stop or a remote control key to Kodi.",
@@ -2066,7 +2069,7 @@
    * enough failure to be worth saying out loud here.</remarks> */
   const ACTION_GROUPS = [
     { title: "Keys and text", types: ["hotkey", "sequence", "chord", "text", "hold", "boost", "repeat"] },
-    { title: "Programs and the web", types: ["launch", "url", "request", "status", "weather", "system", "kodi", "wled", "pihole", "synology"] },
+    { title: "Programs and the web", types: ["launch", "url", "request", "status", "weather", "system", "kodi", "wled", "pihole", "synology", "homeassistant"] },
     { title: "Sound and windows", types: ["volume", "audio_output", "window"] },
     { title: "The desktop", types: ["stay_awake", "dnd"] },
     { title: "Keys that remember", types: ["toggle", "timer", "stopwatch", "counter"] },
@@ -2568,6 +2571,65 @@
         insecure.addEventListener("change", () => change(d => { getAction().insecure = insecure.checked; }, { silent: true }));
         box.append(el("div", { class: "field" }, [el("label", { class: "check", for: "pihole_insecure" }, [insecure, el("span", { text: "Accept a certificate that does not verify" })]),
           el("div", { class: "help", text: "For a box reached over https with its own certificate." })]));
+        box.append(millis("every_ms", "Ask every", { min: 5000, max: 3600000, step: 5000, fallback: 10000 }));
+        break;
+      }
+      case "homeassistant": {
+        const url = el("input", { type: "text", value: action.url || "", placeholder: "http://homeassistant.local:8123/" });
+        url.addEventListener("input", () => change(d => { getAction().url = url.value.trim(); }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { text: "Home Assistant address" }), url,
+          el("div", { class: "help", text: "The address Home Assistant is opened at, port and all. The key draws the entity's state and wears a lamp that is green while it is on and red while it is off; a figure such as a temperature gets no lamp. Give it no picture, or the picture wins and only the lamp shows." })]));
+        const tokenFile = el("input", { type: "text", value: action.token_file || "", placeholder: "~/.deckplate-tokens/homeassistant" });
+        tokenFile.addEventListener("input", () => change(d => {
+          const a = getAction();
+          if (tokenFile.value.trim()) a.token_file = tokenFile.value.trim(); else delete a.token_file;
+        }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { text: "Token file" }), tokenFile,
+          el("div", { class: "help", text: "Holds a long lived access token, made under your profile's Security tab in Home Assistant, and nothing else." })]));
+        box.append(passwordFields(() => tokenFile.value.trim(), () => "~/.deckplate-tokens/homeassistant", path => {
+          tokenFile.value = path;
+          change(d => { getAction().token_file = path; }, { silent: true });
+        }, "token"));
+        const entity = el("input", { type: "text", value: action.entity || "", placeholder: "light.lounge", autocomplete: "off" });
+        entity.addEventListener("input", () => change(d => {
+          const a = getAction();
+          if (entity.value.trim()) a.entity = entity.value.trim(); else delete a.entity;
+        }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { text: "Entity" }), entity,
+          el("div", { class: "help", text: "The entity id as Home Assistant shows it under the entity's settings: light.lounge, sensor.office_temperature, cover.garage." })]));
+        const pick = el("select", {}, [
+          el("option", { value: "toggle", text: "Toggle it" }),
+          el("option", { value: "turn_on", text: "Turn it on" }),
+          el("option", { value: "turn_off", text: "Turn it off" }),
+          el("option", { value: "service", text: "Call a service" }),
+          el("option", { value: "open", text: "Open Home Assistant" }),
+        ]);
+        pick.value = action.do || "toggle";
+        const service = el("input", { type: "text", value: action.service || "", placeholder: "script.turn_on" });
+        const data = el("input", { type: "text", value: action.data || "", placeholder: '{"brightness_pct": 40}' });
+        const serviceField = el("div", {}, [
+          el("div", { class: "field" }, [el("label", { text: "Service" }), service,
+            el("div", { class: "help", text: "domain.service, as the developer tools name it. The entity above is sent with it unless the data names one." })]),
+          el("div", { class: "field" }, [el("label", { text: "Service data" }), data,
+            el("div", { class: "help", text: "A JSON object of extra fields for the service, or empty." })]),
+        ]);
+        const show = () => { serviceField.hidden = pick.value !== "service"; };
+        pick.addEventListener("change", () => { show(); change(d => { getAction().do = pick.value; }, { silent: true }); });
+        service.addEventListener("input", () => change(d => {
+          const a = getAction();
+          if (service.value.trim()) a.service = service.value.trim(); else delete a.service;
+        }, { silent: true }));
+        data.addEventListener("input", () => change(d => {
+          const a = getAction();
+          if (data.value.trim()) a.data = data.value.trim(); else delete a.data;
+        }, { silent: true }));
+        show();
+        box.append(el("div", { class: "field" }, [el("label", { text: "On press" }), pick]), serviceField);
+        const insecure = el("input", { type: "checkbox", id: "homeassistant_insecure" });
+        insecure.checked = !!action.insecure;
+        insecure.addEventListener("change", () => change(d => { getAction().insecure = insecure.checked; }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { class: "check", for: "homeassistant_insecure" }, [insecure, el("span", { text: "Accept a certificate that does not verify" })]),
+          el("div", { class: "help", text: "For a server reached over https with its own certificate." })]));
         box.append(millis("every_ms", "Ask every", { min: 5000, max: 3600000, step: 5000, fallback: 10000 }));
         break;
       }
@@ -3401,9 +3463,9 @@
    * writes the file with owner only permissions and the password is never
    * kept in the config.</remarks>
    */
-  function passwordFields(currentPath, defaultPath, onWritten) {
-    const pass = el("input", { type: "password", autocomplete: "new-password", placeholder: "password" });
-    const write = el("button", { type: "button", class: "ghost small", text: "Write password file" });
+  function passwordFields(currentPath, defaultPath, onWritten, what = "password") {
+    const pass = el("input", { type: "password", autocomplete: "new-password", placeholder: what });
+    const write = el("button", { type: "button", class: "ghost small", text: "Write " + what + " file" });
     const note = el("span", { class: "muted", text: "" });
     write.addEventListener("click", async () => {
       const path = currentPath() || defaultPath();
@@ -3418,9 +3480,9 @@
       }
     });
     return el("div", {}, [
-      el("div", { class: "field" }, [el("label", { text: "Password" }), pass]),
+      el("div", { class: "field" }, [el("label", { text: what.charAt(0).toUpperCase() + what.slice(1) }), pass]),
       el("div", { class: "field" }, [el("div", { class: "inline" }, [write, note]),
-        el("div", { class: "help", text: "Written once, by the daemon on this machine, to the password file above with owner only permissions. The password is never kept in the config." })]),
+        el("div", { class: "help", text: "Written once, by the daemon on this machine, to the " + what + " file above with owner only permissions. The " + what + " is never kept in the config." })]),
     ]);
   }
   /**
