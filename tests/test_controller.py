@@ -2980,3 +2980,40 @@ action = { type = "homeassistant", url = "http://ha.test/" }
     assert controller._key_dot(light) == tiles_module.DOT_DOWN
     assert controller._draw_key(0, 1, size, set())[0].tobytes() != after.tobytes()
     assert controller._draw_key(0, 2, size, set())[0].getpixel((cx, cy)) != tiles_module.DOT_UP
+
+
+def test_a_timestamp_key_is_redrawn_as_its_age_moves_on_with_no_new_reading(setup):
+    """<summary>
+    The face signature of a key showing a timestamp changes when the minute
+    of its age does, though the reading has not, and a key with a picture,
+    which draws no words, keeps the same signature.
+    </summary>
+    """
+    from datetime import timedelta
+    from deckplate.homeassistant import HomeAssistantMonitor, HomeAssistantReading
+    controller, deck, clock, urls, path = setup
+    seen = (clock.wall - timedelta(minutes=5)).astimezone().isoformat()
+    reading = HomeAssistantReading("sensor.seen", seen, "Seen", device_class="timestamp")
+    monitor = HomeAssistantMonitor(prober=lambda u, t, i, e: reading, monotonic=lambda: clock.mono, log=lambda t: None, threaded=False)
+    controller.homeassistant = monitor
+    controller.reload(cfg.parse(TEXT + """
+[[pages.keys]]
+row = 0
+column = 1
+action = { type = "homeassistant", url = "http://ha.test/", entity = "sensor.seen" }
+
+[[pages.keys]]
+row = 0
+column = 2
+image = "images/seen.png"
+action = { type = "homeassistant", url = "http://ha.test/", entity = "sensor.seen" }
+""", path.parent, path))
+    controller.switch_page("Second")
+    monitor.poll_once()
+    drawn, pictured = controller._face_signature(0, 1, set()), controller._face_signature(0, 2, set())
+    before = controller._draw_key(0, 1, controller.deck.image_size, set())[0]
+    assert controller._face_signature(0, 1, set()) == drawn
+    clock.advance(61)
+    assert controller._face_signature(0, 1, set()) != drawn
+    assert controller._face_signature(0, 2, set()) == pictured
+    assert controller._draw_key(0, 1, controller.deck.image_size, set())[0].tobytes() != before.tobytes()

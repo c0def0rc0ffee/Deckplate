@@ -1239,7 +1239,7 @@ def pihole_tile(reading: PiholeReading | None, size: int,
     return looks.render(face, size, background, look)
 
 
-def homeassistant_tile(reading: HomeAssistantReading | None, size: int,
+def homeassistant_tile(reading: HomeAssistantReading | None, now: datetime, size: int,
                        background: tuple[int, int, int] | None = None, labelled: bool = False,
                        look: looks.Look | None = None) -> Image.Image:
     """<summary>
@@ -1247,6 +1247,8 @@ def homeassistant_tile(reading: HomeAssistantReading | None, size: int,
     what kind of thing it is.
     </summary>
     <param name="reading">The latest reading, or None when unknown or unreachable.</param>
+    <param name="now">The moment a timestamp entity is measured from, passed
+    in rather than read here.</param>
     <param name="size">The tile size in pixels.</param>
     <param name="background">RGB tuple behind everything, or None for the palette's own ground.</param>
     <param name="labelled">True when a label band will go along the bottom,
@@ -1255,7 +1257,8 @@ def homeassistant_tile(reading: HomeAssistantReading | None, size: int,
     <returns>An upright tile, always.</returns>
     <remarks>
     The state is the figure worth a glance, so it gets the big type: a
-    temperature with its unit, or the word On, Off, Home. An off state is
+    temperature with its unit, the word On, Off, Home, or for a timestamp
+    the clock time it is coming at or how long ago it was. An off state is
     drawn muted so a dark room reads dark across the desk. No reading draws
     a quiet "no answer", as the other watched things say they have none.
     The lamp in the corner is the controller's and goes on top of this.
@@ -1275,7 +1278,7 @@ def homeassistant_tile(reading: HomeAssistantReading | None, size: int,
         name = reading.name
         draw.text((size / 2, room * 0.16), name, fill=p.muted,
                   font=images.load_font(_fit_font_size(name, size - 8, int(room * 0.13))), anchor="mm")
-        state = reading.text
+        state = reading.words(now)
         colour = p.muted if reading.on is False else p.foreground
         draw.text((size / 2, room * 0.5), state, fill=colour,
                   font=images.load_font(_fit_font_size(state, size - 8, int(room * 0.28))), anchor="mm")

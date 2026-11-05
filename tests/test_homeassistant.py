@@ -4,6 +4,8 @@ monitor polled, and a press through a recording request door.
 </summary>
 """
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 from deckplate import homeassistant as ha
@@ -148,3 +150,30 @@ def test_a_press_toggles_calls_a_service_or_opens_and_feeds_the_monitor(tmp_path
     assert runner.run(Action("homeassistant", dict(params, do="open")))
     assert opened == ["http://ha.test/"] and box.calls[-1][1].endswith("/light/turn_off")
     assert not runner.run(Action("homeassistant", dict(params, entity=None)))
+
+
+def test_a_timestamp_reads_as_the_time_coming_or_the_age_gone():
+    """<summary>A coming time is its clock time, weekday or date by how far
+    off it is; a past one is its age; only an entity marked timestamp is
+    read this way, and one with no value keeps its word.</summary>"""
+    now = datetime(2026, 11, 4, 20, 0)
+
+    def at(**gap):
+        """<summary>A timestamp reading the given gap from now.</summary>"""
+        state = (now + timedelta(**gap)).astimezone().isoformat()
+        return ha.parse_state({"entity_id": "sensor.t", "state": state, "attributes": {"device_class": "timestamp"}})
+    assert at(hours=11, minutes=5).words(now) == "07:05"
+    assert at(days=2).words(now) == "Fri 20:00"
+    assert at(days=9).words(now) == "13 Nov"
+    assert at(seconds=-20).words(now) == "just now"
+    assert at(minutes=-5, seconds=-30).words(now) == "5 min ago"
+    assert at(hours=-3).words(now) == "3 h ago"
+    assert at(days=-2).words(now) == "2 d ago"
+    assert at(days=-40).words(now) == "25 Sep"
+    assert at(hours=1).on is None
+    zulu = (now - timedelta(minutes=5)).astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    assert ha.parse_state({"entity_id": "sensor.t", "state": zulu, "attributes": {"device_class": "timestamp"}}).words(now) == "5 min ago"
+    plain = ha.parse_state({"entity_id": "sensor.t", "state": "2026-11-05T07:05:00+00:00", "attributes": {}})
+    assert plain.moment is None and plain.words(now) == plain.text
+    empty = ha.parse_state({"entity_id": "sensor.t", "state": "unavailable", "attributes": {"device_class": "timestamp"}})
+    assert empty.moment is None and empty.words(now) == "Unavailable"

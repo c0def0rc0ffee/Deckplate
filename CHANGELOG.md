@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A `homeassistant` key on a timestamp entity, such as the next dawn or a
+  device's last seen, no longer prints the raw date and time. A coming time
+  shows as its clock time, with the weekday or the date when it is further
+  off, in the machine's own zone; a past one shows its age, `5 min ago`,
+  and the key is redrawn as the age moves on with no new reading.
 - A `homeassistant` key: one entity's state drawn on the face, its name,
   the state large and what kind of thing it is, with a lamp that is green
   while the entity is on and red while it is off and none for a figure; a

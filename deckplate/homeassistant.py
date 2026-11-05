@@ -29,6 +29,7 @@ import json
 import threading
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
@@ -51,13 +52,15 @@ class HomeAssistantReading:
     <param name="state">The state as Home Assistant gives it: ``on``, ``21.4``, ``home``.</param>
     <param name="name">The friendly name, or the entity id when it has none.</param>
     <param name="unit">The unit of measurement, or an empty string.</param>
-    <param name="icon">The ``mdi:`` icon name Home Assistant holds for it, or an empty string. Not drawn; kept for the page.</param>"""
+    <param name="icon">The ``mdi:`` icon name Home Assistant holds for it, or an empty string. Not drawn; kept for the page.</param>
+    <param name="device_class">What Home Assistant says the entity measures, or an empty string. ``timestamp`` marks a state that is a date and time.</param>"""
 
     entity: str
     state: str
     name: str
     unit: str = ""
     icon: str = ""
+    device_class: str = ""
 
     @property
     def on(self) -> bool | None:
@@ -79,6 +82,48 @@ class HomeAssistantReading:
         if self.on is None and self.unit:
             return f"{self.state} {self.unit}".strip()
         return self.state.replace("_", " ").capitalize()
+
+    @property
+    def moment(self) -> datetime | None:
+        """<summary>The state as a date and time in the machine's own zone, or None when it is not one.</summary>
+        <remarks>Only an entity marked ``timestamp`` counts, so a text sensor
+        that happens to hold a date stays as written. A timestamp entity
+        that has no value reads ``unknown`` or ``unavailable``, which gives
+        None and is drawn as that word.</remarks>"""
+        if self.device_class != "timestamp":
+            return None
+        try:
+            return datetime.fromisoformat(self.state.replace("Z", "+00:00")).astimezone()
+        except ValueError:
+            return None
+
+    def words(self, now: datetime) -> str:
+        """<summary>The state as the face shows it at a given moment.</summary>
+        <param name="now">The moment to measure from, passed in so a tile can
+        be drawn at a fixed time in a test. Naive means the machine's zone.</param>
+        <returns><see cref="text"/> for anything but a timestamp. A coming
+        time within a day is the clock time, within a week the weekday and
+        clock time, and further off the date. A past time is its age, or
+        the date once it is over a month old.</returns>
+        <remarks>Whole minutes at the finest, so a key showing an age changes
+        once a minute at most, the same rate as a clock on the deck.</remarks>"""
+        when = self.moment
+        if when is None:
+            return self.text
+        seconds = (when - now.astimezone()).total_seconds()
+        date = f"{when.day} {when:%b}"
+        if seconds >= 0:
+            if seconds < 86_400:
+                return f"{when:%H:%M}"
+            return f"{when:%a %H:%M}" if seconds < 7 * 86_400 else date
+        age = -seconds
+        if age < 60:
+            return "just now"
+        if age < 3_600:
+            return f"{int(age // 60)} min ago"
+        if age < 86_400:
+            return f"{int(age // 3_600)} h ago"
+        return f"{int(age // 86_400)} d ago" if age < 30 * 86_400 else date
 
 
 def api_url(url: str, path: str) -> str:
@@ -116,7 +161,8 @@ def parse_state(payload: Any) -> HomeAssistantReading:
     return HomeAssistantReading(entity=entity, state=str(payload.get("state", "unknown")),
                                 name=str(attributes.get("friendly_name") or entity),
                                 unit=str(attributes.get("unit_of_measurement") or ""),
-                                icon=str(attributes.get("icon") or ""))
+                                icon=str(attributes.get("icon") or ""),
+                                device_class=str(attributes.get("device_class") or ""))
 
 
 def default_request(method: str, url: str, headers: dict, body: dict | None, timeout: float, verify: bool) -> tuple[int, Any]:

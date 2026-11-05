@@ -903,13 +903,19 @@ class Controller:
         </summary>
         <param name="key">The key to judge, or None for an empty position.</param>
         <returns>The latest reading for a key whose plain action is
-        homeassistant; otherwise None.</returns>
+        homeassistant, with the words its face shows now when it draws
+        them; otherwise None.</returns>
         <remarks>As <see cref="_key_pihole"/>: in the signature whether or
-        not the key has a picture, since the lamp follows the reading.</remarks>
+        not the key has a picture, since the lamp follows the reading. The
+        words are there because a timestamp's age moves on with no new
+        reading; a key with a picture draws none, so it is not resent.</remarks>
         """
         if key is None or key.action is None or key.action.type != "homeassistant":
             return None
-        return self.homeassistant.state(key.action.params["url"], key.action.params.get("entity") or "")
+        reading = self.homeassistant.state(key.action.params["url"], key.action.params.get("entity") or "")
+        if reading is None or key.image is not None:
+            return reading
+        return reading, reading.words(self.now())
 
     def _key_synology(self, key):
         """<summary>
@@ -1255,7 +1261,7 @@ class Controller:
                                       tiles.key_background(key, default_bg), labelled=bool(key.label), look=look)
         elif key is not None and key.image is None and key.action is not None and key.action.type == "homeassistant":
             drawn = tiles.homeassistant_tile(self.homeassistant.state(key.action.params["url"], key.action.params.get("entity") or ""),
-                                             size, tiles.key_background(key, default_bg), labelled=bool(key.label), look=look)
+                                             self.now(), size, tiles.key_background(key, default_bg), labelled=bool(key.label), look=look)
         elif key is not None and key.image is None and key.action is not None and key.action.type == "synology":
             drawn = tiles.synology_tile(self.synology.state(key.action.params["url"]), size,
                                         key.action.params.get("show", "space"), key.action.params.get("volume"),
