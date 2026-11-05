@@ -3,10 +3,17 @@
 ## Unreleased
 
 - The configuration page puts the editor under the deck by default rather
-  than beside it, at the deck column's full width, with the deck drawn
+  than beside it, across the page's whole width, with the deck drawn
   smaller so the editor's top stays in view; the editor had grown too long
-  for a side column. Editor position in the settings, under This window,
-  puts it back beside the deck, remembered by that browser alone.
+  for a side column. The page tabs above the deck go in this arrangement,
+  the pages list being the one place a page is picked, so the list opens
+  by default and scrolls inside the deck's height, stopping above the
+  editor. Editor position in the settings, under This window, puts the
+  editor back beside the deck with the tabs, remembered by that browser alone.
+  Under the deck the key editor's fields sit in three groups side by side,
+  the face, what a press does, and the lamp, player and gestures, as many
+  across as the width allows; the strip panel editor and the page settings
+  are grouped the same way.
 - A `page` kind of lamp: `lamp = { kind = "page" }` on the key that leads
   to a page sums up the lamps of the keys on that page, green while every
   one is green, red while every one is red, amber while they disagree and

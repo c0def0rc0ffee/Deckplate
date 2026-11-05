@@ -203,6 +203,16 @@
 -->
 <template id="tpl-editor-key">
   <h2>Key <span class="pos"></span></h2>
+  <!--
+    <summary>The key's settings in three groups: its face, what a press does, and the extras.</summary>
+    <remarks>
+    Under the deck the editor is wide, and the stylesheet lays these three
+    out side by side; beside the deck they stack in this order. The groups
+    are only boxes: app.js finds every field by id as before.
+    </remarks>
+  -->
+  <div class="editor-groups">
+  <div class="editor-group">
   <div class="field">
     <label for="keyLabel">Label</label>
     <input id="keyLabel" type="text" maxlength="24" placeholder="text shown on the key">
@@ -234,6 +244,8 @@
   </details>
   <div id="keyAnimation"></div>
   <div id="keyBackground"></div>
+  </div>
+  <div class="editor-group">
   <div class="field">
     <label for="actionType">Action</label>
     <button type="button" id="actionType" class="action-pick"></button>
@@ -248,6 +260,8 @@
     </remarks>
   -->
   <div id="keyMark"></div>
+  </div>
+  <div class="editor-group">
   <!--
     <summary>A lamp of the key's own, folded away unless it has one.</summary>
     <remarks>
@@ -302,6 +316,8 @@
     <button type="button" id="pressDoubleBtn" class="ghost" hidden>Try the double</button>
     <button type="button" id="clearBtn" class="ghost danger">Clear key</button>
   </div>
+  </div>
+  </div>
 </template>
 
 <!--
@@ -316,6 +332,8 @@
 -->
 <template id="tpl-editor-strip">
   <h2>Strip panel <span class="pos"></span></h2>
+  <div class="editor-groups">
+  <div class="editor-group">
   <div class="field">
     <label for="stripKind">Shows</label>
     <select id="stripKind">
@@ -334,10 +352,16 @@
     <div class="picker" id="stripPicture"></div>
   </div>
   <div id="stripAnimationField" hidden></div>
-  <div id="stripWeatherField" hidden></div>
   <div id="stripSourceField" hidden></div>
+  </div>
+  <div class="editor-group">
+  <div id="stripWeatherField" hidden></div>
+  </div>
+  <div class="editor-group">
   <div id="stripBackground"></div>
   <p class="muted">The strip is shared by every page.</p>
+  </div>
+  </div>
 </template>
 
 <!--

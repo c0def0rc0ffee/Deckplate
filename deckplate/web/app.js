@@ -153,8 +153,8 @@
       try { localStorage.setItem("deckplate." + key, JSON.stringify(value)); } catch (e) { /* storage off: nothing to do */ }
     },
   };
-  /** <summary>Which side panes are open. The editor starts open, the pages list shut.</summary> */
-  let panes = { pages: remembered.get("pane.pages", false) === true, editor: remembered.get("pane.editor", true) !== false };
+  /** <summary>Which side panes are open. Both start open: under the deck the list is the only way to pick a page.</summary> */
+  let panes = { pages: remembered.get("pane.pages", true) !== false, editor: remembered.get("pane.editor", true) !== false };
   /** <summary>Whether the editor sits under the deck rather than beside it. Under it unless this window chose otherwise.</summary> */
   let editorBelow = remembered.get("editor.below", true) !== false;
   /**
@@ -168,6 +168,8 @@
     editorBelow = below;
     remembered.set("editor.below", below);
     document.querySelector("main").classList.toggle("editor-below", below);
+    // With the tabs gone the list is the one way to pick a page, so it opens.
+    if (below && !panes.pages) setPane("pages", true);
     fitDeck();
   }
   /** <summary>The pages list's order and filter.</summary> */
@@ -1142,6 +1144,16 @@
       grid.style.columnGap = Math.round(ratioX * tile) + "px";
       grid.style.rowGap = Math.round(ratioY * tile) + "px";
     }
+    // Under the deck, the pages list stops where the deck pane does and
+    // scrolls inside that height, so the editor below starts in a straight
+    // line across the page. Measured after the tile is set, so it follows
+    // the deck's new size in the same pass.
+    const pagesCol = document.querySelector(".pages-col");
+    if (pagesCol) {
+      pagesCol.style.maxHeight = editorBelow
+        ? Math.max(120, Math.round(pane.getBoundingClientRect().bottom - pagesCol.getBoundingClientRect().top)) + "px"
+        : "";
+    }
 
     const density = window.devicePixelRatio || 1;
     const wanted = Math.min(maxScale, Math.max(1, Math.ceil(tile * density / native)));
@@ -1524,12 +1536,15 @@
       + (pitch
         ? "The key pitch is set, so the picture runs straight through the gaps between keys."
         : "Measure the key pitch with  deckplate calibrate-grid  and put it in the config so the picture runs straight through the gaps; until then the keys are treated as touching.") }));
-    editor.append(field);
-    editor.append(lookField("Look for the drawn tiles",
+    const look = lookField("Look for the drawn tiles",
       () => page.theme || null,
       value => change(d => { d.pages[pageIndex()].theme = value; }),
       "Same as the deck",
-      "The clock face of a timer, the weather, the gauges and any label only key on this page drawn in a theme's own look."));
+      "The clock face of a timer, the weather, the gauges and any label only key on this page drawn in a theme's own look.");
+    editor.append(el("div", { class: "editor-groups" }, [
+      el("div", { class: "editor-group" }, [field]),
+      el("div", { class: "editor-group" }, [look]),
+    ]));
   }
 
   /**
