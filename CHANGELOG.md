@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The configuration page puts the editor under the deck by default rather
+  than beside it, at the deck column's full width, with the deck drawn
+  smaller so the editor's top stays in view; the editor had grown too long
+  for a side column. Editor position in the settings, under This window,
+  puts it back beside the deck, remembered by that browser alone.
 - A `page` kind of lamp: `lamp = { kind = "page" }` on the key that leads
   to a page sums up the lamps of the keys on that page, green while every
   one is green, red while every one is red, amber while they disagree and

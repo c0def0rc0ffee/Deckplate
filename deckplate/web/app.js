@@ -155,6 +155,21 @@
   };
   /** <summary>Which side panes are open. The editor starts open, the pages list shut.</summary> */
   let panes = { pages: remembered.get("pane.pages", false) === true, editor: remembered.get("pane.editor", true) !== false };
+  /** <summary>Whether the editor sits under the deck rather than beside it. Under it unless this window chose otherwise.</summary> */
+  let editorBelow = remembered.get("editor.below", true) !== false;
+  /**
+   * <summary>Put the editor under the deck or beside it, and remember which.</summary>
+   * <param name="below">True for under the deck.</param>
+   * <remarks>The deck is refitted straight after, since the space it has
+   * changes both ways: the column widens when the editor leaves its side,
+   * and the height is capped while the editor sits beneath.</remarks>
+   */
+  function setEditorBelow(below) {
+    editorBelow = below;
+    remembered.set("editor.below", below);
+    document.querySelector("main").classList.toggle("editor-below", below);
+    fitDeck();
+  }
   /** <summary>The pages list's order and filter.</summary> */
   let pagesSort = remembered.get("pages.sort", "deck");
   let pagesSearch = "";
@@ -1112,9 +1127,14 @@
     const main = document.querySelector("main");
     const below = hintSpace + (main ? px(getComputedStyle(main).paddingBottom) : 0);
     const top = deck.getBoundingClientRect().top + document.documentElement.scrollTop;
+    // With the editor under the deck and open, the deck takes three fifths
+    // of what is left of the window, so the editor's top is in view without
+    // a scroll and a selected key's fields are seen to appear.
+    const share = editorBelow && panes.editor ? 0.6 : 1;
+    const room = (document.documentElement.clientHeight - top) * share;
     const byHeight = pitch
-      ? (document.documentElement.clientHeight - top - frameY - below) / (ROWS + ratioY * (ROWS - 1))
-      : (document.documentElement.clientHeight - top - frameY - rowGap * (ROWS - 1) - below) / ROWS;
+      ? (room - frameY - below) / (ROWS + ratioY * (ROWS - 1))
+      : (room - frameY - rowGap * (ROWS - 1) - below) / ROWS;
 
     const tile = Math.max(MIN_TILE, Math.floor(Math.min(byWidth, byHeight, native * maxScale)));
     grid.style.setProperty("--tile", tile + "px");
@@ -1208,6 +1228,9 @@
     const button = $(name === "pages" ? "#pagesBtn" : "#editorBtn");
     if (button) button.setAttribute("aria-pressed", open ? "true" : "false");
     markEditorAttention();
+    // Under the deck, the editor coming and going changes the deck's height
+    // cap and not its pane's width, which the ResizeObserver would not see.
+    if (name === "editor" && editorBelow) fitDeck();
   }
 
   /** <summary>The dot on the editor's button: a key is selected but the editor is away.</summary> */
@@ -3700,6 +3723,22 @@
       el("p", { class: "muted", text: "The icon opens this window or quits the daemon. It needs the pystray package, and on Linux a tray to sit in; the daemon says in its log when it cannot show one." }),
     ]));
 
+    // This window's own arrangement: the viewer's, kept in the browser,
+    // not a setting of the deck.
+    root.append(el("div", {}, [
+      el("h3", { text: "This window" }),
+      (() => {
+        const where = el("select", {}, [
+          el("option", { value: "below", text: "Under the deck" }),
+          el("option", { value: "beside", text: "Beside the deck" }),
+        ]);
+        where.value = editorBelow ? "below" : "beside";
+        where.addEventListener("change", () => setEditorBelow(where.value === "below"));
+        return el("div", { class: "field" }, [el("label", { text: "Editor position" }), where,
+          el("div", { class: "help", text: "Under the deck the editor has the full width and the deck is drawn smaller to leave it in view. Remembered by this browser only." })]);
+      })(),
+    ]));
+
     root.append(el("div", {}, [
       el("h3", { text: "Local API" }),
       el("p", { class: "muted", html: "Listening on <span class='kbd'>" + doc.server.bind + ":" + doc.server.port + "</span>. Change <span class='kbd'>[server]</span> in the config file and restart the daemon to alter it." }),
@@ -3900,6 +3939,7 @@
     // The side panes come up as they were left, without being seen to slide
     // there: "booting" holds the transitions off until the first paint is done.
     const main = document.querySelector("main");
+    main.classList.toggle("editor-below", editorBelow);
     setPane("pages", panes.pages);
     setPane("editor", panes.editor);
     requestAnimationFrame(() => requestAnimationFrame(() => main.classList.remove("booting")));

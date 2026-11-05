@@ -89,9 +89,11 @@ Pictures come from an upload or from the thirteen shipped icon themes behind
 "Choose from a theme". Every change saves a moment after you make it and the
 deck updates at once; Undo steps back.
 
-The editor slides in and out on the right from the button at the end of the
-header, and a pages list slides in on the left from the button at the start.
-Neither moves by itself. The list shows every page with its key count and
+The editor sits under the deck, the deck drawn smaller to leave it in view,
+and comes and goes from the button at the end of the header; Editor position
+in the settings puts it beside the deck instead, where it slides in and out,
+remembered by that browser. A pages list slides in on the left from the
+button at the start. Neither moves by itself. The list shows every page with its key count and
 when it was last edited, sorted by deck order, name, last edited or last
 shown, and a search finds pages by name and keys by label, action or the
 page they lead to; a key in the results takes the deck to its page and

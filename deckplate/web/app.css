@@ -226,7 +226,7 @@ input[type="range"] { accent-color: var(--signal); width: 140px; }
 .save.bad { color: var(--bad); }
 
 /**
-  <summary>The page body: tabs above, the deck on the left, the editor on the right.</summary>
+  <summary>The page body: tabs above, the deck below them, the editor under the deck by default or beside it by choice.</summary>
   <remarks>
   Named areas rather than source order, because the tabs need a row to
   themselves across the top. With them inside the deck pane the deck started one
@@ -320,6 +320,31 @@ main.editor-closed .editor {
   transition: transform var(--swoosh) ease, visibility 0s linear var(--swoosh);
 }
 main.booting, main.booting .pages-col, main.booting .editor-col, main.booting .pages-pane, main.booting .editor { transition: none; }
+
+/**
+ * <summary>The editor under the deck instead of beside it, the default.</summary>
+ * <remarks>
+ * The editor has grown long: a key with an action, an animation, a lamp
+ * and a player to follow is a column of folds that outruns the deck many
+ * times over, and beside the deck it was a narrow strip to scroll. Under
+ * it the editor takes the deck column's width, capped so the help lines
+ * stay readable, and the deck is sized by app.js to leave the editor's
+ * top in view. There is nowhere to slide to, so a hidden editor is simply
+ * gone, as it is when the page is stacked. The choice is the viewer's,
+ * kept in the browser, and the side by side arrangement above is what
+ * the other choice gives.
+ * </remarks>
+ */
+main.editor-below {
+  grid-template-columns: auto minmax(var(--deck-min), 1fr);
+  grid-template-areas:
+    "pages  tabs"
+    "pages  deck"
+    "pages  editor";
+}
+main.editor-below .editor-col { width: auto; transition: none; }
+main.editor-below .editor { width: auto; max-width: 820px; margin: 0; transform: none; transition: none; }
+main.editor-below.editor-closed .editor-col { display: none; }
 @media (max-width: 960px) {
   main {
     grid-template-columns: 1fr;
