@@ -973,11 +973,14 @@ class Controller:
             return (None, False)
         return (reading, self.art.image(reading.art, reading.art_token_file) is not None)
 
-    def _key_dot(self, key) -> tuple[int, int, int] | None:
+    def _key_dot(self, key, seen: frozenset[str] = frozenset()) -> tuple[int, int, int] | None:
         """<summary>
         The colour of the status lamp for this key, or None for no lamp.
         </summary>
         <param name="key">The key to judge, or None for an empty position.</param>
+        <param name="seen">The pages whose lamps are already being summed
+        up the chain, so two page lamps pointing at each other end rather
+        than recurse.</param>
         <returns>Green while the address answers, red while it does not, grey
         before the first answer; None for a key with no status action, or
         one that swaps its picture instead.</returns>
@@ -987,7 +990,9 @@ class Controller:
         the player in the other room is there, and how a key with a picture
         of a light shows whether the lounge lights are on. A wled lamp
         reads the lights monitor, as a wled key does, and is green while
-        the lights are on, red while off and grey while unreachable. Otherwise a status key that
+        the lights are on, red while off and grey while unreachable. A page
+        lamp is the sum of the lamps on another page, from
+        <see cref="_page_dot"/>. Otherwise a status key that
         carries an active picture or label has chosen to show its state by
         swapping the whole face, so it gets no lamp on top: one indicator
         per key. A kodi key with its own ``url`` is a player in another
@@ -1000,6 +1005,8 @@ class Controller:
         if key is None:
             return None
         if key.lamp is not None:
+            if key.lamp.kind == "page":
+                return self._page_dot(key.lamp, seen)
             if key.lamp.kind == "wled":
                 state = self.lights.state(key.lamp.url)
                 if state is None:
@@ -1028,6 +1035,47 @@ class Controller:
                 return tiles.DOT_UNKNOWN
             return tiles.DOT_UP if up else tiles.DOT_DOWN
         return None
+
+    def _page_dot(self, lamp, seen: frozenset[str] = frozenset()) -> tuple[int, int, int]:
+        """<summary>
+        One colour for a whole page: the lamps of its chosen keys summed up.
+        </summary>
+        <param name="lamp">The page lamp: which page, and which keys on it.</param>
+        <param name="seen">The pages already being summed up the chain.</param>
+        <returns>Green while every counted lamp is green, red while every
+        one is red, amber while they disagree, grey while none has answered
+        or there is nothing to count.</returns>
+        <remarks>
+        Keys with no lamp of their own are passed over, so a page of
+        services with a Back key among them sums only the services. With no
+        positions chosen every lamp on the page counts. Grey lamps among
+        green ones make amber, since a box that has not answered is not
+        known to be well, while a page of nothing but grey stays grey: that
+        is the daemon's first few seconds, not a fault. A page named in
+        ``seen``, or one that has gone from the config, gives grey rather
+        than an error or a loop.
+        </remarks>
+        """
+        if lamp.page in seen:
+            return tiles.DOT_UNKNOWN
+        page = next((p for p in self.config.pages if p.name == lamp.page), None)
+        if page is None:
+            return tiles.DOT_UNKNOWN
+        chosen = [page.keys.get(position) for position in lamp.keys] if lamp.keys else list(page.keys.values())
+        colours = []
+        for key in chosen:
+            colour = self._key_dot(key, seen | {lamp.page})
+            if colour is not None:
+                colours.append(colour)
+        if not colours:
+            return tiles.DOT_UNKNOWN
+        if all(c == tiles.DOT_UP for c in colours):
+            return tiles.DOT_UP
+        if all(c == tiles.DOT_DOWN for c in colours):
+            return tiles.DOT_DOWN
+        if all(c == tiles.DOT_UNKNOWN for c in colours):
+            return tiles.DOT_UNKNOWN
+        return tiles.DOT_MIXED
 
     def _key_weather(self, key):
         """<summary>

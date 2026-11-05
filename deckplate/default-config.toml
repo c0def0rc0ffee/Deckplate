@@ -140,6 +140,10 @@ tiles = ["clock", "date", "weather"]
 #   and wears the status lamp for that address whatever it does when pressed;
 #   every_ms, insecure and expect as on a status key. With kind = "wled" the
 #   url is a WLED device's own and the lamp is green while the lights are on.
+#   With kind = "page" there is no url: the lamp sums the lamps of the keys on
+#   another page, page = "Network" (or the page the key's own action leads
+#   to), keys = [[0, 0], [0, 1]] choosing which count (none for all of them);
+#   green while every one is green, red while every one is red, amber between.
 #   A key may carry playing = { source = "kodi", url = "...", token_file = "..." }
 #   (or source = "local", or source = "kodi" alone on a kodi key for its own
 #   player) and wears the picture of what that player is playing while it

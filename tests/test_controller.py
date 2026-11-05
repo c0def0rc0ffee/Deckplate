@@ -2835,3 +2835,88 @@ action = { type = "synology", url = "http://nas.test:5000/", account = "deck", s
     monitor.poll_once()
     assert controller._key_dot(plain) == tiles_module.DOT_DOWN
     assert controller._draw_key(0, 1, size, set())[0].tobytes() != after.tobytes()
+
+
+def test_a_page_lamp_sums_the_lamps_on_another_page(setup):
+    """<summary>
+    A key with a page lamp is green while every counted key on that page is
+    green, red while every one is red, amber while they disagree and grey
+    before any has answered; keys left out of the list do not count, and a
+    key with no lamp of its own never does.
+    </summary>
+    <remarks>The sum is part of the face signature, so the key redraws as
+    the services come and go, and two page lamps watching each other's
+    pages end in grey rather than recursing.</remarks>
+    """
+    from deckplate import tiles as tiles_module
+    from deckplate.status import StatusMonitor
+    controller, deck, clock, urls, path = setup
+    answers = {"http://a.test/": True, "http://b.test/": True, "http://c.test/": False}
+    monitor = StatusMonitor(prober=lambda w: answers[w.url], monotonic=lambda: clock.mono, log=lambda t: None,
+                            threaded=False)
+    controller.status = monitor
+    controller.reload(cfg.parse(TEXT + """
+[[pages.keys]]
+row = 0
+column = 1
+action = { type = "page", page = "Services" }
+lamp = { kind = "page", keys = [[0, 0], [0, 1]] }
+
+[[pages]]
+name = "Services"
+
+[[pages.keys]]
+row = 0
+column = 0
+action = { type = "status", url = "http://a.test/" }
+
+[[pages.keys]]
+row = 0
+column = 1
+action = { type = "status", url = "http://b.test/" }
+
+[[pages.keys]]
+row = 0
+column = 2
+action = { type = "status", url = "http://c.test/" }
+
+[[pages.keys]]
+row = 2
+column = 4
+label = "Back"
+action = { type = "page", page = "previous" }
+lamp = { kind = "page", page = "Second" }
+""", path.parent, path))
+    controller.switch_page("Second")
+    key = controller.page.keys[(0, 1)]
+    assert controller._key_dot(key) == tiles_module.DOT_UNKNOWN
+    monitor.poll_once()
+    before = controller._face_signature(0, 1, set())
+    assert controller._key_dot(key) == tiles_module.DOT_UP
+    answers["http://b.test/"] = False
+    clock.advance(61)
+    monitor.poll_once()
+    assert controller._key_dot(key) == tiles_module.DOT_MIXED
+    assert controller._face_signature(0, 1, set()) != before
+    answers["http://a.test/"] = False
+    clock.advance(61)
+    monitor.poll_once()
+    assert controller._key_dot(key) == tiles_module.DOT_DOWN
+    size = controller.deck.image_size
+    image, _frames, _fps = controller._draw_key(0, 1, size, set())
+    cx, cy = size - round(size * tiles_module.DOT_INSET), round(size * tiles_module.DOT_INSET)
+    assert image.getpixel((cx, cy)) == tiles_module.DOT_DOWN
+    # Every key counts when none is chosen. The Back key's own page lamp sums
+    # Second, whose page lamp sums Services again: the loop ends in grey, and
+    # a grey among three reds is amber, not red.
+    everything = cfg.LampSettings(kind="page", page="Services")
+    assert controller._page_dot(everything) == tiles_module.DOT_MIXED
+    assert controller._page_dot(cfg.LampSettings(kind="page", page="Services", keys=((2, 4),))) == tiles_module.DOT_UNKNOWN
+    answers["http://c.test/"] = True
+    clock.advance(61)
+    monitor.poll_once()
+    assert controller._page_dot(cfg.LampSettings(kind="page", page="Services", keys=((0, 0), (0, 2)))) == tiles_module.DOT_MIXED
+    # Second's only lamp is the page lamp under test, which counts the first
+    # two keys alone, both down: so summing Second is red.
+    assert controller._page_dot(cfg.LampSettings(kind="page", page="Second")) == tiles_module.DOT_DOWN
+    assert controller._page_dot(cfg.LampSettings(kind="page", page="Nowhere")) == tiles_module.DOT_UNKNOWN

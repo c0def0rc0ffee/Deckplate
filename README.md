@@ -53,7 +53,9 @@ colour, and a page may lay one wallpaper across all fifteen keys.
 
 Two things any key can wear, whatever its action: a `lamp` watching an
 address of its own, green while it answers (or, for a WLED device, while the
-lights are on), and `playing`, which puts the cover or poster of what a
+lights are on; or, with `kind = "page"`, the sum of the lamps on another
+page, green while every one is green, red while every one is red, amber in
+between, with `keys` choosing which positions count), and `playing`, which puts the cover or poster of what a
 player is playing over the whole key while it plays, the player being this
 machine's own or a Kodi, with the title on a band or scrolling along the
 bottom.

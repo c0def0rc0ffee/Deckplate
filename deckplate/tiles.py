@@ -626,6 +626,8 @@ LIGHTS_FLOOR = 0.35  # the dimmest a lit key's colour is drawn, as a share of fu
 DOT_UP = (76, 175, 125)
 DOT_DOWN = (232, 96, 96)
 DOT_UNKNOWN = (120, 130, 140)
+# A page lamp whose keys disagree: some green, some red or grey.
+DOT_MIXED = (235, 160, 60)
 DOT_RADIUS = 0.085
 DOT_INSET = 0.13
 

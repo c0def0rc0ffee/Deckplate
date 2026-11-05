@@ -54,7 +54,7 @@ STRIP_TILE_KINDS = ("clock", "date", "weather", "playing", "system", "blank")
 PLAYING_SOURCES = ("local", "kodi")
 # What a key's lamp watches: a web address that answers, or a WLED device
 # whose lights are on.
-LAMP_KINDS = ("web", "wled")
+LAMP_KINDS = ("web", "wled", "page")
 # How a key that follows a player names what is playing over the picture:
 # not at all, on a band along the bottom, or scrolling along the bottom.
 PLAYING_LABELS = ("none", "band", "scroll")
@@ -288,7 +288,16 @@ class LampSettings:
     <param name="kind">"web" asks the address and is green while it answers;
     "wled" reads a WLED device the way a wled key does and is green while
     the lights are on, red while they are off and grey while the device
-    cannot be reached. The three web fields mean nothing to a wled lamp.</param>
+    cannot be reached. The three web fields mean nothing to a wled lamp.
+    "page" watches no address of its own: it sums up the lamps of the keys
+    on another page, green while every one is green, red while every one
+    is red, amber in between, and grey while none has answered yet.</param>
+    <param name="page">For a page lamp, the name of the page whose lamps
+    are summed. Filled in from the key's own page action when the file
+    leaves it out, so the key that leads to a page watches that page.</param>
+    <param name="keys">For a page lamp, the positions on that page that
+    count, as (row, column) pairs; empty for every key there that wears a
+    lamp.</param>
     <remarks>
     A status key and a remote kodi key wear the lamp for the address they
     act on. A lamp on any other key, a page key that leads to the remote
@@ -298,12 +307,14 @@ class LampSettings:
     with the kodi key's credentials file beside them.
     </remarks>"""
 
-    url: str
+    url: str = ""
     every_ms: int = 60_000
     insecure: bool = False
     expect: str = ""
     token_file: str | None = None
     kind: str = "web"
+    page: str | None = None
+    keys: tuple[tuple[int, int], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1310,7 +1321,18 @@ def _parse_pages(raw: Any, base_dir: Path) -> tuple[Page, ...]:
             where = f"page '{page.name}' key {key.row},{key.column}"
             for action in (key.action, key.action_long, key.action_double):
                 _check_page_targets(action, names, where)
+            _check_lamp_page(key.lamp, names, where)
     return tuple(pages)
+
+
+def _check_lamp_page(lamp: LampSettings | None, names: set[str], where: str) -> None:
+    """<summary>A page lamp must name a page that exists.</summary>
+    <param name="lamp">The key's lamp, or None.</param>
+    <param name="names">Every page name in the file.</param>
+    <param name="where">How to name the key in an error.</param>
+    <exception cref="ConfigError">The lamp sums a page that is not there.</exception>"""
+    if lamp is not None and lamp.kind == "page" and lamp.page not in names:
+        raise ConfigError(f"{where} lamp: page '{lamp.page}' does not exist")
 
 
 def _changed(table: dict, where: str) -> str | None:
@@ -1434,7 +1456,7 @@ def _parse_keys(raw: Any, where: str, base_dir: Path) -> dict[tuple[int, int], K
             action_double=actions[2],
             image_active=_resolve(image_active, base_dir) if image_active else None,
             label_active=_str(table, "label_active", here),
-            lamp=_parse_lamp(table.get("lamp"), here),
+            lamp=_parse_lamp(table.get("lamp"), here, _page_target(actions)),
             playing=_parse_playing(table.get("playing"), here, own_player),
         )
     return keys
@@ -1476,19 +1498,39 @@ def _parse_playing(table: Any, where: str, own_player: bool = False) -> PlayingS
     return PlayingSource(source=source, url=url, token_file=token_file, label=label)
 
 
-def _parse_lamp(table: Any, where: str) -> LampSettings | None:
+def _page_target(actions) -> str | None:
+    """<summary>The page the first page action among a key's gestures leads to, by name, or None.</summary>
+    <param name="actions">The plain, long and double actions, any of them None.</param>
+    <returns>A page name, or None when no gesture goes to a named page;
+    ``next`` and ``previous`` are not names and give None too.</returns>"""
+    for action in actions:
+        if action is not None and action.type == "page":
+            target = action.params.get("page")
+            if target and target not in ("next", "previous"):
+                return target
+            return None
+    return None
+
+
+def _parse_lamp(table: Any, where: str, page_target: str | None = None) -> LampSettings | None:
     """<summary>
     Build a key's lamp from its ``lamp`` table, or None when it has none.
     </summary>
     <param name="table">The table from the file, or None.</param>
     <param name="where">How to name the key in an error.</param>
+    <param name="page_target">The page the key's own page action leads to,
+    if any: what a page lamp watches when the file names no page.</param>
     <returns>The settings, or None.</returns>
     <remarks>The same checks as a status action's fields, so a lamp and a
     status key refuse the same mistakes in the same words. A wled lamp is
     asked on the wled key's default interval, a web one on the status
-    key's, unless ``every_ms`` says otherwise.</remarks>
+    key's, unless ``every_ms`` says otherwise. A page lamp has no address
+    and no interval: it reads the other keys' lamps, which are polled on
+    their own terms. Whether its page exists is checked once every page
+    has been read, by <see cref="_check_lamp_page"/>.</remarks>
     <exception cref="ConfigError">Not a table, no address, an address that is
-    not http or https, an unknown kind, or a field of the wrong type.</exception>"""
+    not http or https, an unknown kind, a page lamp with no page to watch,
+    or a field of the wrong type.</exception>"""
     if table is None:
         return None
     here = f"{where} lamp"
@@ -1497,6 +1539,20 @@ def _parse_lamp(table: Any, where: str) -> LampSettings | None:
     kind = _str(table, "kind", here, "web") or "web"
     if kind not in LAMP_KINDS:
         raise ConfigError(f"{here}: 'kind' must be one of {', '.join(LAMP_KINDS)}")
+    if kind == "page":
+        page = _str(table, "page", here) or page_target
+        if not page:
+            raise ConfigError(f"{here}: a page lamp needs 'page', the name of the page whose lamps it sums, "
+                              "unless the key's own action leads to a named page")
+        raw = table.get("keys", [])
+        if not isinstance(raw, list):
+            raise ConfigError(f"{here}: 'keys' must be a list of [row, column] pairs")
+        keys = []
+        for entry in raw:
+            if not (isinstance(entry, list) and len(entry) == 2 and all(isinstance(v, int) and not isinstance(v, bool) for v in entry)):
+                raise ConfigError(f"{here}: 'keys' must be a list of [row, column] pairs")
+            keys.append((entry[0], entry[1]))
+        return LampSettings(kind="page", page=page, keys=tuple(keys))
     url = _str(table, "url", here, required=True) or ""
     if not url.startswith(("http://", "https://")):
         raise ConfigError(f"{here}: 'url' must start with http:// or https://")
@@ -2129,6 +2185,8 @@ def _lamp_document(lamp: LampSettings | None) -> dict | None:
     <returns>A dict with every field, the credentials file only when set.</returns>"""
     if lamp is None:
         return None
+    if lamp.kind == "page":
+        return {"kind": "page", "page": lamp.page, "keys": [list(position) for position in lamp.keys]}
     document: dict[str, Any] = {"kind": lamp.kind, "url": lamp.url, "every_ms": lamp.every_ms,
                                 "insecure": lamp.insecure, "expect": lamp.expect}
     if lamp.token_file:

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- A `page` kind of lamp: `lamp = { kind = "page" }` on the key that leads
+  to a page sums up the lamps of the keys on that page, green while every
+  one is green, red while every one is red, amber while they disagree and
+  grey while none has answered; `page` names another page and `keys`
+  chooses which positions count. On the configuration page as The keys on
+  a page in the lamp fold, with a tick list of the keys there that wear a
+  lamp. Two page lamps pointing at each other end in grey rather than a
+  loop.
 - A theme can lend its look to the tiles the daemon draws from a reading:
   `theme = "wrist-console"` under `[deck]`, or on a page, draws the clock,
   the date, the weather, the machine gauges, the lights, the Pi-hole, the

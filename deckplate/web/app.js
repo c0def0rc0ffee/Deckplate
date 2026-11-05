@@ -1721,9 +1721,13 @@
    * <returns>The fields.</returns>
    * <remarks>
    * The lamp exists while the address does: clearing the address takes the
-   * lamp off the key, which is also what makes a fresh fold harmless. Two
-   * kinds: a web address, with the status key's fields, or a WLED device,
-   * which needs only the address and hides the rest. Every
+   * lamp off the key, which is also what makes a fresh fold harmless. Three
+   * kinds: a web address, with the status key's fields, a WLED device,
+   * which needs only the address and hides the rest, or the keys on another
+   * page, which has no address at all and is instead the sum of that page's
+   * lamps, so the key that leads to a page of services shows at a glance
+   * whether they are all up; it has a button to take it off, since there
+   * is no address to clear. Every
    * edit looks the key up again through <see cref="ensureKey"/>, as the rest
    * of the editor does. The interval is edited in seconds and stored in
    * milliseconds, in the status key's range.
@@ -1735,9 +1739,46 @@
     const kind = el("select", {}, [
       el("option", { value: "web", text: "A web address" }),
       el("option", { value: "wled", text: "WLED lights" }),
+      el("option", { value: "page", text: "The keys on a page" }),
     ]);
-    kind.value = wledAtStart ? "wled" : "web";
+    kind.value = lamp.kind === "page" ? "page" : (wledAtStart ? "wled" : "web");
     const url = el("input", { type: "text", value: lamp.url || "" });
+    // The page kind: which page, and which of its lamp wearing keys count.
+    const ownTarget = [key.action, key.action_long, key.action_double]
+      .map(a => a && a.type === "page" && a.page !== "next" && a.page !== "previous" ? a.page : null)
+      .find(Boolean);
+    const pageSelect = el("select");
+    for (const page of doc.pages) pageSelect.append(el("option", { value: page.name, text: page.name }));
+    pageSelect.value = lamp.page || ownTarget || (doc.pages.find(p => p !== currentPage()) || doc.pages[0]).name;
+    const chosen = new Set((lamp.keys || []).map(([r, c]) => r + "," + c));
+    const keyList = el("div", { class: "lamp-keys" });
+    const listKeys = () => {
+      keyList.innerHTML = "";
+      const page = doc.pages.find(p => p.name === pageSelect.value);
+      const wearers = page ? page.keys.filter(wearsLamp).sort((a, b) => a.row - b.row || a.column - b.column) : [];
+      if (!wearers.length) {
+        keyList.append(el("p", { class: "muted", text: "No key on that page wears a lamp yet." }));
+        return;
+      }
+      for (const k of wearers) {
+        const id = "lampKey" + k.row + "_" + k.column;
+        const box = el("input", { type: "checkbox", id });
+        box.checked = chosen.has(k.row + "," + k.column);
+        box.addEventListener("change", () => {
+          const at = k.row + "," + k.column;
+          if (box.checked) chosen.add(at); else chosen.delete(at);
+          save();
+        });
+        keyList.append(el("label", { class: "check", for: id }, [box, el("span", { text: keyName(k) })]));
+      }
+    };
+    const offBtn = el("button", { type: "button", class: "ghost small", text: "Take the lamp off" });
+    const pageBox = el("div", {}, [
+      el("div", { class: "field" }, [el("label", { text: "Page to sum up" }), pageSelect]),
+      el("div", { class: "field" }, [el("label", { text: "Keys that count" }), keyList,
+        el("div", { class: "help", text: "Tick none and every key on the page that wears a lamp counts. Green while every one is green, red while every one is red, amber in between, grey while none has answered." })]),
+      el("div", { class: "field" }, [offBtn]),
+    ]);
     const seconds = el("input", { type: "number", min: 5, max: 3600, step: 5, value: Math.round((lamp.every_ms || (wledAtStart ? 10000 : 60000)) / 1000) });
     const expect = el("input", { type: "text", value: lamp.expect || "", placeholder: "Leave empty for any answer" });
     const insecure = el("input", { type: "checkbox", id: "lampInsecure" });
@@ -1748,6 +1789,12 @@
     // lost when the address arrives.
     const save = () => change(d => {
       const k = ensureKey(currentPage(), selected.row, selected.column);
+      if (kind.value === "page") {
+        k.lamp = { kind: "page", page: pageSelect.value,
+          keys: [...chosen].map(at => at.split(",").map(Number)).filter(([r, c]) =>
+            (doc.pages.find(p => p.name === pageSelect.value) || { keys: [] }).keys.some(x => x.row === r && x.column === c)) };
+        return;
+      }
       const address = url.value.trim();
       if (!address) { k.lamp = null; dropEmptyKey(currentPage(), k); return; }
       const next = { kind: kind.value, url: address,
@@ -1758,6 +1805,17 @@
     }, { silent: true });
     for (const input of [url, seconds, expect, tokenFile]) input.addEventListener("input", save);
     insecure.addEventListener("change", save);
+    pageSelect.addEventListener("change", () => { chosen.clear(); listKeys(); save(); });
+    offBtn.addEventListener("click", () => {
+      change(d => {
+        const k = ensureKey(currentPage(), selected.row, selected.column);
+        k.lamp = null;
+        dropEmptyKey(currentPage(), k);
+      }, { silent: true });
+      kind.value = "web";
+      url.value = "";
+      show();
+    });
     const help = el("div", { class: "help" });
     const webBox = el("div", {}, [
       el("div", { class: "field" }, [el("label", { text: "Text the page must contain" }), expect]),
@@ -1771,12 +1829,19 @@
     ]);
     const show = () => {
       const wled = kind.value === "wled";
-      webBox.hidden = wled;
+      const page = kind.value === "page";
+      webBox.hidden = wled || page;
+      pageBox.hidden = !page;
+      urlField.hidden = page;
+      secondsField.hidden = page;
+      if (page) listKeys();
       url.placeholder = wled ? "http://lights.local/" : "http://player:8080/jsonrpc";
       help.textContent = wled
         ? "The WLED device's own address, as on a lights key. Green while the lights are on, red while they are off, grey while the device cannot be reached. Clear the address to take the lamp off."
         : "Green while the address answers, red while it does not, whatever the key does when pressed. For the key that opens the Kodi page, give the player's JSON RPC address and its credentials file. Clear the address to take the lamp off.";
     };
+    const urlField = el("div", { class: "field" }, [el("label", { text: "Address to watch" }), url, help]);
+    const secondsField = el("div", { class: "field" }, [el("label", { text: "Ask every (seconds)" }), seconds]);
     kind.addEventListener("change", () => {
       show();
       seconds.value = kind.value === "wled" ? 10 : 60;
@@ -1785,10 +1850,41 @@
     show();
     return el("div", {}, [
       el("div", { class: "field" }, [el("label", { text: "Watches" }), kind]),
-      el("div", { class: "field" }, [el("label", { text: "Address to watch" }), url, help]),
-      el("div", { class: "field" }, [el("label", { text: "Ask every (seconds)" }), seconds]),
+      urlField,
+      secondsField,
       webBox,
+      pageBox,
     ]);
+  }
+
+  /**
+   * <summary>Whether a key wears a status lamp in its corner.</summary>
+   * <param name="key">A key from the document.</param>
+   * <returns>True for a key with a lamp of its own, a status key that does
+   * not swap its face, a kodi key with its own player, a pihole key or a
+   * synology key.</returns>
+   * <remarks>Mirrors the daemon's own rule for the lamp, so the list of
+   * keys a page lamp can count matches what the deck shows.</remarks>
+   */
+  function wearsLamp(key) {
+    if (key.lamp) return true;
+    for (const action of [key.action, key.action_long, key.action_double]) {
+      if (!action) continue;
+      if (action.type === "status" && !key.image_active && !key.label_active) return true;
+      if (action.type === "kodi" && action.url) return true;
+      if (action.type === "pihole" || action.type === "synology") return true;
+    }
+    return false;
+  }
+
+  /**
+   * <summary>How a key is named in a list: its label, else what it does, with its position.</summary>
+   * <param name="key">A key from the document.</param>
+   * <returns>Text such as "Sonarr (row 1, column 2)".</returns>
+   */
+  function keyName(key) {
+    const what = key.label || (key.action && key.action.type) || "key";
+    return what + " (row " + (key.row + 1) + ", column " + (key.column + 1) + ")";
   }
 
   /**
