@@ -38,10 +38,13 @@ class AlreadyRunning(RuntimeError):
     </summary>"""
 
 
-def lock_path() -> Path:
+def lock_path(name: str = LOCK_NAME) -> Path:
     """<summary>
-    Where the lock file lives for the current user.
+    Where a lock file, or a file kept beside one, lives for the current user.
     </summary>
+    <param name="name">The file name. The default is the daemon's lock; the
+    configuration window keeps its own lock and port file under other names
+    in the same folder.</param>
     <returns>A path in a per user folder, which may not exist yet.</returns>
     <remarks>
     On Linux this is the session's runtime folder when there is one, which is
@@ -52,11 +55,12 @@ def lock_path() -> Path:
     </remarks>
     """
     if sys.platform == "win32":
-        return Path(tempfile.gettempdir()) / LOCK_NAME
+        return Path(tempfile.gettempdir()) / name
     runtime = os.environ.get("XDG_RUNTIME_DIR")
     if runtime and Path(runtime).is_dir():
-        return Path(runtime) / LOCK_NAME
-    return Path(tempfile.gettempdir()) / f"deckplate-{os.getuid()}.lock"
+        return Path(runtime) / name
+    stem, dot, suffix = name.partition(".")
+    return Path(tempfile.gettempdir()) / f"{stem}-{os.getuid()}{dot}{suffix}"
 
 
 def claim(path: Path | None = None) -> IO[str] | None:
