@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Only one configuration window opens. A click on the desktop icon or on
+  Open in the tray while the window is already open asks that window to
+  come forward instead of opening another; whether the desktop raises it
+  or marks it in the task bar is up to the window manager.
+- The tray icon now appears on Linux. The daemon logged "tray icon shown"
+  but the icon never reached the tray, because pystray's detached mode for
+  the AppIndicator and GTK backends waits for a GLib loop the daemon never
+  ran, so the icon, its menu and its clicks stayed queued. The icon's loop
+  now runs on a thread of its own on every platform but macOS. Turning the
+  icon off under Tray icon in Settings now hides it rather than ending it,
+  since a Linux desktop keeps a stopped icon in the tray, frozen, until the
+  daemon exits; ticking it again shows the same icon. Quitting no longer
+  leaves the icon's picture behind in the temp folder.
+- The source zip no longer carries two untracked strays from the project
+  folder; `build-zip.sh` leaves them out by name and warns on every build
+  until they are dealt with, so the zip matches what git tracks.
 - A `homeassistant` key on a timestamp entity, such as the next dawn or a
   device's last seen, no longer prints the raw date and time. A coming time
   shows as its clock time, with the weekday or the date when it is further
