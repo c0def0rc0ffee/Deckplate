@@ -37,6 +37,9 @@ TITLE = "Deckplate"
 OPEN_TEXT = "Open Deckplate"
 QUIT_TEXT = "Quit Deckplate"
 ICON_SIZE = 64
+# How long the daemon waits on its way out for the icon's loop to end and
+# clear its temporary picture file before it carries on without it.
+STOP_WAIT_SECONDS = 2.0
 
 # The icon's colours, the same four as tools/make_icon.py and deploy/deckplate.svg.
 PLATE = "#1b242e"
@@ -148,9 +151,17 @@ class Tray:
     </summary>
     <remarks>
     One of these lives for the whole run. <see cref="follow"/> is what the
-    daemon calls, at start and on every config reload, and it starts or
-    stops the icon to match ``[tray] enabled``, so the tick on the
-    configuration page takes effect at the next save without a restart.
+    daemon calls, at start and on every config reload, and it shows or hides
+    the icon to match ``[tray] enabled``, so the tick on the configuration
+    page takes effect at the next save without a restart.
+
+    Turning the tick off hides the icon rather than ending it. On Linux the
+    icon is registered with the desktop under this process's session bus
+    connection, and the desktop only forgets it when that connection closes,
+    which is when the process ends; an icon whose loop had been stopped would
+    sit in the tray frozen, answering nothing. So the loop runs from the
+    first showing to <see cref="stop"/>, which the daemon calls only on its
+    way out, and the tick moves one icon between shown and hidden.
 
     Every failure is logged once and swallowed. The icon is a convenience
     and the deck must not stop for want of it: a machine with no tray, no
@@ -158,8 +169,9 @@ class Tray:
     "unavailable" flag keeps a daemon whose config reloads often from
     writing that line every time.
 
-    Thread safety: start and stop take a lock because a reload on the deck
-    loop and a quit from the icon's thread can arrive together.
+    Thread safety: every change takes a lock because a reload on the deck
+    loop, a quit from the icon's thread and a failing tray thread can arrive
+    together.
     </remarks>
     """
 
@@ -174,32 +186,51 @@ class Tray:
         self._quit = quit
         self.log = log
         self._icon = None
+        self._thread: threading.Thread | None = None
+        self._wanted = False
         self._lock = threading.Lock()
         self._unavailable = False
 
     @property
     def running(self) -> bool:
-        """<summary>True while an icon is in the tray.</summary>"""
-        return self._icon is not None
+        """<summary>True while an icon is in the tray and showing.</summary>"""
+        return self._icon is not None and self._wanted
 
     def start(self) -> bool:
         """<summary>
-        Put the icon in the tray, if it is not there already.
+        Show the icon in the tray: start it the first time, unhide it after.
         </summary>
         <returns>True when an icon is showing afterwards, False when the
         machine cannot show one.</returns>
         <remarks>
         pystray is imported here, inside, so a machine without it pays
         nothing until the icon is asked for and then gets one clear log
-        line. Its own loop is run detached on the thread it chooses; a
-        backend that has no detached mode says so with NotImplementedError
-        and is given a daemon thread instead, which is what the X11 one
-        does for itself anyway. Daemon, so a tray loop that will not stop
-        cannot keep the process alive after the deck loop has ended.
+        line.
+
+        The icon's own loop runs on a daemon thread of its own, through
+        ``icon.run``, on every platform but macOS. Not ``run_detached``:
+        for the AppIndicator and GTK backends that only prepares the icon
+        and leaves the caller to iterate a GLib main loop, and the daemon has
+        none, so every showing, the menu and its clicks sat queued forever.
+        The log said "tray icon shown" while no icon reached the tray, which
+        is how 1.0.54 behaved on KDE. ``run`` brings its own GLib loop, and
+        pystray hands every GTK call to that loop. Windows and X11 already ran
+        on a thread. macOS is the exception because its loop must own the
+        main thread, which here is the deck's, so it keeps ``run_detached``.
+        Daemon, so a tray loop that will not stop cannot keep the process
+        alive after the deck loop has ended.
+
+        The first showing is done by <see cref="_setup"/> once the loop is
+        up, not here, so a hide that arrives before then is not undone.
         </remarks>
         """
         with self._lock:
             if self._icon is not None:
+                if not self._wanted:
+                    self._wanted = True
+                    if not self._show(self._icon, True):
+                        return False
+                    self.log("tray icon shown")
                 return True
             try:
                 icon = self._make_icon()
@@ -208,11 +239,17 @@ class Tray:
                     self.log(f"no tray icon: {err}")
                     self._unavailable = True
                 return False
+            self._wanted = True
             try:
-                icon.run_detached()
-            except NotImplementedError:
-                threading.Thread(target=icon.run, name="deckplate-tray", daemon=True).start()
+                if sys.platform == "darwin":
+                    icon.run_detached(setup=self._setup)
+                else:
+                    thread = threading.Thread(target=self._loop, args=(icon,), name="deckplate-tray",
+                                              daemon=True)
+                    thread.start()
+                    self._thread = thread
             except Exception as err:
+                self._wanted = False
                 if not self._unavailable:
                     self.log(f"no tray icon: {err}")
                     self._unavailable = True
@@ -221,19 +258,43 @@ class Tray:
         self.log("tray icon shown")
         return True
 
+    def hide(self) -> None:
+        """<summary>
+        Take the icon out of sight and keep its loop, for the tick in Settings.
+        </summary>
+        <remarks>The class remarks say why this is not a stop. A later
+        <see cref="start"/> shows the same icon again. Safe to call twice, and
+        before any icon exists.</remarks>
+        """
+        with self._lock:
+            if self._icon is None or not self._wanted:
+                return
+            self._wanted = False
+            if self._show(self._icon, False):
+                self.log("tray icon hidden")
+
     def stop(self) -> None:
         """<summary>
-        Take the icon out of the tray, if it is there. Safe to call twice.
+        Take the icon out of the tray and end its loop. Safe to call twice.
         </summary>
         <remarks>
-        Hidden before it is stopped, because the GTK backends leave a ghost
-        in the tray when a visible icon is stopped outright. A backend that
-        objects is logged and the icon is forgotten regardless, so the
-        daemon is never stuck on a tray it cannot clear.
+        Called by the daemon on its way out. Hidden before it is stopped,
+        because the GTK backends leave a ghost in the tray when a visible
+        icon is stopped outright. A backend that objects is logged and the
+        icon is forgotten regardless, so the daemon is never stuck on a tray
+        it cannot clear.
+
+        Then the tray thread is given up to <see cref="STOP_WAIT_SECONDS"/>
+        to finish. The GTK backends delete the icon's temporary picture file
+        as their loop ends, on that thread, and a daemon thread is simply cut
+        off when the process exits, which left a file in the temp folder on
+        every quit. Not waited for from the tray thread itself.
         </remarks>
         """
         with self._lock:
             icon, self._icon = self._icon, None
+            thread, self._thread = self._thread, None
+            self._wanted = False
         if icon is None:
             return
         try:
@@ -242,11 +303,13 @@ class Tray:
         except Exception as err:
             self.log(f"tray icon not removed cleanly ({err})")
             return
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(STOP_WAIT_SECONDS)
         self.log("tray icon removed")
 
     def follow(self, config) -> None:
         """<summary>
-        Show or remove the icon as the config says.
+        Show or hide the icon as the config says.
         </summary>
         <param name="config">A loaded Config; only ``tray.enabled`` is read.</param>
         <remarks>Passed to the controller as its reload hook, so this is
@@ -256,7 +319,46 @@ class Tray:
         if config.tray.enabled:
             self.start()
         else:
-            self.stop()
+            self.hide()
+
+    def _show(self, icon, visible: bool) -> bool:
+        """<summary>Set the icon's visibility, logging a backend that refuses.</summary>
+        <param name="icon">The pystray Icon.</param>
+        <param name="visible">True to show it, False to hide it.</param>
+        <returns>True when the backend took the change.</returns>
+        <remarks>Called with the lock held. Safe from the deck thread: the
+        GTK backends queue the change onto the icon's own loop.</remarks>"""
+        try:
+            icon.visible = visible
+        except Exception as err:
+            self.log(f"tray icon not {'shown' if visible else 'hidden'} ({err})")
+            return False
+        return True
+
+    def _setup(self, icon) -> None:
+        """<summary>pystray's setup hook: the first showing, once the icon's loop is up.</summary>
+        <param name="icon">The pystray Icon whose loop has started.</param>
+        <remarks>Shows the icon only if it is still wanted, which is what
+        stops a hide made in the meantime from being overridden by pystray's
+        own default setup, which shows the icon unconditionally.</remarks>"""
+        with self._lock:
+            if self._icon is icon and self._wanted:
+                self._show(icon, True)
+
+    def _loop(self, icon) -> None:
+        """<summary>The tray thread's body: run the icon's loop until it is stopped.</summary>
+        <param name="icon">The pystray Icon to run.</param>
+        <remarks>A loop that fails is logged, and the icon is forgotten if it
+        is still the current one, so the next <see cref="follow"/> can try
+        again; nothing is raised into a thread nobody joins.</remarks>"""
+        try:
+            icon.run(setup=self._setup)
+        except Exception as err:
+            self.log(f"tray icon stopped unexpectedly ({err})")
+            with self._lock:
+                if self._icon is icon:
+                    self._icon = None
+                    self._wanted = False
 
     def _on_open(self, *_args) -> None:
         """<summary>The Open item and the icon's own click.</summary>
