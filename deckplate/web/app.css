@@ -226,7 +226,7 @@ input[type="range"] { accent-color: var(--signal); width: 140px; }
 .save.bad { color: var(--bad); }
 
 /**
-  <summary>The page body: tabs above, the deck on the left, the editor on the right.</summary>
+  <summary>The page body: tabs above, the deck below them, the editor under the deck by default or beside it by choice.</summary>
   <remarks>
   Named areas rather than source order, because the tabs need a row to
   themselves across the top. With them inside the deck pane the deck started one
@@ -320,6 +320,50 @@ main.editor-closed .editor {
   transition: transform var(--swoosh) ease, visibility 0s linear var(--swoosh);
 }
 main.booting, main.booting .pages-col, main.booting .editor-col, main.booting .pages-pane, main.booting .editor { transition: none; }
+
+/**
+ * <summary>The editor under the deck instead of beside it, the default.</summary>
+ * <remarks>
+ * The editor has grown long: a key with an action, an animation, a lamp
+ * and a player to follow is a column of folds that outruns the deck many
+ * times over, and beside the deck it was a narrow strip to scroll. Under
+ * it the editor spans the page's whole width, pages list and all, and
+ * the deck is sized by app.js to leave the editor's top in view. There is nowhere to slide to, so a hidden editor is simply
+ * gone, as it is when the page is stacked. The choice is the viewer's,
+ * kept in the browser, and the side by side arrangement above is what
+ * the other choice gives.
+ * </remarks>
+ */
+main.editor-below {
+  grid-template-columns: auto minmax(var(--deck-min), 1fr);
+  grid-template-areas:
+    "pages  deck"
+    "editor editor";
+}
+/* The page tabs go: the pages list is the one place pages are picked, so
+   it opens by default in this arrangement, and the row the tabs took is
+   given to the deck. */
+main.editor-below .tabs { display: none; }
+/* The list stops above the editor and scrolls on its own: app.js caps the
+   column at the deck pane's height, and the menu inside no longer scrolls
+   separately, so there is one scroll and not one inside another. */
+main.editor-below .pages-col { overflow-x: clip; overflow-y: auto; }
+main.editor-below .page-menu { max-height: none; overflow: visible; }
+main.editor-below .editor-col { width: auto; transition: none; }
+/* The editor's groups side by side in the width it has, as many as fit at
+   three hundred pixels each: the three of a key fill a wide window, two
+   fit a middling one with the third beneath, and all stack in a narrow
+   one. Spacing alone separates them: a rule down the side went wrong on
+   a group that had wrapped to a row of its own. */
+main.editor-below .editor-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  column-gap: 40px;
+  row-gap: 10px;
+  align-items: start;
+}
+main.editor-below .editor { width: auto; margin: 0; transform: none; transition: none; }
+main.editor-below.editor-closed .editor-col { display: none; }
 @media (max-width: 960px) {
   main {
     grid-template-columns: 1fr;
@@ -641,6 +685,7 @@ label.check input { width: auto; accent-color: var(--signal); }
   min-height: 300px;
 }
 .field { margin-bottom: 14px; }
+.lamp-keys { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; }
 .field > label { display: block; color: var(--steel); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 5px; }
 .field .help { color: var(--steel); font-size: 12px; margin-top: 4px; }
 /**

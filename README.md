@@ -20,7 +20,8 @@ which is why its header says "Fake deck". Nothing here is a mock up.
 A key has a picture, a label, or both, and an action for its press. It may
 also carry a second action for a long press and a third for a double press, a
 picture and label to wear while its thing is on, a built in animation (pulse,
-spinner, wave, rainbow, scroll, or an animated GIF), its own background
+spinner, wave, rainbow, scroll, a shimmer rolling down the picture itself,
+or an animated GIF), its own background
 colour, and a page may lay one wallpaper across all fifteen keys.
 
 | Action | What it does |
@@ -47,12 +48,15 @@ colour, and a page may lay one wallpaper across all fifteen keys.
 | `system` | draws the processor temperature, load and memory; the press opens the system monitor |
 | `wled` | draws a WLED light's colour and brightness; the press toggles it, turns it on or off, picks a preset or steps the brightness |
 | `pihole` | draws today's share blocked on a Pi-hole 6 with a lamp for the blocking state; the press pauses and resumes it |
+| `homeassistant` | draws one Home Assistant entity's state, a light, a sensor, a door, with a lamp while it is on or off; the press toggles it, turns it on or off, or calls a service |
 | `synology` | draws a Synology NAS over DSM's API: free space with a gauge, the processor and memory loads, or the model, temperature and uptime, with a lamp for its health; the press opens DSM |
 | `kodi` | a remote control action for Kodi over its JSON RPC, play, pause, next, up, select and the rest, on the Kodi in `[kodi]` or on a second player the key names |
 
 Two things any key can wear, whatever its action: a `lamp` watching an
 address of its own, green while it answers (or, for a WLED device, while the
-lights are on), and `playing`, which puts the cover or poster of what a
+lights are on; or, with `kind = "page"`, the sum of the lamps on another
+page, green while every one is green, red while every one is red, amber in
+between, with `keys` choosing which positions count), and `playing`, which puts the cover or poster of what a
 player is playing over the whole key while it plays, the player being this
 machine's own or a Kodi, with the title on a band or scrolling along the
 bottom.
@@ -82,13 +86,17 @@ with a drawing and a line saying what it does, grouped and searchable:
 Keys for the hotkey, sequence, chord and hold actions are captured rather
 than typed: click Capture and press them. Drag a key to move it, drop it on
 another to swap them, and right click it to move or copy it to another page.
-Pictures come from an upload or from the twelve shipped icon themes behind
+Pictures come from an upload or from the thirteen shipped icon themes behind
 "Choose from a theme". Every change saves a moment after you make it and the
 deck updates at once; Undo steps back.
 
-The editor slides in and out on the right from the button at the end of the
-header, and a pages list slides in on the left from the button at the start.
-Neither moves by itself. The list shows every page with its key count and
+The editor sits under the deck across the whole width, the deck drawn
+smaller to leave it in view, and comes and goes from the button at the end
+of the header. The pages list on the left is where a page is picked, open
+by default and scrolling inside the deck's height; its button is at the
+start of the header. Editor position in the settings puts the editor
+beside the deck instead, with page tabs above the deck, remembered by that
+browser. Neither pane moves by itself. The list shows every page with its key count and
 when it was last edited, sorted by deck order, name, last edited or last
 shown, and a search finds pages by name and keys by label, action or the
 page they lead to; a key in the results takes the deck to its page and
@@ -157,6 +165,7 @@ complete setups drawn below. In short:
 [deck]
 brightness = 70
 background = "#141c28"
+theme = "wrist-console"   # the clock, date, weather and gauges drawn in this theme's look
 
 [strip]
 tiles = ["clock", "date", "weather"]
@@ -217,15 +226,30 @@ opens no device.
 
 ### Icon themes
 
-Twelve themes ship with the app, every icon drawn in code by
+Thirteen themes ship with the app, every icon drawn in code by
 `tools/make_icons.py` and free to ship: Controls (the actions above, four of
 them animated), Desktop (the everyday desktop and the home lab), Sherbet and
 Lagoon (the same two sets in warm and cool colour sweeps), Space Game, six
 game flavoured sets that borrow a mood and no name or emblem (Grimdark,
-Wayfarer, Field Command, Rift, Deep Colony, Neon Chrome), and Amber Console,
-pixel art on an old amber terminal with a lit twin of every icon for
-toggles. The whole set is on one sheet in
+Wayfarer, Field Command, Rift, Deep Colony, Neon Chrome), and two consoles
+with a lit twin of every icon for toggles: Amber Console, pixel art on an
+old amber terminal, and Wrist Console, the everyday icons, the space sim
+glyphs and a survival set (dose meter, radiation, health, canteen, hatch, gas mask,
+compass, the words STATUS, ITEMS, DATA, MAP and RADIO) drawn smooth in green
+phosphor on a dark tube with scan lines and a glow, as a wrist worn
+computer from a retro future would show them. The whole set is on one sheet in
 [docs/images/themes.png](docs/images/themes.png).
+
+A theme can lend its look to the tiles the daemon draws itself, the clock,
+the date, the weather, the machine, the lights, the Pi-hole and the NAS,
+which cannot be pictures because they are drawn from a reading. Wrist
+Console does: set `theme = "wrist-console"` under `[deck]`, or on one page
+to override the deck, and those tiles come out in the same green phosphor,
+with the same glow, corner fall and scan lines, drawn at three times the
+size and shrunk exactly as the icons were. On the page it is the Look
+choice in the deck settings and in each page's own settings. A theme
+declares its look as a `look` block in its manifest, so another theme can
+carry one too.
 
 ## The local API
 
@@ -261,7 +285,7 @@ top of `deckplate/server.py` lists every route.
 | `deckplate/controller.py` | the daemon loop: render, presses, idle sleep, live reload |
 | `deckplate/actions.py`, `presses.py`, `holds.py`, `hotkeys.py` | what a press does, press or hold or double, the held keys, key names and the X test, pynput and xdotool backends |
 | `deckplate/tiles.py`, `animations.py`, `themes.py`, `live.py` | every picture a panel shows |
-| `deckplate/weather.py`, `status.py`, `lights.py`, `pihole.py`, `synology.py`, `kodi.py`, `media.py`, `system.py` | the things the deck watches, each polled on a thread of its own |
+| `deckplate/weather.py`, `status.py`, `lights.py`, `pihole.py`, `synology.py`, `homeassistant.py`, `kodi.py`, `media.py`, `system.py` | the things the deck watches, each polled on a thread of its own |
 | `deckplate/focus.py`, `awake.py`, `desktop.py`, `audio.py`, `conflicts.py` | the desktop: the focused window, idle and notifications, windows and sound, other deck software |
 | `deckplate/server.py`, `web/`, `gui.py`, `tray.py`, `cli.py` | the API, the page, its window, the tray icon, the command line |
 | `examples/`, `deploy/`, `tools/` | example setups, the udev rule and installers, the icon, theme and picture tools and the build |

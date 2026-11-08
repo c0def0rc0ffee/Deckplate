@@ -743,6 +743,7 @@ def test_following_the_focus_is_off_unless_asked_for():
     </remarks>
     """
     assert cfg.parse(MINIMAL, "/base").deck.follow_focus is False
+    assert cfg.parse(MINIMAL, "/base").deck.theme is None
     assert cfg.parse("[deck]\nfollow_focus = true\n" + MINIMAL, "/base").deck.follow_focus is True
     with pytest.raises(cfg.ConfigError, match="follow_focus"):
         cfg.parse("[deck]\nfollow_focus = 'yes'\n" + MINIMAL, "/base")
@@ -1455,3 +1456,66 @@ def test_a_page_changed_stamp_is_kept_as_written_and_checked():
         cfg.parse('[[pages]]\nname = "A"\nchanged = "yesterday"', Path("/base"))
     with pytest.raises(cfg.ConfigError):
         cfg.parse('[[pages]]\nname = "A"\nchanged = 5', Path("/base"))
+
+
+def test_theme_names_a_shipped_look_on_the_deck_or_a_page():
+    """<summary>
+    The theme field takes the slug of a theme with a look, on the deck and
+    on a page, and refuses anything else at load.
+    </summary>
+    <remarks>Refused at load like every other field, so a misspelt theme is
+    a message rather than a deck quietly drawn plain.</remarks>
+    """
+    config = cfg.parse("[deck]\ntheme = 'wrist-console'\n" + MINIMAL, "/base")
+    assert config.deck.theme == "wrist-console"
+    assert config.pages[0].theme is None
+    config = cfg.parse(MINIMAL + "theme = 'wrist-console'\n", "/base")
+    assert config.deck.theme is None and config.pages[0].theme == "wrist-console"
+    with pytest.raises(cfg.ConfigError, match="theme"):
+        cfg.parse("[deck]\ntheme = 'controls'\n" + MINIMAL, "/base")
+    with pytest.raises(cfg.ConfigError, match="theme"):
+        cfg.parse("[deck]\ntheme = 7\n" + MINIMAL, "/base")
+    document = cfg.document_from_config(config)
+    assert document["pages"][0]["theme"] == "wrist-console"
+    text = cfg.to_toml(document)
+    assert "theme = \"wrist-console\"" in text
+    assert cfg.parse(text, "/base").pages[0].theme == "wrist-console"
+
+
+def test_a_page_lamp_names_its_page_and_keys_and_is_checked():
+    """<summary>
+    A page lamp takes its page from the field or from the key's own page
+    action, carries the chosen positions, and refuses a page that is not
+    there, a malformed position or a key with no page to watch.
+    </summary>
+    """
+    text = MINIMAL + """
+[[pages.keys]]
+row = 0
+column = 0
+action = { type = "page", page = "Network" }
+lamp = { kind = "page", keys = [[0, 0], [0, 1]] }
+
+[[pages.keys]]
+row = 0
+column = 1
+action = { type = "url", url = "https://example.org" }
+lamp = { kind = "page", page = "Network" }
+
+[[pages]]
+name = "Network"
+"""
+    config = cfg.parse(text, "/base")
+    lamp = config.pages[0].keys[(0, 0)].lamp
+    assert lamp == cfg.LampSettings(kind="page", page="Network", keys=((0, 0), (0, 1)))
+    assert config.pages[0].keys[(0, 1)].lamp == cfg.LampSettings(kind="page", page="Network")
+    document = cfg.document_from_config(config)
+    assert document["pages"][0]["keys"][0]["lamp"] == {"kind": "page", "page": "Network", "keys": [[0, 0], [0, 1]]}
+    again = cfg.parse(cfg.to_toml(document), "/base")
+    assert again.pages[0].keys[(0, 0)].lamp == lamp
+    with pytest.raises(cfg.ConfigError, match="does not exist"):
+        cfg.parse(text.replace('page = "Network" }', 'page = "Nowhere" }'), "/base")
+    with pytest.raises(cfg.ConfigError, match="pairs"):
+        cfg.parse(text.replace("[[0, 0], [0, 1]]", "[[0, 0, 1]]"), "/base")
+    with pytest.raises(cfg.ConfigError, match="needs 'page'"):
+        cfg.parse(text.replace('action = { type = "page", page = "Network" }', 'action = { type = "page", page = "next" }'), "/base")

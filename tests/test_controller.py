@@ -2835,3 +2835,185 @@ action = { type = "synology", url = "http://nas.test:5000/", account = "deck", s
     monitor.poll_once()
     assert controller._key_dot(plain) == tiles_module.DOT_DOWN
     assert controller._draw_key(0, 1, size, set())[0].tobytes() != after.tobytes()
+
+
+def test_a_page_lamp_sums_the_lamps_on_another_page(setup):
+    """<summary>
+    A key with a page lamp is green while every counted key on that page is
+    green, red while every one is red, amber while they disagree and grey
+    before any has answered; keys left out of the list do not count, and a
+    key with no lamp of its own never does.
+    </summary>
+    <remarks>The sum is part of the face signature, so the key redraws as
+    the services come and go, and two page lamps watching each other's
+    pages end in grey rather than recursing.</remarks>
+    """
+    from deckplate import tiles as tiles_module
+    from deckplate.status import StatusMonitor
+    controller, deck, clock, urls, path = setup
+    answers = {"http://a.test/": True, "http://b.test/": True, "http://c.test/": False}
+    monitor = StatusMonitor(prober=lambda w: answers[w.url], monotonic=lambda: clock.mono, log=lambda t: None,
+                            threaded=False)
+    controller.status = monitor
+    controller.reload(cfg.parse(TEXT + """
+[[pages.keys]]
+row = 0
+column = 1
+action = { type = "page", page = "Services" }
+lamp = { kind = "page", keys = [[0, 0], [0, 1]] }
+
+[[pages]]
+name = "Services"
+
+[[pages.keys]]
+row = 0
+column = 0
+action = { type = "status", url = "http://a.test/" }
+
+[[pages.keys]]
+row = 0
+column = 1
+action = { type = "status", url = "http://b.test/" }
+
+[[pages.keys]]
+row = 0
+column = 2
+action = { type = "status", url = "http://c.test/" }
+
+[[pages.keys]]
+row = 2
+column = 4
+label = "Back"
+action = { type = "page", page = "previous" }
+lamp = { kind = "page", page = "Second" }
+""", path.parent, path))
+    controller.switch_page("Second")
+    key = controller.page.keys[(0, 1)]
+    assert controller._key_dot(key) == tiles_module.DOT_UNKNOWN
+    monitor.poll_once()
+    before = controller._face_signature(0, 1, set())
+    assert controller._key_dot(key) == tiles_module.DOT_UP
+    answers["http://b.test/"] = False
+    clock.advance(61)
+    monitor.poll_once()
+    assert controller._key_dot(key) == tiles_module.DOT_MIXED
+    assert controller._face_signature(0, 1, set()) != before
+    answers["http://a.test/"] = False
+    clock.advance(61)
+    monitor.poll_once()
+    assert controller._key_dot(key) == tiles_module.DOT_DOWN
+    size = controller.deck.image_size
+    image, _frames, _fps = controller._draw_key(0, 1, size, set())
+    cx, cy = size - round(size * tiles_module.DOT_INSET), round(size * tiles_module.DOT_INSET)
+    assert image.getpixel((cx, cy)) == tiles_module.DOT_DOWN
+    # Every key counts when none is chosen. The Back key's own page lamp sums
+    # Second, whose page lamp sums Services again: the loop ends in grey, and
+    # a grey among three reds is amber, not red.
+    everything = cfg.LampSettings(kind="page", page="Services")
+    assert controller._page_dot(everything) == tiles_module.DOT_MIXED
+    assert controller._page_dot(cfg.LampSettings(kind="page", page="Services", keys=((2, 4),))) == tiles_module.DOT_UNKNOWN
+    answers["http://c.test/"] = True
+    clock.advance(61)
+    monitor.poll_once()
+    assert controller._page_dot(cfg.LampSettings(kind="page", page="Services", keys=((0, 0), (0, 2)))) == tiles_module.DOT_MIXED
+    # Second's only lamp is the page lamp under test, which counts the first
+    # two keys alone, both down: so summing Second is red.
+    assert controller._page_dot(cfg.LampSettings(kind="page", page="Second")) == tiles_module.DOT_DOWN
+    assert controller._page_dot(cfg.LampSettings(kind="page", page="Nowhere")) == tiles_module.DOT_UNKNOWN
+
+
+def test_a_homeassistant_key_is_watched_draws_the_state_and_wears_the_lamp_for_an_on_or_off_entity(setup):
+    """<summary>
+    A homeassistant key's entity is handed to the monitor with its server,
+    token file, certificate setting and interval; a key with no entity yet
+    is not; the key draws the state once the reading is in; a light wears a
+    green lamp while on and red while off, a sensor wears none, and both
+    are grey before the first answer.
+    </summary>
+    """
+    from deckplate import tiles as tiles_module
+    from deckplate.homeassistant import HomeAssistantMonitor, HomeAssistantReading
+    controller, deck, clock, urls, path = setup
+    answers = {"light.lounge": HomeAssistantReading("light.lounge", "on", "Lounge"),
+               "sensor.office": HomeAssistantReading("sensor.office", "21.4", "Office", "°C")}
+    watched = []
+
+    def prober(url, token_file, insecure, entity):
+        watched.append((url, token_file, insecure, entity))
+        return answers[entity]
+
+    monitor = HomeAssistantMonitor(prober=prober, monotonic=lambda: clock.mono, log=lambda t: None, threaded=False)
+    controller.homeassistant = monitor
+    controller.runner.homeassistant = monitor
+    controller.reload(cfg.parse(TEXT + """
+[[pages.keys]]
+row = 0
+column = 1
+label = "Lounge"
+action = { type = "homeassistant", url = "http://ha.test/", token_file = "~/h", insecure = true, entity = "light.lounge", every_ms = 15000 }
+
+[[pages.keys]]
+row = 0
+column = 2
+action = { type = "homeassistant", url = "http://ha.test/", entity = "sensor.office" }
+
+[[pages.keys]]
+row = 0
+column = 3
+action = { type = "homeassistant", url = "http://ha.test/" }
+""", path.parent, path))
+    controller.switch_page("Second")
+    light, sensor, bare = (controller.page.keys[(0, c)] for c in (1, 2, 3))
+    size = controller.deck.image_size
+    assert controller._key_dot(light) == tiles_module.DOT_UNKNOWN and controller._key_dot(sensor) == tiles_module.DOT_UNKNOWN
+    before = controller._draw_key(0, 1, size, set())[0]
+    monitor.poll_once()
+    assert sorted(watched, key=str) == sorted([("http://ha.test/", None, False, "sensor.office"), ("http://ha.test/", "~/h", True, "light.lounge")], key=str)
+    assert controller._key_dot(light) == tiles_module.DOT_UP
+    assert controller._key_dot(sensor) is None
+    assert controller._key_dot(bare) == tiles_module.DOT_UNKNOWN
+    after = controller._draw_key(0, 1, size, set())[0]
+    assert before.tobytes() != after.tobytes()
+    cx, cy = size - round(size * tiles_module.DOT_INSET), round(size * tiles_module.DOT_INSET)
+    assert after.getpixel((cx, cy)) == tiles_module.DOT_UP
+    monitor.update("http://ha.test/", HomeAssistantReading("light.lounge", "off", "Lounge"))
+    assert controller._key_dot(light) == tiles_module.DOT_DOWN
+    assert controller._draw_key(0, 1, size, set())[0].tobytes() != after.tobytes()
+    assert controller._draw_key(0, 2, size, set())[0].getpixel((cx, cy)) != tiles_module.DOT_UP
+
+
+def test_a_timestamp_key_is_redrawn_as_its_age_moves_on_with_no_new_reading(setup):
+    """<summary>
+    The face signature of a key showing a timestamp changes when the minute
+    of its age does, though the reading has not, and a key with a picture,
+    which draws no words, keeps the same signature.
+    </summary>
+    """
+    from datetime import timedelta
+    from deckplate.homeassistant import HomeAssistantMonitor, HomeAssistantReading
+    controller, deck, clock, urls, path = setup
+    seen = (clock.wall - timedelta(minutes=5)).astimezone().isoformat()
+    reading = HomeAssistantReading("sensor.seen", seen, "Seen", device_class="timestamp")
+    monitor = HomeAssistantMonitor(prober=lambda u, t, i, e: reading, monotonic=lambda: clock.mono, log=lambda t: None, threaded=False)
+    controller.homeassistant = monitor
+    controller.reload(cfg.parse(TEXT + """
+[[pages.keys]]
+row = 0
+column = 1
+action = { type = "homeassistant", url = "http://ha.test/", entity = "sensor.seen" }
+
+[[pages.keys]]
+row = 0
+column = 2
+image = "images/seen.png"
+action = { type = "homeassistant", url = "http://ha.test/", entity = "sensor.seen" }
+""", path.parent, path))
+    controller.switch_page("Second")
+    monitor.poll_once()
+    drawn, pictured = controller._face_signature(0, 1, set()), controller._face_signature(0, 2, set())
+    before = controller._draw_key(0, 1, controller.deck.image_size, set())[0]
+    assert controller._face_signature(0, 1, set()) == drawn
+    clock.advance(61)
+    assert controller._face_signature(0, 1, set()) != drawn
+    assert controller._face_signature(0, 2, set()) == pictured
+    assert controller._draw_key(0, 1, controller.deck.image_size, set())[0].tobytes() != before.tobytes()

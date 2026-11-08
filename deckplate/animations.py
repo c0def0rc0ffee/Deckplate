@@ -12,6 +12,9 @@ Built in kinds:
     wave     a ribbon of sine waves drifting across
     rainbow  a gradient cycling through the hues
     scroll   the key's label scrolling across, for names too long to fit
+    shimmer  a band of light rolling down the key's own picture, with the
+             faint flicker of an old screen; the one kind that plays over
+             the picture rather than in its place
 
 Nothing here knows about the deck. That is deliberate: a loop is built and
 held as pictures, so the same frames feed both the hardware and the animated
@@ -34,11 +37,11 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageSequence
+from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageSequence
 
 from . import images
 
-KINDS = ("pulse", "spinner", "wave", "rainbow", "scroll")
+KINDS = ("pulse", "spinner", "wave", "rainbow", "scroll", "shimmer")
 DEFAULT_COLOUR = "#5c9bde"
 # The USB link takes well over a thousand frames a second, so smoothness is
 # limited by the panels, not the transport. 20 a second looks fluid.
@@ -192,9 +195,49 @@ def _cached_frames(kind: str, colour: str, speed: float, fps: int, size: int, la
         frames = [_rainbow(size, i / count) for i in range(count)]
     elif kind == "scroll":
         frames = _scroll(size, rgb, label or "Deckplate", animation, background)
+    elif kind == "shimmer":
+        # With no picture to play over, the band rolls down the bare background.
+        frames = [_shimmer(images.solid(background, size), i / count) for i in range(count)]
     else:
         raise ValueError(f"unknown animation kind {kind}")
     return tuple(frames)
+
+
+@lru_cache(maxsize=64)
+def _cached_shimmer(picture: bytes, size: int, speed: float, fps: int) -> tuple[Image.Image, ...]:
+    """<summary>
+    One loop of the shimmer over a given picture, cached by the picture's
+    pixels and the timing.
+    </summary>
+    <param name="picture">The still tile's RGB pixels, as ``tobytes`` gives them.</param>
+    <param name="size">The tile's side in pixels.</param>
+    <param name="speed">Loop speed multiplier.</param>
+    <param name="fps">Playback rate, which sets the frame count with speed.</param>
+    <returns>The frames of one loop, as a tuple so the cache cannot hand back
+    a list a caller has edited.</returns>
+    <remarks>
+    The pixels themselves are the cache key, because two keys with the same
+    picture, label and background get the same loop, and a key whose picture
+    changes gets a new one without anything having to notice. A deck tile is
+    under thirty kilobytes, so sixty four of them is nothing.
+    </remarks>"""
+    base = Image.frombytes("RGB", (size, size), picture)
+    count = frame_count(Animation("shimmer", DEFAULT_COLOUR, speed, fps))
+    return tuple(_shimmer(base, i / count) for i in range(count))
+
+
+def shimmer_frames(picture: Image.Image, animation: Animation) -> list[Image.Image]:
+    """<summary>
+    The frames of one loop of the shimmer playing over a still tile.
+    </summary>
+    <param name="picture">The finished still tile, picture and label and all.</param>
+    <param name="animation">The timing; the colour is ignored, since the
+    light is the picture's own.</param>
+    <returns>Upright frames, one loop, in playback order, fresh copies.</returns>
+    <remarks>Copies for the same reason <see cref="frames"/> gives them:
+    the tiles module draws on frames in place.</remarks>"""
+    base = picture.convert("RGB")
+    return [f.copy() for f in _cached_shimmer(base.tobytes(), base.width, animation.speed, animation.fps)]
 
 
 def frames(animation: Animation, size: int, label: str = "",
@@ -224,6 +267,48 @@ def frames(animation: Animation, size: int, label: str = "",
 
 
 # Effects. Each takes the loop position t in [0, 1).
+
+def _shimmer(base: Image.Image, t: float) -> Image.Image:
+    """<summary>
+    One frame of the screen shimmer: a soft band of light rolling down the
+    picture, and the whole picture flickering very slightly.
+    </summary>
+    <param name="base">The still tile, RGB.</param>
+    <param name="t">Loop position from 0 to 1.</param>
+    <returns>One frame, in RGB, the same size.</returns>
+    <remarks>
+    The band brightens what is under it in proportion, so black stays black
+    and a glowing glyph glows harder, with a small flat lift so the band is
+    seen crossing the dark as well. It is a quarter of the tile tall with
+    soft edges, and runs from above the top to below the bottom so it leaves
+    and returns rather than jumping. The flicker is two slow sines added, a
+    few percent either way, whose periods divide the loop so the loop still
+    joins up. Nothing is random: the same picture and position always give
+    the same frame, which the frame cache and the page previews rely on.
+    </remarks>
+    """
+    base = base.convert("RGB")
+    size = base.height
+    half = size * 0.13
+    centre = (t * (size + 4 * half)) - 2 * half
+    rows = []
+    for y in range(size):
+        away = abs(y - centre) / half
+        rows.append(max(0.0, 1.0 - away) ** 1.6 if away < 1 else 0.0)
+    boost = Image.new("L", (1, size))
+    boost.putdata([round(v * 0.45 * 255) for v in rows])
+    boost = boost.resize(base.size, Image.Resampling.NEAREST)
+    lift = Image.new("L", (1, size))
+    lift.putdata([round(v * 22) for v in rows])
+    lift = lift.resize(base.size, Image.Resampling.NEAREST)
+    channels = []
+    for channel in base.split():
+        lit = ImageChops.add(channel, ImageChops.multiply(channel, boost))
+        channels.append(ImageChops.add(lit, lift))
+    out = Image.merge("RGB", channels)
+    flicker = 1.0 + 0.03 * math.sin(t * 2 * math.pi * 3) + 0.02 * math.sin(t * 2 * math.pi * 7)
+    return ImageEnhance.Brightness(out).enhance(flicker)
+
 
 def _pulse(size: int, rgb, t: float, background) -> Image.Image:
     """<summary>

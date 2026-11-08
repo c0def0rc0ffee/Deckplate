@@ -2,6 +2,86 @@
 
 ## Unreleased
 
+- Only one configuration window opens. A click on the desktop icon or on
+  Open in the tray while the window is already open asks that window to
+  come forward instead of opening another; whether the desktop raises it
+  or marks it in the task bar is up to the window manager.
+- The tray icon now appears on Linux. The daemon logged "tray icon shown"
+  but the icon never reached the tray, because pystray's detached mode for
+  the AppIndicator and GTK backends waits for a GLib loop the daemon never
+  ran, so the icon, its menu and its clicks stayed queued. The icon's loop
+  now runs on a thread of its own on every platform but macOS. Turning the
+  icon off under Tray icon in Settings now hides it rather than ending it,
+  since a Linux desktop keeps a stopped icon in the tray, frozen, until the
+  daemon exits; ticking it again shows the same icon. Quitting no longer
+  leaves the icon's picture behind in the temp folder.
+- The source zip no longer carries two untracked strays from the project
+  folder; `build-zip.sh` leaves them out by name and warns on every build
+  until they are dealt with, so the zip matches what git tracks.
+- A `homeassistant` key on a timestamp entity, such as the next dawn or a
+  device's last seen, no longer prints the raw date and time. A coming time
+  shows as its clock time, with the weekday or the date when it is further
+  off, in the machine's own zone; a past one shows its age, `5 min ago`,
+  and the key is redrawn as the age moves on with no new reading.
+- A `homeassistant` key: one entity's state drawn on the face, its name,
+  the state large and what kind of thing it is, with a lamp that is green
+  while the entity is on and red while it is off and none for a figure; a
+  press that toggles it, turns it on or off, calls a service of the key's
+  choosing with its own data, or opens Home Assistant; and a monitor that
+  polls every watched entity on a thread of its own, with a press's answer
+  landing at once. The long lived access token lives in a file alone,
+  written by the page. On the configuration page as Home Assistant under
+  Programs and the web.
+- The configuration page puts the editor under the deck by default rather
+  than beside it, across the page's whole width, with the deck drawn
+  smaller so the editor's top stays in view; the editor had grown too long
+  for a side column. The page tabs above the deck go in this arrangement,
+  the pages list being the one place a page is picked, so the list opens
+  by default and scrolls inside the deck's height, stopping above the
+  editor. Editor position in the settings, under This window, puts the
+  editor back beside the deck with the tabs, remembered by that browser alone.
+  Under the deck the key editor's fields sit in three groups side by side,
+  the face, what a press does, and the lamp, player and gestures, as many
+  across as the width allows; the strip panel editor and the page settings
+  are grouped the same way.
+- A `page` kind of lamp: `lamp = { kind = "page" }` on the key that leads
+  to a page sums up the lamps of the keys on that page, green while every
+  one is green, red while every one is red, amber while they disagree and
+  grey while none has answered; `page` names another page and `keys`
+  chooses which positions count. On the configuration page as The keys on
+  a page in the lamp fold, with a tick list of the keys there that wear a
+  lamp. Two page lamps pointing at each other end in grey rather than a
+  loop.
+- A theme can lend its look to the tiles the daemon draws from a reading:
+  `theme = "wrist-console"` under `[deck]`, or on a page, draws the clock,
+  the date, the weather, the machine gauges, the lights, the Pi-hole, the
+  NAS, a label only key and a timer's face in that theme's green phosphor
+  and puts them through the same glow, corner fall and scan lines as its
+  icons, at three times the size and shrunk as the icons were. On the
+  configuration page as the Look choice in the deck settings and in each
+  page's settings; a page's choice overrides the deck's. Wrist Console is
+  the one theme carrying a `look` block in its manifest today, and the
+  icon tool writes the block for a tube style so a regenerated theme keeps
+  it. A bar or figure past its limit is drawn in a warm red, the one colour
+  a monochrome tube is lent, since an alarm in the same green would not be
+  seen as one. Plain decks draw exactly as before.
+- A `shimmer` animation kind: a soft band of light rolling down the key's
+  own picture with the faint flicker of an old screen, the one animation
+  that plays over the picture rather than in its place, so a Wrist Console
+  key can glow like the screen it is drawn from. Label and lamp stay on
+  top; the colour is ignored, since the light is the picture's own. On the
+  configuration page as Screen shimmer in the Animation list.
+- "Wrist Console", a thirteenth icon theme: every Controls, Desktop and
+  Space Game icon plus a survival set (the words STATUS, ITEMS, DATA, MAP,
+  RADIO, RADS and ONLINE, a radiation trefoil, a dose meter, still and with its needle
+  swinging, health, a syringe, a canteen, a ration tin, a hatch, a gas mask,
+  a spanner, a compass, an objective flag, a transmitter, a torch, a rank
+  star, figures, and the backpack, power cell, sidearm, rifle and skull from
+  the other sets), drawn smooth in green phosphor on a dark tube with a
+  glow, scan lines and a dimmer second tone, every still with a lit inverse
+  video twin, the way a wrist worn computer from a retro future shows the
+  selected thing. It borrows the look and nothing else: no game's name,
+  mascot or mark, and the names test now refuses the obvious ones.
 - The README rewritten shorter: one table of every action type, the
   page, the pages list and the chooser in fresh screenshots taken over the
   in memory stand in with sample readings, and a home lab page drawn from

@@ -157,6 +157,24 @@ exclude_dirs=(--exclude='Deckplate Dist/' --exclude='Deckplate Git/' --exclude='
               --exclude='__pycache__/' --exclude='*.pyc' --exclude='.pytest_cache/'
               --exclude='*.egg-info/' --exclude='build/' --exclude='dist/')
 
+# <summary>
+# Stray files: untracked things in the root that are not the project's and
+# must not ride into the src zip, which has to match git ls-files.
+# </summary>
+# <remarks>
+# Excluded, never deleted, and named on every build until Rob decides what
+# each one is. Root anchored, so only these exact entries are caught. Up to
+# 1.0.54 both of these went into every src zip: "Q", a stray binary file
+# from 01/11/2026, and a custom button logo dropped in on 01/10/2026.
+# Commit the logo, or move it out of the tree, and take it off this list.
+# </remarks>
+strays=("Q" "Custom Button Logos")
+stray_excludes=()
+for entry in "${strays[@]}"; do
+    stray_excludes+=(--exclude="/$entry")
+    [[ -e "$root/$entry" ]] && warn "stray '$entry' left out of the src zip: decide whether to keep it"
+done
+
 mkdir -p "$dist_dir" "$git_dir"
 
 # <summary>
@@ -239,7 +257,7 @@ echo "Mirrored: $app_dir/linux"
 #    USB captures and a chat transcript, none of them tracked.
 src_stage="$stage/src"
 rsync -a --filter=':- .gitignore' "${local_excludes[@]}" "${both_exclude_files[@]}" "${exclude_dirs[@]}" \
-      "$root/" "$src_stage/"
+      "${stray_excludes[@]}" "$root/" "$src_stage/"
 assert_local_excluded "$src_stage"
 
 git_zip="$git_dir/$name-v$version-src.zip"

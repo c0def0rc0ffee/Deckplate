@@ -33,12 +33,13 @@ from dataclasses import replace
 from datetime import datetime
 from typing import Callable
 
-from . import animations, audio, focus, holds, images, layout, live, sun, tiles
+from . import animations, audio, focus, holds, images, layout, live, looks, sun, themes, tiles
 from .actions import ActionRunner
 from .config import MARK_DEFAULT_FLASH_MS, POSITIONAL_ACTIONS, Action, Config, load
 from .media import ArtCache, KodiPlayingMonitor, MediaService, fetch_kodi
 from .pihole import PiholeMonitor
 from .synology import SynologyMonitor
+from .homeassistant import HomeAssistantMonitor
 from .presses import Actions, PressRouter
 from .protocol import KeyEvent
 from .lights import LightsMonitor
@@ -374,6 +375,7 @@ class Controller:
                  art: ArtCache | None = None,
                  pihole: PiholeMonitor | None = None,
                  synology: SynologyMonitor | None = None,
+                 homeassistant: HomeAssistantMonitor | None = None,
                  on_reload: Callable[[Config], None] | None = None) -> None:
         """<summary>
         Wire a deck to a config, without drawing anything yet.
@@ -406,6 +408,7 @@ class Controller:
         here if not given; it fetches nothing until a panel asks.</param>
         <param name="pihole">The monitor behind pihole keys, likewise.</param>
         <param name="synology">The monitor behind synology keys, likewise.</param>
+        <param name="homeassistant">The monitor behind homeassistant keys, likewise.</param>
         <param name="system">The machine reader for the strip. Made here if
         not given; read only while a panel shows it.</param>
         <param name="on_reload">Called with the new config at the end of
@@ -436,6 +439,8 @@ class Controller:
         self.pihole = pihole or PiholeMonitor(monotonic=monotonic, log=log)
         self.runner.pihole = self.pihole
         self.synology = synology or SynologyMonitor(monotonic=monotonic, log=log)
+        self.homeassistant = homeassistant or HomeAssistantMonitor(monotonic=monotonic, log=log)
+        self.runner.homeassistant = self.homeassistant
         self.on_reload = on_reload
         # Whether the night brightness is in force, None until first checked.
         self._night: bool | None = None
@@ -449,6 +454,9 @@ class Controller:
         self.watch_config = watch_config and config.path is not None
         self.config_mtime = self._config_mtime()
         self._strip_signatures: list[tuple | None] = [None] * layout.ROWS
+        # The looks the config names, by slug, read from the theme manifests
+        # once rather than per tile drawn. None for a slug with no look.
+        self._looks: dict[str, looks.Look | None] = {}
         # Shared with the HTTP server thread: events out, commands in, tiles for the page.
         self.hub = EventHub()
         self.commands: queue.Queue[Callable[[], None]] = queue.Queue()
@@ -521,6 +529,7 @@ class Controller:
         self._watch_media()
         self._watch_pihole()
         self._watch_synology()
+        self._watch_homeassistant()
         self.render_all()
         self.log(f"showing page '{self.page.name}' with {len(self.page.keys)} keys")
         if self.config.deck.follow_focus:
@@ -871,7 +880,7 @@ class Controller:
             face = replace(face, ring=round(face.ring * 100) / 100)
         return (mark, active, face, self._key_dot(key), self._key_weather(key), self._key_system(key),
                 self._key_lights(key), self._key_playing_signature(key), self._key_pihole(key),
-                self._key_synology(key))
+                self._key_synology(key), self._key_homeassistant(key), self.page.theme or self.config.deck.theme)
 
     def _key_pihole(self, key):
         """<summary>
@@ -886,6 +895,27 @@ class Controller:
         if key is None or key.action is None or key.action.type != "pihole":
             return None
         return self.pihole.state(key.action.params["url"])
+
+    def _key_homeassistant(self, key):
+        """<summary>
+        The Home Assistant reading a key draws or wears, or None for a key
+        with no homeassistant action.
+        </summary>
+        <param name="key">The key to judge, or None for an empty position.</param>
+        <returns>The latest reading for a key whose plain action is
+        homeassistant, with the words its face shows now when it draws
+        them; otherwise None.</returns>
+        <remarks>As <see cref="_key_pihole"/>: in the signature whether or
+        not the key has a picture, since the lamp follows the reading. The
+        words are there because a timestamp's age moves on with no new
+        reading; a key with a picture draws none, so it is not resent.</remarks>
+        """
+        if key is None or key.action is None or key.action.type != "homeassistant":
+            return None
+        reading = self.homeassistant.state(key.action.params["url"], key.action.params.get("entity") or "")
+        if reading is None or key.image is not None:
+            return reading
+        return reading, reading.words(self.now())
 
     def _key_synology(self, key):
         """<summary>
@@ -970,11 +1000,14 @@ class Controller:
             return (None, False)
         return (reading, self.art.image(reading.art, reading.art_token_file) is not None)
 
-    def _key_dot(self, key) -> tuple[int, int, int] | None:
+    def _key_dot(self, key, seen: frozenset[str] = frozenset()) -> tuple[int, int, int] | None:
         """<summary>
         The colour of the status lamp for this key, or None for no lamp.
         </summary>
         <param name="key">The key to judge, or None for an empty position.</param>
+        <param name="seen">The pages whose lamps are already being summed
+        up the chain, so two page lamps pointing at each other end rather
+        than recurse.</param>
         <returns>Green while the address answers, red while it does not, grey
         before the first answer; None for a key with no status action, or
         one that swaps its picture instead.</returns>
@@ -984,7 +1017,9 @@ class Controller:
         the player in the other room is there, and how a key with a picture
         of a light shows whether the lounge lights are on. A wled lamp
         reads the lights monitor, as a wled key does, and is green while
-        the lights are on, red while off and grey while unreachable. Otherwise a status key that
+        the lights are on, red while off and grey while unreachable. A page
+        lamp is the sum of the lamps on another page, from
+        <see cref="_page_dot"/>. Otherwise a status key that
         carries an active picture or label has chosen to show its state by
         swapping the whole face, so it gets no lamp on top: one indicator
         per key. A kodi key with its own ``url`` is a player in another
@@ -997,6 +1032,8 @@ class Controller:
         if key is None:
             return None
         if key.lamp is not None:
+            if key.lamp.kind == "page":
+                return self._page_dot(key.lamp, seen)
             if key.lamp.kind == "wled":
                 state = self.lights.state(key.lamp.url)
                 if state is None:
@@ -1019,12 +1056,59 @@ class Controller:
             elif action.type == "synology":
                 reading = self.synology.state(action.params["url"])
                 up = None if reading is None else reading.healthy
+            elif action.type == "homeassistant":
+                # A figure or a word that is neither on nor off wears no lamp.
+                reading = self.homeassistant.state(action.params["url"], action.params.get("entity") or "")
+                if reading is not None and reading.on is None:
+                    return None
+                up = None if reading is None else reading.on
             else:
                 continue
             if up is None:
                 return tiles.DOT_UNKNOWN
             return tiles.DOT_UP if up else tiles.DOT_DOWN
         return None
+
+    def _page_dot(self, lamp, seen: frozenset[str] = frozenset()) -> tuple[int, int, int]:
+        """<summary>
+        One colour for a whole page: the lamps of its chosen keys summed up.
+        </summary>
+        <param name="lamp">The page lamp: which page, and which keys on it.</param>
+        <param name="seen">The pages already being summed up the chain.</param>
+        <returns>Green while every counted lamp is green, red while every
+        one is red, amber while they disagree, grey while none has answered
+        or there is nothing to count.</returns>
+        <remarks>
+        Keys with no lamp of their own are passed over, so a page of
+        services with a Back key among them sums only the services. With no
+        positions chosen every lamp on the page counts. Grey lamps among
+        green ones make amber, since a box that has not answered is not
+        known to be well, while a page of nothing but grey stays grey: that
+        is the daemon's first few seconds, not a fault. A page named in
+        ``seen``, or one that has gone from the config, gives grey rather
+        than an error or a loop.
+        </remarks>
+        """
+        if lamp.page in seen:
+            return tiles.DOT_UNKNOWN
+        page = next((p for p in self.config.pages if p.name == lamp.page), None)
+        if page is None:
+            return tiles.DOT_UNKNOWN
+        chosen = [page.keys.get(position) for position in lamp.keys] if lamp.keys else list(page.keys.values())
+        colours = []
+        for key in chosen:
+            colour = self._key_dot(key, seen | {lamp.page})
+            if colour is not None:
+                colours.append(colour)
+        if not colours:
+            return tiles.DOT_UNKNOWN
+        if all(c == tiles.DOT_UP for c in colours):
+            return tiles.DOT_UP
+        if all(c == tiles.DOT_DOWN for c in colours):
+            return tiles.DOT_DOWN
+        if all(c == tiles.DOT_UNKNOWN for c in colours):
+            return tiles.DOT_UNKNOWN
+        return tiles.DOT_MIXED
 
     def _key_weather(self, key):
         """<summary>
@@ -1103,6 +1187,24 @@ class Controller:
                 frames = [tiles.with_dot(frame, dot) for frame in frames]
         return image, frames, fps
 
+    def _look(self, page, config) -> looks.Look | None:
+        """<summary>
+        The look the drawn tiles on a page take: the page's own theme, else
+        the deck's, else None for plain.
+        </summary>
+        <param name="page">The page, or None for the strip, which follows the deck.</param>
+        <param name="config">The config to read the deck's theme from.</param>
+        <returns>The look, or None.</returns>
+        <remarks>The manifests are read once per slug and kept; a theme is
+        a packaged file and does not change while the daemon runs.</remarks>
+        """
+        slug = (page.theme if page is not None else None) or config.deck.theme
+        if not slug:
+            return None
+        if slug not in self._looks:
+            self._looks[slug] = themes.look(slug)
+        return self._looks[slug]
+
     def _draw_key_face(self, key, row: int, column: int, size: int, holding, page, config) -> tuple:
         """<summary>
         Draw a key's face before the status lamp goes on: picture, label,
@@ -1122,6 +1224,8 @@ class Controller:
         mark = self._key_mark(key, holding)
         active, face = self._key_face(key, (row, column), holding, page)
         drawn = None
+        look = self._look(page, config)
+        default_bg = look.background if look is not None else config.deck.background
         playing_art = self._key_playing_art(key)
         if playing_art is not None:
             # The picture of what the key's player is playing is the whole
@@ -1145,33 +1249,36 @@ class Controller:
             return tile, None, 0
         if key is not None and key.image is None and key.action is not None and key.action.type == "weather":
             drawn = tiles.weather_key_tile(self.weather.observation, size,
-                                           tiles.key_background(key, config.deck.background), labelled=bool(key.label))
+                                           tiles.key_background(key, default_bg), labelled=bool(key.label), look=look)
         elif key is not None and key.image is None and key.action is not None and key.action.type == "system":
             drawn = tiles.system_tile(self.system.reading, size,
-                                      tiles.key_background(key, config.deck.background), labelled=bool(key.label))
+                                      tiles.key_background(key, default_bg), labelled=bool(key.label), look=look)
         elif key is not None and key.image is None and key.action is not None and key.action.type == "wled":
             drawn = tiles.lights_tile(self.lights.state(key.action.params["url"]), size,
-                                      tiles.key_background(key, config.deck.background), labelled=bool(key.label))
+                                      tiles.key_background(key, default_bg), labelled=bool(key.label), look=look)
         elif key is not None and key.image is None and key.action is not None and key.action.type == "pihole":
             drawn = tiles.pihole_tile(self.pihole.state(key.action.params["url"]), size,
-                                      tiles.key_background(key, config.deck.background), labelled=bool(key.label))
+                                      tiles.key_background(key, default_bg), labelled=bool(key.label), look=look)
+        elif key is not None and key.image is None and key.action is not None and key.action.type == "homeassistant":
+            drawn = tiles.homeassistant_tile(self.homeassistant.state(key.action.params["url"], key.action.params.get("entity") or ""),
+                                             self.now(), size, tiles.key_background(key, default_bg), labelled=bool(key.label), look=look)
         elif key is not None and key.image is None and key.action is not None and key.action.type == "synology":
             drawn = tiles.synology_tile(self.synology.state(key.action.params["url"]), size,
                                         key.action.params.get("show", "space"), key.action.params.get("volume"),
-                                        tiles.key_background(key, config.deck.background), labelled=bool(key.label))
+                                        tiles.key_background(key, default_bg), labelled=bool(key.label), look=look)
         if drawn is not None:
             tile = drawn
             if key.label:
-                tile = tiles.with_label(tile, key.label)
+                tile = tiles.with_label(tile, key.label, look)
             if mark is not None:
                 tile = tiles.with_mark(tile, mark)
             return tile, None, 0
         if active and key is not None and (key.image_active or key.label_active):
             key = replace(key, image=key.image_active or key.image, label=key.label_active or key.label)
-        default_bg = config.deck.background
         ring_colour = None
         if face is not None:
-            ring_colour = tiles.ALERT if face.alert else images.ACCENT
+            palette = look.palette if look is not None else looks.PLAIN
+            ring_colour = palette.alert if face.alert else palette.accent
         animated = tiles.key_frames(key if face is None else replace(key, label=None), size,
                                     active=mark is not None, default_background=default_bg, mark_colour=mark)
         if animated is not None:
@@ -1192,12 +1299,12 @@ class Controller:
             backdrop = tiles.wallpaper_slice(page.wallpaper, size, pitch, row, column)
         if face is not None and face.text:
             tile = tiles.live_tile(key, size, face.text, face.ring, ring_colour,
-                                   default_background=default_bg, backdrop=backdrop)
+                                   default_background=default_bg, backdrop=backdrop, look=look)
             if mark is not None:
                 tile = tiles.with_mark(tile, mark)
             return tile, None, 0
         return tiles.key_tile(key, size, active=mark is not None, default_background=default_bg,
-                              backdrop=backdrop, mark_colour=mark), None, 0
+                              backdrop=backdrop, mark_colour=mark, look=look), None, 0
 
     def _draw_strip(self, row: int, size: int, now=None, observation=None, config=None) -> tuple:
         """<summary>
@@ -1226,7 +1333,8 @@ class Controller:
         tile = config.strip[row]
         now = self.now() if now is None else now
         observation = self.weather.observation if observation is None else observation
-        default_bg = config.deck.background
+        look = self._look(None, config)
+        default_bg = look.background if look is not None else config.deck.background
         visible = self._scaled_visible(config.strip_visible, size)
         animated = tiles.strip_frames(tile, size, visible, default_bg)
         if animated is not None:
@@ -1235,7 +1343,7 @@ class Controller:
         image = tiles.strip_tile(tile, now, observation, size,
                                  config.weather.location_name, visible,
                                  default_bg, playing=self._playing_reading(tile), system=self.system.reading,
-                                 playing_art=self._playing_art(tile))
+                                 playing_art=self._playing_art(tile), look=look)
         return image, None, 0
 
     def _scaled_visible(self, visible, size: int):
@@ -1312,7 +1420,8 @@ class Controller:
         sent = False
         for row, tile in enumerate(self.config.strip):
             signature = tiles.strip_signature(tile, now, observation, self._playing_reading(tile), self.system.reading,
-                                              playing_art_ready=self._playing_art(tile) is not None)
+                                              playing_art_ready=self._playing_art(tile) is not None,
+                                              theme=self.config.deck.theme)
             if not force and signature == self._strip_signatures[row]:
                 continue
             image, frames, fps = self._draw_strip(row, self.deck.image_size, now, observation)
@@ -2017,6 +2126,23 @@ class Controller:
                         boxes.append((p["url"], p.get("token_file"), bool(p.get("insecure")), p["every_ms"]))
         self.pihole.watch(boxes)
 
+    def _watch_homeassistant(self) -> None:
+        """<summary>
+        Hand the Home Assistant monitor every entity a homeassistant key on
+        any page names.
+        </summary>
+        <remarks>As <see cref="_watch_pihole"/>: every page, at start and
+        after a reload. A key with no entity yet is left out, since there
+        is nothing to ask for.</remarks>"""
+        entities = []
+        for page in self.config.pages:
+            for key in page.keys.values():
+                for action in key.actions():
+                    if action is not None and action.type == "homeassistant" and action.params.get("entity"):
+                        p = action.params
+                        entities.append((p["url"], p.get("token_file"), bool(p.get("insecure")), p["entity"], p["every_ms"]))
+        self.homeassistant.watch(entities)
+
     def _watch_synology(self) -> None:
         """<summary>
         Hand the Synology monitor every box a synology key on any page names.
@@ -2251,6 +2377,7 @@ class Controller:
         self.art.stop()
         self.pihole.stop()
         self.synology.stop()
+        self.homeassistant.stop()
 
     def reload(self, config: Config) -> None:
         """<summary>
@@ -2307,6 +2434,7 @@ class Controller:
         self._watch_media()
         self._watch_pihole()
         self._watch_synology()
+        self._watch_homeassistant()
         self._strip_signatures = [None] * layout.ROWS
         self.animator.clear_all()
         self._flashes.clear()

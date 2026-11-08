@@ -54,14 +54,15 @@ STRIP_TILE_KINDS = ("clock", "date", "weather", "playing", "system", "blank")
 PLAYING_SOURCES = ("local", "kodi")
 # What a key's lamp watches: a web address that answers, or a WLED device
 # whose lights are on.
-LAMP_KINDS = ("web", "wled")
+LAMP_KINDS = ("web", "wled", "page")
 # How a key that follows a player names what is playing over the picture:
 # not at all, on a band along the bottom, or scrolling along the bottom.
 PLAYING_LABELS = ("none", "band", "scroll")
 ACTION_TYPES = ("hotkey", "sequence", "chord", "hold", "boost", "repeat",
                 "text", "launch", "url", "request", "page", "brightness", "sleep", "multi",
                 "toggle", "volume", "audio_output", "window", "timer", "stopwatch", "counter",
-                "stay_awake", "dnd", "status", "kodi", "weather", "system", "wled", "pihole", "synology")
+                "stay_awake", "dnd", "status", "kodi", "weather", "system", "wled", "pihole", "synology",
+                "homeassistant")
 # The toggling desktop actions: like a hold they run until pressed again,
 # so they cannot be a step of another action either.
 DESKTOP_TOGGLES = ("stay_awake", "dnd")
@@ -288,7 +289,16 @@ class LampSettings:
     <param name="kind">"web" asks the address and is green while it answers;
     "wled" reads a WLED device the way a wled key does and is green while
     the lights are on, red while they are off and grey while the device
-    cannot be reached. The three web fields mean nothing to a wled lamp.</param>
+    cannot be reached. The three web fields mean nothing to a wled lamp.
+    "page" watches no address of its own: it sums up the lamps of the keys
+    on another page, green while every one is green, red while every one
+    is red, amber in between, and grey while none has answered yet.</param>
+    <param name="page">For a page lamp, the name of the page whose lamps
+    are summed. Filled in from the key's own page action when the file
+    leaves it out, so the key that leads to a page watches that page.</param>
+    <param name="keys">For a page lamp, the positions on that page that
+    count, as (row, column) pairs; empty for every key there that wears a
+    lamp.</param>
     <remarks>
     A status key and a remote kodi key wear the lamp for the address they
     act on. A lamp on any other key, a page key that leads to the remote
@@ -298,12 +308,14 @@ class LampSettings:
     with the kodi key's credentials file beside them.
     </remarks>"""
 
-    url: str
+    url: str = ""
     every_ms: int = 60_000
     insecure: bool = False
     expect: str = ""
     token_file: str | None = None
     kind: str = "web"
+    page: str | None = None
+    keys: tuple[tuple[int, int], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -413,6 +425,8 @@ class Page:
     its own. Scaled to cover the grid at the deck's key pitch so it reads as
     continuous through the gaps; without a measured pitch the keys are treated
     as touching.</param>
+    <param name="theme">The look for this page's drawn tiles, overriding the
+    deck's; see <see cref="DeckSettings"/>. None follows the deck.</param>
     <param name="changed">When the configuration page last edited this page,
     as ISO 8601 text, or None for a page it has never touched. Written by
     the page so its list can be sorted by what was worked on last; the
@@ -435,6 +449,7 @@ class Page:
     match_window: str | None = None
     wallpaper: Path | None = None
     changed: str | None = None
+    theme: str | None = None
 
 
 @dataclass(frozen=True)
@@ -527,6 +542,10 @@ class DeckSettings:
     <param name="night_brightness">The backlight between sunset and sunrise
     at the weather coordinates, or 0 to leave the brightness alone at
     night.</param>
+    <param name="theme">The slug of an icon theme whose look the deck's own
+    drawn tiles take, the clock, the date, the weather and the gauges, so
+    they match that theme's icons; None draws them plain. Only a theme
+    whose manifest declares a look is accepted. A page may name its own.</param>
     <remarks>
     These apply to the whole deck and not to one page, so switching pages
     never changes any of them. An action may change the brightness at run
@@ -551,6 +570,7 @@ class DeckSettings:
     key_pitch_x: int | None = None
     key_pitch_y: int | None = None
     night_brightness: int = 0
+    theme: str | None = None
 
     @property
     def key_pitch(self) -> tuple[int, int] | None:
@@ -940,7 +960,29 @@ def _parse_deck(table: dict) -> DeckSettings:
         key_pitch_x=_int(table, "key_pitch_x", "[deck]", 0, *KEY_PITCH_RANGE) if "key_pitch_x" in table else None,
         key_pitch_y=_int(table, "key_pitch_y", "[deck]", 0, *KEY_PITCH_RANGE) if "key_pitch_y" in table else None,
         night_brightness=_int(table, "night_brightness", "[deck]", 0, 0, 100),
+        theme=_theme(table, "[deck]"),
     )
+
+
+def _theme(table: dict, where: str) -> str | None:
+    """<summary>
+    The ``theme`` field: the slug of a shipped theme that declares a look.
+    </summary>
+    <param name="table">The table to read from.</param>
+    <param name="where">Which table, for the error.</param>
+    <returns>The slug, or None when the field is absent or empty.</returns>
+    <exception cref="ConfigError">Not a string, or no shipped theme of that
+    name has a look to lend.</exception>
+    <remarks>Checked against the installed themes now rather than at draw
+    time, in keeping with everything else here: a theme that is not there
+    would otherwise draw plain tiles with no word of why.</remarks>
+    """
+    value = _str(table, "theme", where)
+    if not value:
+        return None
+    if themes.look(value) is None:
+        raise ConfigError(f"{where}: 'theme' names no installed theme with a look: '{value}'")
+    return value
 
 
 def _colour(table: dict, key: str, where: str, default: str | None = None) -> str | None:
@@ -1273,14 +1315,25 @@ def _parse_pages(raw: Any, base_dir: Path) -> tuple[Page, ...]:
         pages.append(Page(name=name, keys=_parse_keys(table.get("keys", []), f"page '{name}'", base_dir),
                           match_window=_pattern(table, "match_window", where),
                           wallpaper=_resolve(wallpaper, base_dir) if wallpaper else None,
-                          changed=_changed(table, where)))
+                          changed=_changed(table, where), theme=_theme(table, where)))
 
     for page in pages:
         for key in page.keys.values():
             where = f"page '{page.name}' key {key.row},{key.column}"
             for action in (key.action, key.action_long, key.action_double):
                 _check_page_targets(action, names, where)
+            _check_lamp_page(key.lamp, names, where)
     return tuple(pages)
+
+
+def _check_lamp_page(lamp: LampSettings | None, names: set[str], where: str) -> None:
+    """<summary>A page lamp must name a page that exists.</summary>
+    <param name="lamp">The key's lamp, or None.</param>
+    <param name="names">Every page name in the file.</param>
+    <param name="where">How to name the key in an error.</param>
+    <exception cref="ConfigError">The lamp sums a page that is not there.</exception>"""
+    if lamp is not None and lamp.kind == "page" and lamp.page not in names:
+        raise ConfigError(f"{where} lamp: page '{lamp.page}' does not exist")
 
 
 def _changed(table: dict, where: str) -> str | None:
@@ -1404,7 +1457,7 @@ def _parse_keys(raw: Any, where: str, base_dir: Path) -> dict[tuple[int, int], K
             action_double=actions[2],
             image_active=_resolve(image_active, base_dir) if image_active else None,
             label_active=_str(table, "label_active", here),
-            lamp=_parse_lamp(table.get("lamp"), here),
+            lamp=_parse_lamp(table.get("lamp"), here, _page_target(actions)),
             playing=_parse_playing(table.get("playing"), here, own_player),
         )
     return keys
@@ -1446,19 +1499,39 @@ def _parse_playing(table: Any, where: str, own_player: bool = False) -> PlayingS
     return PlayingSource(source=source, url=url, token_file=token_file, label=label)
 
 
-def _parse_lamp(table: Any, where: str) -> LampSettings | None:
+def _page_target(actions) -> str | None:
+    """<summary>The page the first page action among a key's gestures leads to, by name, or None.</summary>
+    <param name="actions">The plain, long and double actions, any of them None.</param>
+    <returns>A page name, or None when no gesture goes to a named page;
+    ``next`` and ``previous`` are not names and give None too.</returns>"""
+    for action in actions:
+        if action is not None and action.type == "page":
+            target = action.params.get("page")
+            if target and target not in ("next", "previous"):
+                return target
+            return None
+    return None
+
+
+def _parse_lamp(table: Any, where: str, page_target: str | None = None) -> LampSettings | None:
     """<summary>
     Build a key's lamp from its ``lamp`` table, or None when it has none.
     </summary>
     <param name="table">The table from the file, or None.</param>
     <param name="where">How to name the key in an error.</param>
+    <param name="page_target">The page the key's own page action leads to,
+    if any: what a page lamp watches when the file names no page.</param>
     <returns>The settings, or None.</returns>
     <remarks>The same checks as a status action's fields, so a lamp and a
     status key refuse the same mistakes in the same words. A wled lamp is
     asked on the wled key's default interval, a web one on the status
-    key's, unless ``every_ms`` says otherwise.</remarks>
+    key's, unless ``every_ms`` says otherwise. A page lamp has no address
+    and no interval: it reads the other keys' lamps, which are polled on
+    their own terms. Whether its page exists is checked once every page
+    has been read, by <see cref="_check_lamp_page"/>.</remarks>
     <exception cref="ConfigError">Not a table, no address, an address that is
-    not http or https, an unknown kind, or a field of the wrong type.</exception>"""
+    not http or https, an unknown kind, a page lamp with no page to watch,
+    or a field of the wrong type.</exception>"""
     if table is None:
         return None
     here = f"{where} lamp"
@@ -1467,6 +1540,20 @@ def _parse_lamp(table: Any, where: str) -> LampSettings | None:
     kind = _str(table, "kind", here, "web") or "web"
     if kind not in LAMP_KINDS:
         raise ConfigError(f"{here}: 'kind' must be one of {', '.join(LAMP_KINDS)}")
+    if kind == "page":
+        page = _str(table, "page", here) or page_target
+        if not page:
+            raise ConfigError(f"{here}: a page lamp needs 'page', the name of the page whose lamps it sums, "
+                              "unless the key's own action leads to a named page")
+        raw = table.get("keys", [])
+        if not isinstance(raw, list):
+            raise ConfigError(f"{here}: 'keys' must be a list of [row, column] pairs")
+        keys = []
+        for entry in raw:
+            if not (isinstance(entry, list) and len(entry) == 2 and all(isinstance(v, int) and not isinstance(v, bool) for v in entry)):
+                raise ConfigError(f"{here}: 'keys' must be a list of [row, column] pairs")
+            keys.append((entry[0], entry[1]))
+        return LampSettings(kind="page", page=page, keys=tuple(keys))
     url = _str(table, "url", here, required=True) or ""
     if not url.startswith(("http://", "https://")):
         raise ConfigError(f"{here}: 'url' must start with http:// or https://")
@@ -1802,6 +1889,45 @@ def _parse_action(table: Any, where: str, nested: bool = False) -> Action:
         params["do"] = do
         params["seconds"] = _int(table, "seconds", where, pihole_module.DEFAULT_PAUSE_S, *pihole_module.PAUSE_RANGE)
         params["every_ms"] = _int(table, "every_ms", where, pihole_module.DEFAULT_EVERY_MS, *STATUS_EVERY_RANGE)
+    elif kind == "homeassistant":
+        # The key draws one Home Assistant entity's state and wears a lamp
+        # for an entity that is on or off; the press toggles it, turns it on
+        # or off, calls a service, or opens Home Assistant.
+        if nested:
+            raise ConfigError(f"{where}: a homeassistant action cannot be a step of another action")
+        from . import homeassistant as ha_module
+        url = _str(table, "url", where, required=True) or ""
+        if not url.startswith(("http://", "https://")):
+            raise ConfigError(f"{where}: 'url' must start with http:// or https://")
+        params["url"] = url
+        params["token_file"] = _str(table, "token_file", where) or None
+        insecure = table.get("insecure", False)
+        if not isinstance(insecure, bool):
+            raise ConfigError(f"{where}: 'insecure' must be true or false")
+        params["insecure"] = insecure
+        # Not required at load, like the token file: a key being set up on
+        # the page has neither yet, and the face says so until it does.
+        entity = _str(table, "entity", where) or None
+        if entity is not None and ("." not in entity or " " in entity):
+            raise ConfigError(f"{where}: 'entity' must be an entity id such as light.lounge")
+        params["entity"] = entity
+        do = _str(table, "do", where, "toggle") or "toggle"
+        if do not in ha_module.DOINGS:
+            raise ConfigError(f"{where}: 'do' must be one of {', '.join(ha_module.DOINGS)}")
+        params["do"] = do
+        service = _str(table, "service", where) or None
+        if do == "service" and not service:
+            raise ConfigError(f"{where}: 'do' = \"service\" needs 'service', such as script.turn_on")
+        if service is not None and "." not in service:
+            raise ConfigError(f"{where}: 'service' must be domain.service, such as light.turn_on")
+        params["service"] = service
+        data = _str(table, "data", where) or None
+        try:
+            ha_module.parse_data(data)
+        except ValueError as err:
+            raise ConfigError(f"{where}: {err}") from None
+        params["data"] = data
+        params["every_ms"] = _int(table, "every_ms", where, ha_module.DEFAULT_EVERY_MS, *STATUS_EVERY_RANGE)
     elif kind == "synology":
         # The key draws free space, load or temperature from a Synology NAS
         # and wears its health as the lamp; the press opens DSM.
@@ -2099,6 +2225,8 @@ def _lamp_document(lamp: LampSettings | None) -> dict | None:
     <returns>A dict with every field, the credentials file only when set.</returns>"""
     if lamp is None:
         return None
+    if lamp.kind == "page":
+        return {"kind": "page", "page": lamp.page, "keys": [list(position) for position in lamp.keys]}
     document: dict[str, Any] = {"kind": lamp.kind, "url": lamp.url, "every_ms": lamp.every_ms,
                                 "insecure": lamp.insecure, "expect": lamp.expect}
     if lamp.token_file:
@@ -2182,7 +2310,7 @@ def document_from_config(config: Config) -> dict:
             })
         pages.append({"name": page.name, "keys": keys, "match_window": page.match_window,
                       "wallpaper": _relative(page.wallpaper, config.base_dir),
-                      "changed": page.changed})
+                      "changed": page.changed, "theme": page.theme})
     strip: list[Any] = []
     for tile in config.strip:
         if tile.kind == "image":
@@ -2218,6 +2346,7 @@ def document_from_config(config: Config) -> dict:
             "key_pitch_x": config.deck.key_pitch_x,
             "key_pitch_y": config.deck.key_pitch_y,
             "night_brightness": config.deck.night_brightness,
+            "theme": config.deck.theme,
         },
         "kodi": {
             "url": config.kodi.url,
@@ -2416,6 +2545,8 @@ def to_toml(document: dict) -> str:
             lines.append(f"match_window = {_toml_value(page['match_window'])}")
         if page.get("wallpaper"):
             lines.append(f"wallpaper = {_toml_value(page['wallpaper'])}")
+        if page.get("theme"):
+            lines.append(f"theme = {_toml_value(page['theme'])}")
         if page.get("changed"):
             lines.append(f"changed = {_toml_value(page['changed'])}")
         lines.append("")

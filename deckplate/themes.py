@@ -30,6 +30,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from . import looks
+
 THEMES_DIR = Path(__file__).resolve().parent / "themes"
 REF_PREFIX = "theme:"
 # The picture forms an icon may take, in the order they are looked for. A
@@ -68,7 +70,7 @@ def _icon_file(folder: Path, icon: str) -> Path | None:
 
 def list_themes() -> list[dict]:
     """<summary>
-    Every theme with its icons: ``[{slug, name, file_prefix, icons: [{id, label, file, animated}]}]``.
+    Every theme with its icons: ``[{slug, name, file_prefix, look, icons: [{id, label, file, animated}]}]``.
     </summary>
     <returns>One entry per usable theme, sorted by folder name, possibly empty.</returns>
     <remarks>
@@ -83,6 +85,11 @@ def list_themes() -> list[dict]:
     empty for a theme that was never written that way. It is what lets
     <see cref="copy_ref"/> recognise such a file as a theme icon rather than an
     upload.
+
+    ``look`` is True for a theme whose manifest carries a readable ``look``
+    block, the palette and finish the daemon draws its own tiles in; see
+    <see cref="look"/>. The page offers only those themes as a look for a
+    deck or a page.
 
     This touches the disk on every call and does no caching. Call it once and
     hold the answer rather than once per key being drawn.
@@ -109,9 +116,43 @@ def list_themes() -> list[dict]:
                               "file": file.name, "animated": file.suffix.lower() == ".gif"})
         if icons:
             prefix = data.get("file_prefix", "")
-            themes.append({"slug": folder.name, "name": data.get("name", folder.name),
-                           "file_prefix": prefix if isinstance(prefix, str) else "", "icons": icons})
+            name = data.get("name", folder.name)
+            themes.append({"slug": folder.name, "name": name,
+                           "file_prefix": prefix if isinstance(prefix, str) else "", "icons": icons,
+                           "look": looks.parse(folder.name, name, data.get("look")) is not None})
     return themes
+
+
+def look(slug: str) -> looks.Look | None:
+    """<summary>
+    The look a theme declares for the daemon's own tiles, or None.
+    </summary>
+    <param name="slug">The theme's folder name, from the config and so untrusted.</param>
+    <returns>The parsed look, or None for an unsafe slug, a theme that is
+    not there, or one with no readable ``look`` block.</returns>
+    <remarks>
+    The same safety checks as <see cref="icon_path"/>, for the same reason:
+    the slug comes from a config file. Reads the manifest on every call;
+    the controller keeps the answer per slug rather than asking per tile.
+    </remarks>
+    """
+    if not _segment_ok(slug):
+        return None
+    folder = THEMES_DIR / slug
+    try:
+        folder.resolve().relative_to(THEMES_DIR.resolve())
+    except (ValueError, OSError):
+        return None
+    manifest = folder / "manifest.json"
+    if not manifest.is_file():
+        return None
+    try:
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    return looks.parse(slug, str(data.get("name", slug)), data.get("look"))
 
 
 def copy_ref(name: str, themes: list[dict] | None = None) -> str | None:

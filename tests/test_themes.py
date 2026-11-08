@@ -13,6 +13,8 @@ treats it the same as a missing icon.
 
 from pathlib import Path
 
+import pytest
+
 from deckplate import themes
 
 
@@ -132,7 +134,7 @@ def test_copy_ref_recognises_the_tools_old_file_names_only():
 
 def test_every_shipped_theme_is_listed_with_real_files():
     """<summary>
-    All twelve shipped themes are offered, each under its own name, and every
+    All thirteen shipped themes are offered, each under its own name, and every
     icon each one advertises has a real file behind it.
     </summary>
     <remarks>
@@ -145,7 +147,7 @@ def test_every_shipped_theme_is_listed_with_real_files():
              "sherbet": "Sherbet", "lagoon": "Lagoon", "grimdark": "Grimdark",
              "wayfarer": "Wayfarer", "field-command": "Field Command", "rift": "Rift",
              "deep-colony": "Deep Colony", "neon-chrome": "Neon Chrome",
-             "amber-console": "Amber Console"}
+             "amber-console": "Amber Console", "wrist-console": "Wrist Console"}
     for slug, name in names.items():
         assert found[slug]["name"] == name
         for icon in found[slug]["icons"]:
@@ -197,28 +199,33 @@ def test_no_theme_carries_a_real_game_name():
     borrowed = ("warhammer", "astroneer", "tempest", "cyberpunk", "dawn of war", "command & conquer",
                 "command and conquer", "aliens", "xenomorph", "tiberium", "night city", "imperium",
                 "aquila", "bolter", "chainsword", "space marine", "netrunner", "braindance",
-                "quickhack", "eddies", "colonial marine", "weyland", "arasaka", "ion cannon")
+                "quickhack", "eddies", "colonial marine", "weyland", "arasaka", "ion cannon",
+                "pip-boy", "pip boy", "pipboy", "vault-tec", "vault tec", "vault boy", "fallout", "nuka")
     for theme in themes.list_themes():
         words = [theme["name"]] + [icon["id"] for icon in theme["icons"]] + [icon["label"] for icon in theme["icons"]]
         for word in words:
             assert not any(name in word.lower() for name in borrowed), (theme["slug"], word)
 
 
-def test_amber_console_pairs_every_still_with_its_lit_face():
+@pytest.mark.parametrize("slug, own", [
+    ("amber-console", {"armed", "safe", "rounds", "sentry", "tracker"}),
+    ("wrist-console", {"status", "map", "radiation", "dose-meter", "hatch", "gas-mask"}),
+])
+def test_the_console_themes_pair_every_still_with_its_lit_face(slug, own):
     """<summary>
-    Every still in Amber Console has an inverse video partner under the same
-    id with ``-lit`` on the end, and it covers the everyday icons as well as
-    its own console set.
+    Every still in Amber Console and in Wrist Console has an inverse video
+    partner under the same id with ``-lit`` on the end, and each covers the
+    everyday icons as well as its own set.
     </summary>
     <remarks>
     The lit face is what a toggle shows while it is on, so a still without
-    one leaves a key that cannot show its state in this theme. Animated icons
-    are the exception: they are GIFs and carry no partner.
+    one leaves a key that cannot show its state in these themes. Animated
+    icons are the exception: they are GIFs and carry no partner.
     </remarks>
     """
-    theme = {t["slug"]: t for t in themes.list_themes()}["amber-console"]
+    theme = {t["slug"]: t for t in themes.list_themes()}[slug]
     ids = {icon["id"] for icon in theme["icons"]}
     stills = {icon["id"] for icon in theme["icons"] if not icon["animated"] and not icon["id"].endswith("-lit")}
     for icon in stills:
         assert f"{icon}-lit" in ids, icon
-    assert {"mute", "mic-off", "terminal", "lock", "armed", "safe", "rounds", "sentry", "tracker"} <= stills
+    assert {"mute", "mic-off", "terminal", "lock"} | own <= stills

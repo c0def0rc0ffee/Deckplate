@@ -153,8 +153,25 @@
       try { localStorage.setItem("deckplate." + key, JSON.stringify(value)); } catch (e) { /* storage off: nothing to do */ }
     },
   };
-  /** <summary>Which side panes are open. The editor starts open, the pages list shut.</summary> */
-  let panes = { pages: remembered.get("pane.pages", false) === true, editor: remembered.get("pane.editor", true) !== false };
+  /** <summary>Which side panes are open. Both start open: under the deck the list is the only way to pick a page.</summary> */
+  let panes = { pages: remembered.get("pane.pages", true) !== false, editor: remembered.get("pane.editor", true) !== false };
+  /** <summary>Whether the editor sits under the deck rather than beside it. Under it unless this window chose otherwise.</summary> */
+  let editorBelow = remembered.get("editor.below", true) !== false;
+  /**
+   * <summary>Put the editor under the deck or beside it, and remember which.</summary>
+   * <param name="below">True for under the deck.</param>
+   * <remarks>The deck is refitted straight after, since the space it has
+   * changes both ways: the column widens when the editor leaves its side,
+   * and the height is capped while the editor sits beneath.</remarks>
+   */
+  function setEditorBelow(below) {
+    editorBelow = below;
+    remembered.set("editor.below", below);
+    document.querySelector("main").classList.toggle("editor-below", below);
+    // With the tabs gone the list is the one way to pick a page, so it opens.
+    if (below && !panes.pages) setPane("pages", true);
+    fitDeck();
+  }
   /** <summary>The pages list's order and filter.</summary> */
   let pagesSort = remembered.get("pages.sort", "deck");
   let pagesSearch = "";
@@ -317,7 +334,7 @@
   }
 
   const ANIMATION_KINDS = [["", "None"], ["pulse", "Pulse"], ["spinner", "Spinner"], ["wave", "Wave"],
-    ["rainbow", "Rainbow"], ["scroll", "Scrolling label"]];
+    ["rainbow", "Rainbow"], ["scroll", "Scrolling label"], ["shimmer", "Screen shimmer"]];
 
   /**
    * <summary>Kind, colour and speed for one built in animation.</summary>
@@ -329,8 +346,9 @@
    * <remarks>
    * The colour and speed controls are rebuilt whenever the kind changes, and
    * they edit the object ``get`` hands back rather than a copy of it, so an
-   * undo takes their edits with it. Rainbow ignores the colour, and its control
-   * is disabled rather than hidden so the field does not change height.
+   * undo takes their edits with it. Rainbow and the shimmer ignore the colour,
+   * and its control is disabled rather than hidden so the field does not
+   * change height.
    * </remarks>
    */
   function animationField(get, set, labelText, help) {
@@ -357,7 +375,7 @@
         el("div", { class: "inline" }, [el("span", { class: "muted", text: "Colour" }), colour,
           el("span", { class: "muted", text: "Speed" }), speed, out]),
       );
-      if (a.kind === "rainbow") colour.disabled = true;
+      if (a.kind === "rainbow" || a.kind === "shimmer") colour.disabled = true;
     };
     kind.addEventListener("change", () => {
       const previous = get();
@@ -1111,15 +1129,30 @@
     const main = document.querySelector("main");
     const below = hintSpace + (main ? px(getComputedStyle(main).paddingBottom) : 0);
     const top = deck.getBoundingClientRect().top + document.documentElement.scrollTop;
+    // With the editor under the deck and open, the deck takes three fifths
+    // of what is left of the window, so the editor's top is in view without
+    // a scroll and a selected key's fields are seen to appear.
+    const share = editorBelow && panes.editor ? 0.6 : 1;
+    const room = (document.documentElement.clientHeight - top) * share;
     const byHeight = pitch
-      ? (document.documentElement.clientHeight - top - frameY - below) / (ROWS + ratioY * (ROWS - 1))
-      : (document.documentElement.clientHeight - top - frameY - rowGap * (ROWS - 1) - below) / ROWS;
+      ? (room - frameY - below) / (ROWS + ratioY * (ROWS - 1))
+      : (room - frameY - rowGap * (ROWS - 1) - below) / ROWS;
 
     const tile = Math.max(MIN_TILE, Math.floor(Math.min(byWidth, byHeight, native * maxScale)));
     grid.style.setProperty("--tile", tile + "px");
     if (pitch) {
       grid.style.columnGap = Math.round(ratioX * tile) + "px";
       grid.style.rowGap = Math.round(ratioY * tile) + "px";
+    }
+    // Under the deck, the pages list stops where the deck pane does and
+    // scrolls inside that height, so the editor below starts in a straight
+    // line across the page. Measured after the tile is set, so it follows
+    // the deck's new size in the same pass.
+    const pagesCol = document.querySelector(".pages-col");
+    if (pagesCol) {
+      pagesCol.style.maxHeight = editorBelow
+        ? Math.max(120, Math.round(pane.getBoundingClientRect().bottom - pagesCol.getBoundingClientRect().top)) + "px"
+        : "";
     }
 
     const density = window.devicePixelRatio || 1;
@@ -1207,6 +1240,9 @@
     const button = $(name === "pages" ? "#pagesBtn" : "#editorBtn");
     if (button) button.setAttribute("aria-pressed", open ? "true" : "false");
     markEditorAttention();
+    // Under the deck, the editor coming and going changes the deck's height
+    // cap and not its pane's width, which the ResizeObserver would not see.
+    if (name === "editor" && editorBelow) fitDeck();
   }
 
   /** <summary>The dot on the editor's button: a key is selected but the editor is away.</summary> */
@@ -1420,7 +1456,7 @@
         k.animation = value;
         dropEmptyKey(currentPage(), k);
       }),
-      "Animation", "Drawn by the software in place of the picture. The label stays on top."));
+      "Animation", "Drawn by the software in place of the picture, except the screen shimmer, which rolls a band of light down the picture itself. The label stays on top."));
 
     tpl.querySelector("#keyBackground").append(colourField("Background",
       () => (keyAt(currentPage(), selected.row, selected.column) || {}).background || null,
@@ -1500,7 +1536,15 @@
       + (pitch
         ? "The key pitch is set, so the picture runs straight through the gaps between keys."
         : "Measure the key pitch with  deckplate calibrate-grid  and put it in the config so the picture runs straight through the gaps; until then the keys are treated as touching.") }));
-    editor.append(field);
+    const look = lookField("Look for the drawn tiles",
+      () => page.theme || null,
+      value => change(d => { d.pages[pageIndex()].theme = value; }),
+      "Same as the deck",
+      "The clock face of a timer, the weather, the gauges and any label only key on this page drawn in a theme's own look.");
+    editor.append(el("div", { class: "editor-groups" }, [
+      el("div", { class: "editor-group" }, [field]),
+      el("div", { class: "editor-group" }, [look]),
+    ]));
   }
 
   /**
@@ -1715,9 +1759,13 @@
    * <returns>The fields.</returns>
    * <remarks>
    * The lamp exists while the address does: clearing the address takes the
-   * lamp off the key, which is also what makes a fresh fold harmless. Two
-   * kinds: a web address, with the status key's fields, or a WLED device,
-   * which needs only the address and hides the rest. Every
+   * lamp off the key, which is also what makes a fresh fold harmless. Three
+   * kinds: a web address, with the status key's fields, a WLED device,
+   * which needs only the address and hides the rest, or the keys on another
+   * page, which has no address at all and is instead the sum of that page's
+   * lamps, so the key that leads to a page of services shows at a glance
+   * whether they are all up; it has a button to take it off, since there
+   * is no address to clear. Every
    * edit looks the key up again through <see cref="ensureKey"/>, as the rest
    * of the editor does. The interval is edited in seconds and stored in
    * milliseconds, in the status key's range.
@@ -1729,9 +1777,46 @@
     const kind = el("select", {}, [
       el("option", { value: "web", text: "A web address" }),
       el("option", { value: "wled", text: "WLED lights" }),
+      el("option", { value: "page", text: "The keys on a page" }),
     ]);
-    kind.value = wledAtStart ? "wled" : "web";
+    kind.value = lamp.kind === "page" ? "page" : (wledAtStart ? "wled" : "web");
     const url = el("input", { type: "text", value: lamp.url || "" });
+    // The page kind: which page, and which of its lamp wearing keys count.
+    const ownTarget = [key.action, key.action_long, key.action_double]
+      .map(a => a && a.type === "page" && a.page !== "next" && a.page !== "previous" ? a.page : null)
+      .find(Boolean);
+    const pageSelect = el("select");
+    for (const page of doc.pages) pageSelect.append(el("option", { value: page.name, text: page.name }));
+    pageSelect.value = lamp.page || ownTarget || (doc.pages.find(p => p !== currentPage()) || doc.pages[0]).name;
+    const chosen = new Set((lamp.keys || []).map(([r, c]) => r + "," + c));
+    const keyList = el("div", { class: "lamp-keys" });
+    const listKeys = () => {
+      keyList.innerHTML = "";
+      const page = doc.pages.find(p => p.name === pageSelect.value);
+      const wearers = page ? page.keys.filter(wearsLamp).sort((a, b) => a.row - b.row || a.column - b.column) : [];
+      if (!wearers.length) {
+        keyList.append(el("p", { class: "muted", text: "No key on that page wears a lamp yet." }));
+        return;
+      }
+      for (const k of wearers) {
+        const id = "lampKey" + k.row + "_" + k.column;
+        const box = el("input", { type: "checkbox", id });
+        box.checked = chosen.has(k.row + "," + k.column);
+        box.addEventListener("change", () => {
+          const at = k.row + "," + k.column;
+          if (box.checked) chosen.add(at); else chosen.delete(at);
+          save();
+        });
+        keyList.append(el("label", { class: "check", for: id }, [box, el("span", { text: keyName(k) })]));
+      }
+    };
+    const offBtn = el("button", { type: "button", class: "ghost small", text: "Take the lamp off" });
+    const pageBox = el("div", {}, [
+      el("div", { class: "field" }, [el("label", { text: "Page to sum up" }), pageSelect]),
+      el("div", { class: "field" }, [el("label", { text: "Keys that count" }), keyList,
+        el("div", { class: "help", text: "Tick none and every key on the page that wears a lamp counts. Green while every one is green, red while every one is red, amber in between, grey while none has answered." })]),
+      el("div", { class: "field" }, [offBtn]),
+    ]);
     const seconds = el("input", { type: "number", min: 5, max: 3600, step: 5, value: Math.round((lamp.every_ms || (wledAtStart ? 10000 : 60000)) / 1000) });
     const expect = el("input", { type: "text", value: lamp.expect || "", placeholder: "Leave empty for any answer" });
     const insecure = el("input", { type: "checkbox", id: "lampInsecure" });
@@ -1742,6 +1827,12 @@
     // lost when the address arrives.
     const save = () => change(d => {
       const k = ensureKey(currentPage(), selected.row, selected.column);
+      if (kind.value === "page") {
+        k.lamp = { kind: "page", page: pageSelect.value,
+          keys: [...chosen].map(at => at.split(",").map(Number)).filter(([r, c]) =>
+            (doc.pages.find(p => p.name === pageSelect.value) || { keys: [] }).keys.some(x => x.row === r && x.column === c)) };
+        return;
+      }
       const address = url.value.trim();
       if (!address) { k.lamp = null; dropEmptyKey(currentPage(), k); return; }
       const next = { kind: kind.value, url: address,
@@ -1752,6 +1843,17 @@
     }, { silent: true });
     for (const input of [url, seconds, expect, tokenFile]) input.addEventListener("input", save);
     insecure.addEventListener("change", save);
+    pageSelect.addEventListener("change", () => { chosen.clear(); listKeys(); save(); });
+    offBtn.addEventListener("click", () => {
+      change(d => {
+        const k = ensureKey(currentPage(), selected.row, selected.column);
+        k.lamp = null;
+        dropEmptyKey(currentPage(), k);
+      }, { silent: true });
+      kind.value = "web";
+      url.value = "";
+      show();
+    });
     const help = el("div", { class: "help" });
     const webBox = el("div", {}, [
       el("div", { class: "field" }, [el("label", { text: "Text the page must contain" }), expect]),
@@ -1765,12 +1867,19 @@
     ]);
     const show = () => {
       const wled = kind.value === "wled";
-      webBox.hidden = wled;
+      const page = kind.value === "page";
+      webBox.hidden = wled || page;
+      pageBox.hidden = !page;
+      urlField.hidden = page;
+      secondsField.hidden = page;
+      if (page) listKeys();
       url.placeholder = wled ? "http://lights.local/" : "http://player:8080/jsonrpc";
       help.textContent = wled
         ? "The WLED device's own address, as on a lights key. Green while the lights are on, red while they are off, grey while the device cannot be reached. Clear the address to take the lamp off."
         : "Green while the address answers, red while it does not, whatever the key does when pressed. For the key that opens the Kodi page, give the player's JSON RPC address and its credentials file. Clear the address to take the lamp off.";
     };
+    const urlField = el("div", { class: "field" }, [el("label", { text: "Address to watch" }), url, help]);
+    const secondsField = el("div", { class: "field" }, [el("label", { text: "Ask every (seconds)" }), seconds]);
     kind.addEventListener("change", () => {
       show();
       seconds.value = kind.value === "wled" ? 10 : 60;
@@ -1779,10 +1888,41 @@
     show();
     return el("div", {}, [
       el("div", { class: "field" }, [el("label", { text: "Watches" }), kind]),
-      el("div", { class: "field" }, [el("label", { text: "Address to watch" }), url, help]),
-      el("div", { class: "field" }, [el("label", { text: "Ask every (seconds)" }), seconds]),
+      urlField,
+      secondsField,
       webBox,
+      pageBox,
     ]);
+  }
+
+  /**
+   * <summary>Whether a key wears a status lamp in its corner.</summary>
+   * <param name="key">A key from the document.</param>
+   * <returns>True for a key with a lamp of its own, a status key that does
+   * not swap its face, a kodi key with its own player, a pihole key or a
+   * synology key.</returns>
+   * <remarks>Mirrors the daemon's own rule for the lamp, so the list of
+   * keys a page lamp can count matches what the deck shows.</remarks>
+   */
+  function wearsLamp(key) {
+    if (key.lamp) return true;
+    for (const action of [key.action, key.action_long, key.action_double]) {
+      if (!action) continue;
+      if (action.type === "status" && !key.image_active && !key.label_active) return true;
+      if (action.type === "kodi" && action.url) return true;
+      if (action.type === "pihole" || action.type === "synology" || action.type === "homeassistant") return true;
+    }
+    return false;
+  }
+
+  /**
+   * <summary>How a key is named in a list: its label, else what it does, with its position.</summary>
+   * <param name="key">A key from the document.</param>
+   * <returns>Text such as "Sonarr (row 1, column 2)".</returns>
+   */
+  function keyName(key) {
+    const what = key.label || (key.action && key.action.type) || "key";
+    return what + " (row " + (key.row + 1) + ", column " + (key.column + 1) + ")";
   }
 
   /**
@@ -1824,6 +1964,7 @@
       case "kodi": return { type, do: "play_pause" };
       case "pihole": return { type, url: "http://", do: "toggle", seconds: 300, every_ms: 10000, insecure: false };
       case "synology": return { type, url: "http://", show: "space", do: "open", every_ms: 30000, insecure: false };
+      case "homeassistant": return { type, url: "http://", do: "toggle", every_ms: 10000, insecure: false };
       case "weather": return { type };
       case "system": return { type };
     }
@@ -1914,6 +2055,8 @@
       icon: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 00-3.5 10.9c.8.6 1.5 1.6 1.5 2.6h4c0-1 .7-2 1.5-2.6A6 6 0 0012 3z"/>' },
     pihole: { label: "Pi-hole", help: "Shows today's queries and the share blocked; the press pauses blocking for a while and resumes it.", nested: false,
       icon: '<path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/>' },
+    homeassistant: { label: "Home Assistant", help: "Shows one entity's state, a light, a sensor, a door; the press toggles it, turns it on or off, or calls a service.", nested: false,
+      icon: '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M12 7v9"/><circle cx="12" cy="12" r="1.5"/><circle cx="9" cy="15" r="1.2"/><circle cx="15" cy="15" r="1.2"/>' },
     synology: { label: "Synology NAS", help: "Shows free space, the load or the temperature of a Synology NAS; the press opens DSM.", nested: false,
       icon: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7.5h8M8 11.5h8M8 15.5h4"/><circle cx="16" cy="16.5" r="0.9"/>' },
     kodi: { label: "Media centre", help: "Sends play, pause, stop or a remote control key to Kodi.",
@@ -1926,7 +2069,7 @@
    * enough failure to be worth saying out loud here.</remarks> */
   const ACTION_GROUPS = [
     { title: "Keys and text", types: ["hotkey", "sequence", "chord", "text", "hold", "boost", "repeat"] },
-    { title: "Programs and the web", types: ["launch", "url", "request", "status", "weather", "system", "kodi", "wled", "pihole", "synology"] },
+    { title: "Programs and the web", types: ["launch", "url", "request", "status", "weather", "system", "kodi", "wled", "pihole", "synology", "homeassistant"] },
     { title: "Sound and windows", types: ["volume", "audio_output", "window"] },
     { title: "The desktop", types: ["stay_awake", "dnd"] },
     { title: "Keys that remember", types: ["toggle", "timer", "stopwatch", "counter"] },
@@ -2428,6 +2571,65 @@
         insecure.addEventListener("change", () => change(d => { getAction().insecure = insecure.checked; }, { silent: true }));
         box.append(el("div", { class: "field" }, [el("label", { class: "check", for: "pihole_insecure" }, [insecure, el("span", { text: "Accept a certificate that does not verify" })]),
           el("div", { class: "help", text: "For a box reached over https with its own certificate." })]));
+        box.append(millis("every_ms", "Ask every", { min: 5000, max: 3600000, step: 5000, fallback: 10000 }));
+        break;
+      }
+      case "homeassistant": {
+        const url = el("input", { type: "text", value: action.url || "", placeholder: "http://homeassistant.local:8123/" });
+        url.addEventListener("input", () => change(d => { getAction().url = url.value.trim(); }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { text: "Home Assistant address" }), url,
+          el("div", { class: "help", text: "The address Home Assistant is opened at, port and all. The key draws the entity's state and wears a lamp that is green while it is on and red while it is off; a figure such as a temperature gets no lamp. Give it no picture, or the picture wins and only the lamp shows." })]));
+        const tokenFile = el("input", { type: "text", value: action.token_file || "", placeholder: "~/.deckplate-tokens/homeassistant" });
+        tokenFile.addEventListener("input", () => change(d => {
+          const a = getAction();
+          if (tokenFile.value.trim()) a.token_file = tokenFile.value.trim(); else delete a.token_file;
+        }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { text: "Token file" }), tokenFile,
+          el("div", { class: "help", text: "Holds a long lived access token, made under your profile's Security tab in Home Assistant, and nothing else." })]));
+        box.append(passwordFields(() => tokenFile.value.trim(), () => "~/.deckplate-tokens/homeassistant", path => {
+          tokenFile.value = path;
+          change(d => { getAction().token_file = path; }, { silent: true });
+        }, "token"));
+        const entity = el("input", { type: "text", value: action.entity || "", placeholder: "light.lounge", autocomplete: "off" });
+        entity.addEventListener("input", () => change(d => {
+          const a = getAction();
+          if (entity.value.trim()) a.entity = entity.value.trim(); else delete a.entity;
+        }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { text: "Entity" }), entity,
+          el("div", { class: "help", text: "The entity id as Home Assistant shows it under the entity's settings: light.lounge, sensor.office_temperature, cover.garage." })]));
+        const pick = el("select", {}, [
+          el("option", { value: "toggle", text: "Toggle it" }),
+          el("option", { value: "turn_on", text: "Turn it on" }),
+          el("option", { value: "turn_off", text: "Turn it off" }),
+          el("option", { value: "service", text: "Call a service" }),
+          el("option", { value: "open", text: "Open Home Assistant" }),
+        ]);
+        pick.value = action.do || "toggle";
+        const service = el("input", { type: "text", value: action.service || "", placeholder: "script.turn_on" });
+        const data = el("input", { type: "text", value: action.data || "", placeholder: '{"brightness_pct": 40}' });
+        const serviceField = el("div", {}, [
+          el("div", { class: "field" }, [el("label", { text: "Service" }), service,
+            el("div", { class: "help", text: "domain.service, as the developer tools name it. The entity above is sent with it unless the data names one." })]),
+          el("div", { class: "field" }, [el("label", { text: "Service data" }), data,
+            el("div", { class: "help", text: "A JSON object of extra fields for the service, or empty." })]),
+        ]);
+        const show = () => { serviceField.hidden = pick.value !== "service"; };
+        pick.addEventListener("change", () => { show(); change(d => { getAction().do = pick.value; }, { silent: true }); });
+        service.addEventListener("input", () => change(d => {
+          const a = getAction();
+          if (service.value.trim()) a.service = service.value.trim(); else delete a.service;
+        }, { silent: true }));
+        data.addEventListener("input", () => change(d => {
+          const a = getAction();
+          if (data.value.trim()) a.data = data.value.trim(); else delete a.data;
+        }, { silent: true }));
+        show();
+        box.append(el("div", { class: "field" }, [el("label", { text: "On press" }), pick]), serviceField);
+        const insecure = el("input", { type: "checkbox", id: "homeassistant_insecure" });
+        insecure.checked = !!action.insecure;
+        insecure.addEventListener("change", () => change(d => { getAction().insecure = insecure.checked; }, { silent: true }));
+        box.append(el("div", { class: "field" }, [el("label", { class: "check", for: "homeassistant_insecure" }, [insecure, el("span", { text: "Accept a certificate that does not verify" })]),
+          el("div", { class: "help", text: "For a server reached over https with its own certificate." })]));
         box.append(millis("every_ms", "Ask every", { min: 5000, max: 3600000, step: 5000, fallback: 10000 }));
         break;
       }
@@ -3261,9 +3463,9 @@
    * writes the file with owner only permissions and the password is never
    * kept in the config.</remarks>
    */
-  function passwordFields(currentPath, defaultPath, onWritten) {
-    const pass = el("input", { type: "password", autocomplete: "new-password", placeholder: "password" });
-    const write = el("button", { type: "button", class: "ghost small", text: "Write password file" });
+  function passwordFields(currentPath, defaultPath, onWritten, what = "password") {
+    const pass = el("input", { type: "password", autocomplete: "new-password", placeholder: what });
+    const write = el("button", { type: "button", class: "ghost small", text: "Write " + what + " file" });
     const note = el("span", { class: "muted", text: "" });
     write.addEventListener("click", async () => {
       const path = currentPath() || defaultPath();
@@ -3278,9 +3480,9 @@
       }
     });
     return el("div", {}, [
-      el("div", { class: "field" }, [el("label", { text: "Password" }), pass]),
+      el("div", { class: "field" }, [el("label", { text: what.charAt(0).toUpperCase() + what.slice(1) }), pass]),
       el("div", { class: "field" }, [el("div", { class: "inline" }, [write, note]),
-        el("div", { class: "help", text: "Written once, by the daemon on this machine, to the password file above with owner only permissions. The password is never kept in the config." })]),
+        el("div", { class: "help", text: "Written once, by the daemon on this machine, to the " + what + " file above with owner only permissions. The " + what + " is never kept in the config." })]),
     ]);
   }
   /**
@@ -3306,6 +3508,48 @@
    * <param name="options">Pairs of stored value and label, in the order shown.</param>
    * <returns>The field element.</returns>
    */
+  /**
+   * <summary>A choice of theme look for the drawn tiles, filled in once the
+   * themes have loaded.</summary>
+   * <param name="labelText">The field's label.</param>
+   * <param name="get">Reads the current slug, or null for none.</param>
+   * <param name="set">Writes a slug, or null for none.</param>
+   * <param name="noneText">What the empty choice is called: plain for the
+   * deck, following the deck for a page.</param>
+   * <param name="help">The help line under the field.</param>
+   * <returns>The field element.</returns>
+   * <remarks>
+   * Only themes whose manifest carries a look are offered, which is what the
+   * themes listing's look flag is for; a theme of icons alone cannot draw a
+   * clock. The select is built with the current value as its only option
+   * first, so a slug the daemon reported stays shown while the listing is
+   * fetched, and is kept if the listing fails.
+   * </remarks>
+   */
+  const lookField = (labelText, get, set, noneText, help) => {
+    const select = el("select");
+    const current = get() || "";
+    select.append(el("option", { value: "", text: noneText }));
+    if (current) select.append(el("option", { value: current, text: current }));
+    select.value = current;
+    select.addEventListener("change", () => set(select.value || null));
+    loadThemes().then(themes => {
+      select.innerHTML = "";
+      select.append(el("option", { value: "", text: noneText }));
+      let seen = false;
+      for (const theme of themes) {
+        if (!theme.look) continue;
+        select.append(el("option", { value: theme.slug, text: theme.name }));
+        if (theme.slug === current) seen = true;
+      }
+      if (current && !seen) select.append(el("option", { value: current, text: current }));
+      select.value = current;
+    }).catch(() => {});
+    const parts = [el("label", { text: labelText }), select];
+    if (help) parts.push(el("div", { class: "help", text: help }));
+    return el("div", { class: "field" }, parts);
+  };
+
   const selectField = (section, name, labelText, options) => {
     const select = el("select");
     for (const [value, label] of options) select.append(el("option", { value, text: label }));
@@ -3435,6 +3679,11 @@
         value => change(d => { d.deck.background = value || BUILT_IN_BACKGROUND; }, { silent: true }),
         () => BUILT_IN_BACKGROUND,
         "Used by every key and strip panel without its own colour. Set to default restores the original navy."),
+      lookField("Look for the drawn tiles",
+        () => doc.deck.theme || null,
+        value => change(d => { d.deck.theme = value; }, { silent: true }),
+        "Plain",
+        "The clock, date, weather and gauges drawn in a theme's own colours and finish, so they match its icons. A page can choose its own."),
       (() => {
         const flash = el("input", { type: "checkbox", id: "pressFlash" });
         flash.checked = doc.deck.press_flash !== false;
@@ -3549,6 +3798,22 @@
         return el("label", { class: "check", for: "trayEnabled" }, [tray, el("span", { text: "Show a Deckplate icon in the system tray while the daemon runs" })]);
       })(),
       el("p", { class: "muted", text: "The icon opens this window or quits the daemon. It needs the pystray package, and on Linux a tray to sit in; the daemon says in its log when it cannot show one." }),
+    ]));
+
+    // This window's own arrangement: the viewer's, kept in the browser,
+    // not a setting of the deck.
+    root.append(el("div", {}, [
+      el("h3", { text: "This window" }),
+      (() => {
+        const where = el("select", {}, [
+          el("option", { value: "below", text: "Under the deck" }),
+          el("option", { value: "beside", text: "Beside the deck" }),
+        ]);
+        where.value = editorBelow ? "below" : "beside";
+        where.addEventListener("change", () => setEditorBelow(where.value === "below"));
+        return el("div", { class: "field" }, [el("label", { text: "Editor position" }), where,
+          el("div", { class: "help", text: "Under the deck the editor has the full width and the deck is drawn smaller to leave it in view. Remembered by this browser only." })]);
+      })(),
     ]));
 
     root.append(el("div", {}, [
@@ -3751,6 +4016,7 @@
     // The side panes come up as they were left, without being seen to slide
     // there: "booting" holds the transitions off until the first paint is done.
     const main = document.querySelector("main");
+    main.classList.toggle("editor-below", editorBelow);
     setPane("pages", panes.pages);
     setPane("editor", panes.editor);
     requestAnimationFrame(() => requestAnimationFrame(() => main.classList.remove("booting")));

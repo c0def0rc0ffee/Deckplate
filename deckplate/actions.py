@@ -42,6 +42,7 @@ from . import audio as audio_module
 from . import awake
 from . import lights as lights_module
 from . import pihole as pihole_module
+from . import homeassistant as ha_module
 from . import desktop as desktop_module
 from . import hotkeys
 from . import kodi as kodi_module
@@ -351,6 +352,7 @@ class ActionRunner:
         self.nudge = nudge
         self.lights = lights
         self.pihole = None  # the controller's Pi-hole monitor, set after construction like lights
+        self.homeassistant = None  # the controller's Home Assistant monitor, likewise
         self.log = log
 
     @property
@@ -510,6 +512,8 @@ class ActionRunner:
             self._wled(params)
         elif action.type == "pihole":
             self._pihole(params)
+        elif action.type == "homeassistant":
+            self._homeassistant(params)
         elif action.type == "synology":
             # The watching is the controller's; the press opens DSM.
             self.open_url(params["url"])
@@ -679,6 +683,43 @@ class ActionRunner:
         self.log(f"pi-hole blocking {'resumed' if now_blocking else 'paused'}")
         if self.pihole is not None:
             self.pihole.update(url, now_blocking, timer)
+
+    def _homeassistant(self, params: dict) -> None:
+        """<summary>
+        Toggle a Home Assistant entity, turn it on or off, call a service, or open Home Assistant.
+        </summary>
+        <param name="params">A homeassistant action's params: ``url``,
+        ``token_file``, ``insecure``, ``entity``, ``do``, ``service`` and ``data``.</param>
+        <remarks>Toggle, on and off go through the ``homeassistant`` domain's
+        own services, which take any entity. A service of the key's choosing
+        gets the key's data with the entity added unless the data names one
+        itself. Whatever the server says changed goes to the monitor, so the
+        face and the lamp follow the press at once.</remarks>
+        <exception cref="ValueError">No entity on a key that needs one, no
+        token file, or data that is not a JSON object.</exception>
+        <exception cref="requests.RequestException">The server could not be reached or refused.</exception>"""
+        url = params["url"]
+        do = params.get("do", "toggle")
+        if do == "open":
+            self.open_url(url)
+            return
+        server = ha_module.server_for(url, params.get("token_file"), bool(params.get("insecure")))
+        entity = params.get("entity")
+        if do == "service":
+            service = params["service"]
+            data = ha_module.parse_data(params.get("data"))
+            if entity and "entity_id" not in data:
+                data["entity_id"] = entity
+        else:
+            if not entity:
+                raise ValueError("the key names no entity")
+            service = "homeassistant." + do
+            data = {"entity_id": entity}
+        changed = ha_module.call_service(server, service, data)
+        self.log(f"home assistant {service}" + (f" {entity}" if entity else ""))
+        if self.homeassistant is not None:
+            for reading in changed:
+                self.homeassistant.update(url, reading)
 
     def _chord(self, params: dict) -> None:
         """<summary>

@@ -352,3 +352,51 @@ def test_encode_gif_thins_long_loops_and_keeps_the_period():
         assert gif.n_frames == 10 and gif.info["duration"] == 50
     with pytest.raises(ValueError):
         animations.encode_gif([], 20)
+
+
+def test_the_shimmer_plays_over_the_picture_and_rolls_down_it(tmp_path):
+    """<summary>
+    A shimmer key keeps its picture and label under the band: every frame
+    still has the picture's bright square and the dark background, the band
+    makes the frames differ, and its brightest row moves down the tile from
+    one frame to the next.
+    </summary>
+    <remarks>
+    The other kinds replace the picture, so a shimmer that went through the
+    same path would show a bare band on the background and the key's picture
+    would vanish the moment the animation was chosen; the pixel checks are
+    what catch that. The rolling check compares the brightest row of two
+    frames a little apart, so a band that stood still or ran upwards would
+    fail it.
+    </remarks>
+    """
+    picture = tmp_path / "square.png"
+    tile = Image.new("RGB", (40, 40), (10, 20, 30))
+    tile.paste((255, 255, 255), (10, 10, 30, 30))
+    tile.save(picture)
+    key = KeyConfig(0, 0, image=picture, label="Go", animation=AnimationConfig("shimmer"))
+    animated = tiles.key_frames(key, SIZE)
+    assert animated is not None
+    frames, fps = animated
+    assert fps == animations.DEFAULT_FPS and len(frames) == animations.frame_count(Animation("shimmer"))
+    still = tiles.key_tile(key, SIZE)
+    for frame in frames:
+        assert frame.size == (SIZE, SIZE)
+        assert min(frame.getpixel((SIZE // 2, SIZE // 2))) >= 200     # the picture is still there
+        assert max(frame.getpixel((2, 2))) <= 80                      # and so is the dark round it
+    assert any(ImageChops.difference(frames[0], f).getbbox() for f in frames[1:])
+    assert ImageChops.difference(still, frames[len(frames) // 2]).getbbox() is not None
+
+    def brightest_row(frame):
+        # Read down the dark margin, where the band's lift shows and the
+        # picture's white, already as bright as it can be, does not swamp it.
+        grey = frame.convert("L")
+        return max(range(SIZE), key=lambda y: sum(grey.getpixel((x, y)) for x in range(0, 6)))
+
+    quarter = len(frames) // 4
+    assert brightest_row(frames[quarter]) < brightest_row(frames[quarter + 3])
+    # the same picture gives the same loop, and callers get copies
+    again, _ = tiles.key_frames(key, SIZE)
+    assert ImageChops.difference(again[1], frames[1]).getbbox() is None
+    frames[1].paste((0, 0, 0), (0, 0, SIZE, SIZE))
+    assert ImageChops.difference(tiles.key_frames(key, SIZE)[0][1], again[1]).getbbox() is None

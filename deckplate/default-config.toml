@@ -44,6 +44,10 @@ focus_poll_ms = 200
 # The colour behind every key and panel that does not set its own
 # background = "#rrggbb". This is the original navy.
 background = "#141c28"
+# An icon theme whose look the clock, date, weather and gauges are drawn in,
+# so they match its icons. Today only wrist-console carries one. A page may
+# set its own theme the same way.
+# theme = "wrist-console"
 # The official SOOMFON app (and OpenDeck or StreamController on Linux) fights
 # over the deck if it is running at the same time. What to do when one is
 # found at start: "ask" in the terminal, "stop" it without asking, or "keep"
@@ -94,8 +98,9 @@ tiles = ["clock", "date", "weather"]
 # Pages. Each page is a full set of keys. Keys not listed are left blank.
 # A key can carry an animation instead of a picture, for example
 #   animation = { kind = "pulse", colour = "#4caf7d", speed = 1.0 }
-# with kinds pulse, spinner, wave, rainbow and scroll (the label scrolling).
-# An animated GIF given as the image plays by itself.
+# with kinds pulse, spinner, wave, rainbow and scroll (the label scrolling),
+# or shimmer, which keeps the picture and rolls a band of light down it with
+# the flicker of an old screen. An animated GIF given as the image plays by itself.
 # Action types:
 #   hotkey     keys = "ctrl+alt+t"            same names on both platforms;
 #              ctrl, alt and shift are the left key, alt_r (or ralt, altgr),
@@ -135,6 +140,10 @@ tiles = ["clock", "date", "weather"]
 #   and wears the status lamp for that address whatever it does when pressed;
 #   every_ms, insecure and expect as on a status key. With kind = "wled" the
 #   url is a WLED device's own and the lamp is green while the lights are on.
+#   With kind = "page" there is no url: the lamp sums the lamps of the keys on
+#   another page, page = "Network" (or the page the key's own action leads
+#   to), keys = [[0, 0], [0, 1]] choosing which count (none for all of them);
+#   green while every one is green, red while every one is red, amber between.
 #   A key may carry playing = { source = "kodi", url = "...", token_file = "..." }
 #   (or source = "local", or source = "kodi" alone on a kodi key for its own
 #   player) and wears the picture of what that player is playing while it
@@ -162,6 +171,10 @@ tiles = ["clock", "date", "weather"]
 #              (the password alone)  show = "space" (free space, volume = "volume_1" for one volume) |
 #              "load" (processor and memory) | "system" (temperature and uptime); wears a lamp,
 #              green while every volume and disk is normal; the press opens DSM
+#   homeassistant  url = "http://homeassistant.local:8123/"  token_file = "~/.deckplate-tokens/homeassistant"
+#              (a long lived access token alone)  entity = "light.lounge"  do = "toggle" | "turn_on" |
+#              "turn_off" | "service" (service = "script.turn_on", data = '{"x": 1}') | "open";
+#              draws the entity's state and wears a lamp while it is on or off
 #   kodi       do = "play_pause" | "pause" | "play" | "stop" | "next" | "previous" | "up" |
 #              "down" | "left" | "right" | "select" | "back" | "home" | "info" | "context" |
 #              "osd" | "volume_up" | "volume_down" | "mute", or method = "..." with
